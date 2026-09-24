@@ -5,6 +5,7 @@ package sol
 
 import (
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
@@ -110,6 +111,18 @@ func KeypairFromSecret(s string) (Keypair, error) {
 		return Keypair{}, errors.New("keypair: public key does not match seed")
 	}
 	return Keypair{Secret: ed25519.PrivateKey(append(append([]byte{}, seed[:]...), pub[:]...)), Public: ed25519.PublicKey(pub[:])}, nil
+}
+
+// GenerateKeypair returns a fresh ed25519 keypair (crypto/rand; the secret
+// is the Solana keypair-file format: seed || public).
+func GenerateKeypair() (Keypair, error) {
+	var seed [32]byte
+	if _, err := rand.Read(seed[:]); err != nil {
+		return Keypair{}, fmt.Errorf("keypair: generate: %w", err)
+	}
+	k := ed25519.NewKeyFromSeed(seed[:])
+	secret := ed25519.PrivateKey(append(append([]byte{}, k.Seed()...), k.Public().(ed25519.PublicKey)...))
+	return Keypair{Secret: secret, Public: ed25519.PublicKey(k.Public().(ed25519.PublicKey))}, nil
 }
 
 // Sign signs a message (the compiled transaction message) with the keypair.

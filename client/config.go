@@ -22,18 +22,59 @@ type Config struct {
 	AllowWrite   bool
 }
 
-// loadEnvFile populates the process environment from the operator's env file
-// (only when the caller's env lacks the required values).
+// configFile is the orbit home's config path: KEY=VALUE defaults the env
+// loader reads before env vars (env always wins).
+func configFile(getenv func(string) string) (string, error) {
+	if p := strings.TrimSpace(getenv("ORBIT_CONFIG")); p != "" {
+		return p, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", errors.New("config: no ORBIT_CONFIG and no home directory")
+	}
+	return filepath.Join(home, ".config", "orbit", "config"), nil
+}
+
+// readConfigFile parses KEY=VALUE lines into a defaults map. A missing file
+// is not an error (a bare env-only config is valid); an unreadable one is.
+func readConfigFile(path string) (map[string]string, error) {
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return map[string]string{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("config: read %s: %w", path, err)
+	}
+	values := map[string]string{}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok || strings.TrimSpace(k) == "" {
+			continue
+		}
+		values[strings.TrimSpace(k)] = strings.TrimSpace(v)
+	}
+	return values, nil
+}
+
+// loadEnvFile populates the process environment from the legacy env file
+// (only when the caller's env and the config file lack the required values).
 func loadEnvFile(getenv func(string) string) error {
-	path := strings.TrimSpace(getenv("ORBIT_CONFIG"))
+	path := strings.TrimSpace(getenv("ORBIT_ENVFILE"))
 	if path == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return errors.New("config: no ORBIT_CONFIG and no home directory")
+			return errors.New("config: no ORBIT_ENVFILE and no home directory")
 		}
 		path = filepath.Join(home, ".config", "orbit", "env")
 	}
 	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("config: env file %s: %w", path, err)
 	}
@@ -63,20 +104,51 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	if getenv == nil {
 		getenv = func(string) string { return "" }
 	}
-	if strings.TrimSpace(getenv("ORBIT_INDEXER")) == "" ||
-		strings.TrimSpace(getenv("ORBIT_AGENT_KEY")) == "" {
+	path, err := configFile(getenv)
+	if err != nil {
+		return Config{}, err
+	}
+	defaults, err := readConfigFile(path)
+	if err != nil {
+		return Config{}, err
+	}
+	// value(): env wins, then the config file, then the legacy env file.
+	value := func(k string) string {
+		if v := strings.TrimSpace(getenv(k)); v != "" {
+			return v
+		}
+		return strings.TrimSpace(defaults[k])
+	}
+	if value("ORBIT_INDEXER") == "" || (value("ORBIT_AGENT_KEY") == "" && value("ORBIT_AGENT_KEY_FILE") == "") {
 		if err := loadEnvFile(getenv); err != nil {
 			return Config{}, err
 		}
 	}
-	indexer := strings.TrimSpace(getenv("ORBIT_INDEXER"))
-	rpc := strings.TrimSpace(getenv("ORBIT_RPC"))
-	creator := strings.TrimSpace(getenv("ORBIT_VAULT_CREATOR"))
-	prog := strings.TrimSpace(getenv("ORBIT_PROGRAM_ID"))
+	indexer := value("ORBIT_INDEXER")
+	rpc := value("ORBIT_RPC")
+	creator := value("ORBIT_VAULT_CREATOR")
+	prog := value("ORBIT_PROGRAM_ID")
 	if prog == "" {
 		prog = DevnetProgramID
 	}
-	key := strings.TrimSpace(getenv("ORBIT_AGENT_KEY"))
+	key := value("ORBIT_AGENT_KEY")
+	if key == "" {
+		keyPath := value("ORBIT_AGENT_KEY_FILE")
+		if keyPath != "" {
+			if strings.HasPrefix(keyPath, "~") {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return Config{}, fmt.Errorf("config: ORBIT_AGENT_KEY_FILE: %w", err)
+				}
+				keyPath = filepath.Join(home, strings.TrimPrefix(keyPath, "~"))
+			}
+			b, err := os.ReadFile(keyPath)
+			if err != nil {
+				return Config{}, fmt.Errorf("config: ORBIT_AGENT_KEY_FILE %s: %w", keyPath, err)
+			}
+			key = strings.TrimSpace(string(b))
+		}
+	}
 
 	var missing []string
 	if indexer == "" {
@@ -92,7 +164,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		missing = append(missing, "ORBIT_AGENT_KEY")
 	}
 	if len(missing) > 0 {
-		return Config{}, fmt.Errorf("config: missing env %s", strings.Join(missing, ", "))
+		return Config{}, fmt.Errorf("config: missing %s (env, config file %s, or ORBIT_AGENT_KEY_FILE)", strings.Join(missing, ", "), path)
 	}
 	kp, err := sol.KeypairFromSecret(key)
 	if err != nil {

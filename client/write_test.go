@@ -43,6 +43,10 @@ func (f *fakeRPC) GetSignatureStatus(ctx context.Context, signature string) (Sig
 	return SignatureStatus{Exists: true, Confirmed: true}, nil
 }
 
+func (f *fakeRPC) RequestAirdrop(ctx context.Context, pubkey string, lamports uint64) (string, error) {
+	return "airdrop-sig", nil
+}
+
 // txParts decodes a signed legacy transaction: signature, header, keys,
 // blockhash, instructions.
 type txParts struct {

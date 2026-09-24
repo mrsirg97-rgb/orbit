@@ -52,6 +52,8 @@ type RPC interface {
 	GetTokenAccountsByOwner(ctx context.Context, owner, programID string) ([]TokenAccount, error)
 	GetBalance(ctx context.Context, pubkey string) (uint64, error)
 	GetSignatureStatus(ctx context.Context, signature string) (SignatureStatus, error)
+	// RequestAirdrop funds a wallet on devnet (the proxy forwards it).
+	RequestAirdrop(ctx context.Context, pubkey string, lamports uint64) (string, error)
 }
 
 // JSONRPC implements RPC over POST {base}/rpc (the indexer's passthrough or
@@ -230,6 +232,20 @@ func (r *JSONRPC) GetTokenAccountsByOwner(ctx context.Context, owner, programID 
 		})
 	}
 	return accounts, nil
+}
+
+func (r *JSONRPC) RequestAirdrop(ctx context.Context, pubkey string, lamports uint64) (string, error) {
+	raw, err := r.call(ctx, "requestAirdrop", pubkey, lamports)
+	if err != nil {
+		return "", err
+	}
+	var out struct {
+		Value string `json:"value"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return "", fmt.Errorf("rpc requestAirdrop %s: %w", pubkey, err)
+	}
+	return out.Value, nil
 }
 
 func (r *JSONRPC) GetBalance(ctx context.Context, pubkey string) (uint64, error) {

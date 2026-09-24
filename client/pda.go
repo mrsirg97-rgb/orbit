@@ -10,6 +10,9 @@ import (
 // packages/sdk/src/constants.ts).
 const (
 	DevnetProgramID   = "FghCwWojts9MbU3Pmog5peacaKrEYM5n1T68KWHy7TAh"
+	DefaultIndexer    = "https://api.torchmarket.dev"
+	DefaultRPC        = "https://api.torchmarket.dev"
+	DevnetAirdropRPC  = "https://api.devnet.solana.com"
 	DeepPoolProgramID = "CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT"
 	Token2022Program  = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 	ATProgram         = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"

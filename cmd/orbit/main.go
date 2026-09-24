@@ -40,6 +40,10 @@ func main() {
 			os.Exit(runSnapshot(args[1:]))
 		case "bootstrap":
 			os.Exit(runBootstrap(args[1:]))
+		case "init":
+			os.Exit(runInit(args[1:]))
+		case "vault":
+			os.Exit(runVault(args[1:]))
 		}
 	}
 	os.Exit(runWorker(args))
