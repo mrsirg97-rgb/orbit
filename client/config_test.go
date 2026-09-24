@@ -38,8 +38,8 @@ func TestConfigPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Indexer != "https://file.indexer" || cfg.RPC != "https://file.rpc" {
-		t.Errorf("file defaults: %+v", cfg)
+	if cfg.Indexer != "https://file.indexer" || cfg.RPC != "https://file.rpc/rpc" {
+		t.Errorf("file defaults (rpc should be host + /rpc): %+v", cfg)
 	}
 	if cfg.AgentKey.PublicBase58() != kp.PublicBase58() {
 		t.Errorf("key file not resolved: %s", cfg.AgentKey.PublicBase58())
@@ -98,4 +98,48 @@ func mustKeypairSecret(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return kp.Secret
+}
+
+// TestDefaultRPCFromIndexer: ORBIT_RPC unset derives {indexer}/rpc; a set
+// ORBIT_RPC (full endpoint or host-only) is normalized.
+func TestDefaultRPCFromIndexer(t *testing.T) {
+	kp, err := sol.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := map[string]string{
+		"ORBIT_INDEXER":       "https://api.torchmarket.dev",
+		"ORBIT_VAULT_CREATOR": "11111111111111111111111111111111",
+		"ORBIT_AGENT_KEY":     sol.Encode(kp.Secret),
+	}
+	cfg, err := LoadConfig(func(k string) string { return base[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RPC != "https://api.torchmarket.dev/rpc" {
+		t.Errorf("derived RPC %q, want {indexer}/rpc", cfg.RPC)
+	}
+
+	// A set ORBIT_RPC wins, and a host-only value gets /rpc appended.
+	env := map[string]string{
+		"ORBIT_INDEXER":       "https://api.torchmarket.dev",
+		"ORBIT_RPC":           "https://other.node",
+		"ORBIT_VAULT_CREATOR": "11111111111111111111111111111111",
+		"ORBIT_AGENT_KEY":     sol.Encode(kp.Secret),
+	}
+	cfg, err = LoadConfig(func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RPC != "https://other.node/rpc" {
+		t.Errorf("host-only RPC should be normalized: %q", cfg.RPC)
+	}
+	env["ORBIT_RPC"] = "https://api.torchmarket.dev/rpc"
+	cfg, err = LoadConfig(func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RPC != "https://api.torchmarket.dev/rpc" {
+		t.Errorf("full endpoint should be used as-is: %q", cfg.RPC)
+	}
 }

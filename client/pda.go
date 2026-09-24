@@ -9,9 +9,11 @@ import (
 // Program IDs and seeds (mirror programs/torch_market/src/constants.rs and
 // packages/sdk/src/constants.ts).
 const (
-	DevnetProgramID   = "FghCwWojts9MbU3Pmog5peacaKrEYM5n1T68KWHy7TAh"
-	DefaultIndexer    = "https://api.torchmarket.dev"
-	DefaultRPC        = "https://api.torchmarket.dev"
+	DevnetProgramID = "FghCwWojts9MbU3Pmog5peacaKrEYM5n1T68KWHy7TAh"
+	DefaultIndexer  = "https://api.torchmarket.dev"
+	// DefaultRPC is the indexer proxy's JSON-RPC endpoint (the site base
+	// itself answers 301/405 — the RPC lives at {indexer}/rpc).
+	DefaultRPC        = "https://api.torchmarket.dev/rpc"
 	DevnetAirdropRPC  = "https://api.devnet.solana.com"
 	DeepPoolProgramID = "CcwF61GW14AcxCS4E2zedHXdFXy8x8GQPvfxZrs2x2eT"
 	Token2022Program  = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"

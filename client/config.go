@@ -126,6 +126,12 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	}
 	indexer := value("ORBIT_INDEXER")
 	rpc := value("ORBIT_RPC")
+	if rpc == "" {
+		rpc = strings.TrimSuffix(indexer, "/") + "/rpc"
+	}
+	if isHostOnly(rpc) {
+		rpc = strings.TrimSuffix(rpc, "/") + "/rpc"
+	}
 	creator := value("ORBIT_VAULT_CREATOR")
 	prog := value("ORBIT_PROGRAM_ID")
 	if prog == "" {
@@ -181,6 +187,17 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		cfg.AllowWrite = true
 	}
 	return cfg, nil
+}
+
+// isHostOnly reports an endpoint with no path (the site base) — the JSON-RPC
+// endpoint is {base}/rpc.
+func isHostOnly(endpoint string) bool {
+	slash := strings.Index(endpoint, "://")
+	rest := endpoint
+	if slash >= 0 {
+		rest = endpoint[slash+3:]
+	}
+	return !strings.Contains(rest, "/")
 }
 
 // Validate refuses a config that would write to a non-devnet cluster.

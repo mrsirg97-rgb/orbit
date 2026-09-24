@@ -2,24 +2,30 @@ package onboard
 
 import (
 	"context"
+	"errors"
 	"os"
-
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mrsirg97-rgb/orbit/sol"
 )
 
 type fakeAirdrop struct {
 	requested []string
 	balance   uint64
 	fail      int
+	err       error
 }
 
 func (f *fakeAirdrop) RequestAirdrop(ctx context.Context, pubkey string, lamports uint64) (string, error) {
 	if f.fail > 0 {
 		f.fail--
-		return "", os.ErrDeadlineExceeded
+		if f.err != nil {
+			return "", f.err
+		}
+		return "", errors.New("rate limited")
 	}
 	f.requested = append(f.requested, pubkey)
 	f.balance = lamports
@@ -42,6 +48,7 @@ func TestInitOnEmptyHome(t *testing.T) {
 		RPC:             fake,
 		AirdropLamports: 1_000_000_000,
 		Sleep:           noSleep,
+		AirdropBudget:   0,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -71,8 +78,11 @@ func TestInitOnEmptyHome(t *testing.T) {
 			t.Errorf("config lacks %s:\n%s", want, cfg)
 		}
 	}
-	if res.Pubkey == "" || res.Balance != 1_000_000_000 {
+	if res.Pubkey == "" || res.Balance != 1_000_000_000 || !res.AirdropOK {
 		t.Errorf("result: %+v", res)
+	}
+	if res.ReusedKey {
+		t.Error("fresh init must not reuse a key")
 	}
 	if len(fake.requested) != 1 {
 		t.Errorf("airdrop requested %d times, want 1", len(fake.requested))
@@ -88,35 +98,63 @@ func TestInitOnEmptyHome(t *testing.T) {
 	}
 }
 
-func TestInitRefusesExistingKey(t *testing.T) {
+func TestInitTwiceReusesKey(t *testing.T) {
 	home := t.TempDir()
-	if err := os.WriteFile(filepath.Join(home, "key"), []byte("secret\n"), 0o600); err != nil {
+	cfgPath := filepath.Join(home, "config")
+	fake := &fakeAirdrop{}
+	opts := InitOpts{
+		Home: home, ConfigPath: cfgPath, Getenv: func(string) string { return "" },
+		RPC: fake, AirdropLamports: 1_000_000_000, Sleep: noSleep, AirdropBudget: 0,
+	}
+	first, err := Init(opts)
+	if err != nil {
 		t.Fatal(err)
 	}
-	_, err := Init(InitOpts{
-		Home:       home,
-		ConfigPath: filepath.Join(home, "config"),
-		Getenv:     func(string) string { return "" },
-		RPC:        &fakeAirdrop{},
-		Sleep:      noSleep,
-	})
-	if err == nil || !strings.Contains(err.Error(), "use --force") {
-		t.Fatalf("want refusal on existing key, got %v", err)
+	// The operator's edit survives the second init.
+	if err := WriteConfigValue(cfgPath, "ORBIT_VAULT_CREATOR", "8GQ4XGM9p5DqKjw2JTrUAc42adwYWD5PK3P7eTobcYKy"); err != nil {
+		t.Fatal(err)
 	}
-	res, err := Init(InitOpts{
-		Home:            home,
-		ConfigPath:      filepath.Join(home, "config"),
-		Getenv:          func(string) string { return "" },
-		RPC:             &fakeAirdrop{},
-		AirdropLamports: 1_000_000_000,
-		Sleep:           noSleep,
-		Force:           true,
-	})
+	second, err := Init(opts)
 	if err != nil {
-		t.Fatal("force should overwrite:", err)
+		t.Fatal(err)
 	}
-	if res.Pubkey == "" {
-		t.Fatal("no pubkey after force init")
+	if second.Pubkey != first.Pubkey {
+		t.Errorf("second init changed the key: %s -> %s", first.Pubkey, second.Pubkey)
+	}
+	if !second.ReusedKey {
+		t.Error("second init must reuse the existing key")
+	}
+	// The airdrop/balance step runs every time.
+	if len(fake.requested) != 2 {
+		t.Errorf("airdrop runs every init: requested %d, want 2", len(fake.requested))
+	}
+	cfg, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cfg), "ORBIT_VAULT_CREATOR=8GQ4XGM9p5DqKjw2JTrUAc42adwYWD5PK3P7eTobcYKy") {
+		t.Errorf("operator edit lost:\n%s", cfg)
+	}
+}
+
+func TestInitForceRegeneratesKey(t *testing.T) {
+	home := t.TempDir()
+	fake := &fakeAirdrop{}
+	opts := InitOpts{
+		Home: home, ConfigPath: filepath.Join(home, "config"), Getenv: func(string) string { return "" },
+		RPC: fake, AirdropLamports: 1_000_000_000, Sleep: noSleep, AirdropBudget: 0,
+	}
+	first, err := Init(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts.Force = true
+	second, err := Init(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Pubkey == first.Pubkey {
+		t.Error("--force must regenerate the key")
 	}
 }
 
@@ -124,21 +162,48 @@ func TestInitAirdropRetries(t *testing.T) {
 	home := t.TempDir()
 	fake := &fakeAirdrop{fail: 2} // two failed requests, third succeeds
 	res, err := Init(InitOpts{
-		Home:            home,
-		ConfigPath:      filepath.Join(home, "config"),
-		Getenv:          func(string) string { return "" },
-		RPC:             fake,
-		AirdropLamports: 500_000_000,
-		Sleep:           noSleep,
+		Home: home, ConfigPath: filepath.Join(home, "config"), Getenv: func(string) string { return "" },
+		RPC: fake, AirdropLamports: 500_000_000, Sleep: noSleep, AirdropBudget: time.Hour,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Balance != 500_000_000 {
-		t.Errorf("balance %d", res.Balance)
+	if res.Balance != 500_000_000 || !res.AirdropOK {
+		t.Errorf("retries should fund: %+v", res)
 	}
 	if len(fake.requested) != 1 {
 		t.Errorf("expected the third attempt to succeed, requested %d", len(fake.requested))
+	}
+}
+
+// TestInitAirdrop405And429: the faucet's 405/429 responses must not fail
+// init — bounded backoff, then succeed anyway with the funding hint.
+func TestInitAirdrop405And429(t *testing.T) {
+	for _, status := range []error{
+		errors.New("status 405: Bad method"),
+		errors.New("status 429: Too many airdrop requests"),
+	} {
+		home := t.TempDir()
+		fake := &fakeAirdrop{fail: 100, err: status, balance: 12345}
+		res, err := Init(InitOpts{
+			Home: home, ConfigPath: filepath.Join(home, "config"), Getenv: func(string) string { return "" },
+			RPC: fake, AirdropLamports: 1_000_000_000, Sleep: noSleep, AirdropBudget: 0,
+		})
+		if err != nil {
+			t.Fatalf("%v: init must succeed anyway: %v", status, err)
+		}
+		if res.AirdropOK {
+			t.Errorf("%v: should be unfunded", status)
+		}
+		if res.Balance != 12345 {
+			t.Errorf("%v: balance %d, want the current balance", status, res.Balance)
+		}
+		if !strings.Contains(res.FundingHint, res.Pubkey) || !strings.Contains(res.FundingHint, "faucet.solana.com") {
+			t.Errorf("%v: hint %q", status, res.FundingHint)
+		}
+		if res.ReusedKey || res.Pubkey == "" {
+			t.Errorf("%v: key should be usable: %+v", status, res)
+		}
 	}
 }
 
@@ -149,7 +214,6 @@ func TestOperatorKeyPrecedence(t *testing.T) {
 		"ORBIT_OPERATOR_KEY":      mustSecret(envKp),
 		"ORBIT_OPERATOR_KEY_PATH": "/nonexistent/env-path",
 	}
-	// Flag beats env.
 	got, err := OperatorKey(func(k string) string { return env[k] }, mustSecret(kp), "")
 	if err != nil {
 		t.Fatal(err)
@@ -157,7 +221,6 @@ func TestOperatorKeyPrecedence(t *testing.T) {
 	if got.PublicBase58() != kpPublic(kp) {
 		t.Errorf("flag should win over env, got %s", got.PublicBase58())
 	}
-	// Env path is used when no flag.
 	keyFile := filepath.Join(t.TempDir(), "operator.json")
 	if err := os.WriteFile(keyFile, []byte(mustSecret(envKp)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -171,7 +234,6 @@ func TestOperatorKeyPrecedence(t *testing.T) {
 	if got.PublicBase58() != kpPublic(envKp) {
 		t.Errorf("env path should resolve, got %s", got.PublicBase58())
 	}
-	// Missing key is loud.
 	if _, err := OperatorKey(func(string) string { return "" }, "", ""); err == nil {
 		t.Fatal("missing operator key should error")
 	}
@@ -197,3 +259,16 @@ func TestWriteConfigValue(t *testing.T) {
 		t.Errorf("append failed:\n%s", text)
 	}
 }
+
+func mustKeypair(t *testing.T) sol.Keypair {
+	t.Helper()
+	kp, err := sol.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return kp
+}
+
+func kpPublic(kp sol.Keypair) string { return kp.PublicBase58() }
+
+func mustSecret(kp sol.Keypair) string { return sol.Encode(kp.Secret) }

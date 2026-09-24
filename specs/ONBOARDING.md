@@ -12,9 +12,10 @@ orbit init
 ```
 
 Generates the agent hot wallet (ed25519, base58 64-byte secret) at
-`~/.config/orbit/key` (0600), writes `~/.config/orbit/config` (indexer, rpc,
+`~/.config/orbit/key` (0600), upserts `~/.config/orbit/config` (indexer, rpc,
 program id, vault creator, key path — the env loader reads these as defaults
-and env always overrides), requests a devnet airdrop with retries, and
+and env always overrides; `ORBIT_RPC` is derived as `{indexer}/rpc` when
+unset), requests a devnet airdrop with a jittered, bounded backoff, and
 prints:
 
 ```
@@ -28,7 +29,12 @@ NEXT (operator key is never stored here):
   orbit agent register --model <fleet-model>
 ```
 
-Refuses to overwrite an existing key without `--force`.
+Init is idempotent and resumable: an existing key is reused (its pubkey is
+printed), the config is upserted (operator edits like `ORBIT_VAULT_CREATOR`
+survive), and the airdrop/balance step runs every time. `--force` only
+regenerates the key. If the devnet faucet is busy (429/405), init still
+succeeds — it prints the pubkey, the current balance, and a line naming how
+to fund the wallet (send devnet SOL to it, or visit faucet.solana.com).
 
 ## 2. vault create (operator)
 
@@ -82,6 +88,11 @@ count, and the deposit/withdraw/spend/received totals, all read from the
 chain.
 
 ## the gate
+
+The RPC endpoint is always the full JSON-RPC URL (the proxy's `{indexer}/rpc`,
+or a direct node's root) — the site base answers 301/405, so nothing posts
+there. `ORBIT_RPC` defaults to `{indexer}/rpc`; a host-only value gets
+`/rpc` appended. The airdrop uses the direct devnet node.
 
 The program id is devnet-only: any non-devnet program id refuses every
 write (LoadConfig + Validate + the send path all enforce it). Devnet test

@@ -64,7 +64,9 @@ type JSONRPC struct {
 	id   atomic.Int64
 }
 
-// NewJSONRPC returns an RPC backed by the base URL.
+// NewJSONRPC returns an RPC backed by a full JSON-RPC endpoint (the proxy's
+// {indexer}/rpc, or a direct node's root). No path is appended — the caller
+// names the endpoint.
 func NewJSONRPC(base string) *JSONRPC {
 	return &JSONRPC{base: strings.TrimSuffix(base, "/"), cli: &http.Client{Timeout: 30 * time.Second}}
 }
@@ -87,7 +89,7 @@ func (r *JSONRPC) call(ctx context.Context, method string, params ...interface{}
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.base+"/rpc", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.base, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

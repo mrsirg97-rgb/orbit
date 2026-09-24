@@ -55,17 +55,21 @@ type InitOpts struct {
 	Getenv          func(string) string
 	RPC             Airdrop
 	AirdropLamports uint64
+	AirdropBudget   time.Duration
 	Sleep           func(time.Duration)
 	Force           bool
 }
 
 // InitResult is what init prints.
 type InitResult struct {
-	Pubkey     string
-	Balance    uint64
-	KeyPath    string
-	ConfigPath string
-	Next       []string
+	Pubkey      string
+	Balance     uint64
+	KeyPath     string
+	ConfigPath  string
+	ReusedKey   bool
+	AirdropOK   bool
+	FundingHint string
+	Next        []string
 }
 
 // Init generates the hot wallet (0600), writes the config defaults, funds it
@@ -96,38 +100,47 @@ func Init(opts InitOpts) (InitResult, error) {
 		return InitResult{}, fmt.Errorf("init: %w", err)
 	}
 	keyPath := filepath.Join(home, "key")
-	if _, err := os.Stat(keyPath); err == nil && !opts.Force {
-		return InitResult{}, fmt.Errorf("init: key %s exists (use --force to overwrite)", keyPath)
+	reused := false
+	var kp sol.Keypair
+	if b, err := os.ReadFile(keyPath); err == nil && !opts.Force {
+		// Resumable: an existing key is reused; init never strands a stranger.
+		kp, err = sol.KeypairFromSecret(strings.TrimSpace(string(b)))
+		if err != nil {
+			return InitResult{}, fmt.Errorf("init: existing key %s: %w", keyPath, err)
+		}
+		reused = true
+	} else {
+		kp, err = sol.GenerateKeypair()
+		if err != nil {
+			return InitResult{}, err
+		}
+		if err := os.WriteFile(keyPath, []byte(sol.Encode(kp.Secret)+"\n"), 0o600); err != nil {
+			return InitResult{}, fmt.Errorf("init: write key: %w", err)
+		}
 	}
 
-	kp, err := sol.GenerateKeypair()
+	// Config upsert: env > existing value > default. The operator's edits
+	// (e.g. ORBIT_VAULT_CREATOR written by `orbit vault create`) survive.
+	existing, err := readConfig(cfgPath)
 	if err != nil {
 		return InitResult{}, err
 	}
-	secret := sol.Encode(kp.Secret)
-	if err := os.WriteFile(keyPath, []byte(secret+"\n"), 0o600); err != nil {
-		return InitResult{}, fmt.Errorf("init: write key: %w", err)
+	indexer := firstNonEmpty(getenv("ORBIT_INDEXER"), existing["ORBIT_INDEXER"], client.DefaultIndexer)
+	rpc := firstNonEmpty(getenv("ORBIT_RPC"), existing["ORBIT_RPC"], indexer+"/rpc")
+	if isHostOnlyURL(rpc) {
+		rpc += "/rpc"
 	}
-
-	value := func(k, fallback string) string {
-		if v := strings.TrimSpace(getenv(k)); v != "" {
-			return v
-		}
-		return fallback
+	values := map[string]string{
+		"ORBIT_INDEXER":        indexer,
+		"ORBIT_RPC":            rpc,
+		"ORBIT_PROGRAM_ID":     firstNonEmpty(getenv("ORBIT_PROGRAM_ID"), existing["ORBIT_PROGRAM_ID"], client.DevnetProgramID),
+		"ORBIT_AGENT_KEY_FILE": keyPath,
 	}
-	lines := []string{
-		"# orbit agent config: defaults the env loader reads (env always overrides)",
-		"# written by 'orbit init' on " + time.Now().UTC().Format(time.RFC3339),
-		"ORBIT_INDEXER=" + value("ORBIT_INDEXER", client.DefaultIndexer),
-		"ORBIT_RPC=" + value("ORBIT_RPC", client.DefaultRPC),
-		"ORBIT_PROGRAM_ID=" + value("ORBIT_PROGRAM_ID", client.DevnetProgramID),
+	if creator := firstNonEmpty(getenv("ORBIT_VAULT_CREATOR"), existing["ORBIT_VAULT_CREATOR"], ""); creator != "" {
+		values["ORBIT_VAULT_CREATOR"] = creator
 	}
-	if creator := strings.TrimSpace(getenv("ORBIT_VAULT_CREATOR")); creator != "" {
-		lines = append(lines, "ORBIT_VAULT_CREATOR="+creator)
-	}
-	lines = append(lines, "ORBIT_AGENT_KEY_FILE="+keyPath)
-	if err := os.WriteFile(cfgPath, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
-		return InitResult{}, fmt.Errorf("init: write config: %w", err)
+	if err := WriteConfigValues(cfgPath, values); err != nil {
+		return InitResult{}, err
 	}
 
 	lamports := opts.AirdropLamports
@@ -138,16 +151,24 @@ func Init(opts InitOpts) (InitResult, error) {
 	if sleep == nil {
 		sleep = time.Sleep
 	}
-	balance, err := airdropWithRetries(context.Background(), opts.RPC, kp.PublicBase58(), lamports, sleep)
-	if err != nil {
-		return InitResult{}, err
+	budget := opts.AirdropBudget
+	if budget <= 0 {
+		budget = 60 * time.Second
 	}
 	pub := kp.PublicBase58()
+	balance, funded := airdropBounded(context.Background(), opts.RPC, pub, lamports, sleep, budget)
+	hint := ""
+	if !funded {
+		hint = "faucet busy (the devnet airdrop limit is hit); fund it manually — send devnet SOL to " + pub + " or visit https://faucet.solana.com"
+	}
 	return InitResult{
-		Pubkey:     pub,
-		Balance:    balance,
-		KeyPath:    keyPath,
-		ConfigPath: cfgPath,
+		Pubkey:      pub,
+		Balance:     balance,
+		KeyPath:     keyPath,
+		ConfigPath:  cfgPath,
+		ReusedKey:   reused,
+		AirdropOK:   funded,
+		FundingHint: hint,
 		Next: []string{
 			"export ORBIT_OPERATOR_KEY_PATH=/path/to/your/operator.json",
 			"orbit vault create     # the vault is created for your operator key",
@@ -158,34 +179,41 @@ func Init(opts InitOpts) (InitResult, error) {
 	}, nil
 }
 
-// airdropWithRetries requests the airdrop and polls the balance; on a failed
-// request or a zero balance after the poll window it retries (up to 3).
-func airdropWithRetries(ctx context.Context, rpc Airdrop, pubkey string, lamports uint64, sleep func(time.Duration)) (uint64, error) {
+// airdropBounded requests the devnet airdrop with jittered backoff for a
+// bounded time, then succeeds anyway: the caller gets the current balance and
+// a funding hint. Init never fails because the faucet is busy.
+func airdropBounded(ctx context.Context, rpc Airdrop, pubkey string, lamports uint64, sleep func(time.Duration), budget time.Duration) (uint64, bool) {
 	if rpc == nil {
-		return 0, errors.New("init: no RPC seam (devnet airdrop)")
+		return 0, false
 	}
-	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
-		if _, err := rpc.RequestAirdrop(ctx, pubkey, lamports); err != nil {
-			lastErr = fmt.Errorf("airdrop request: %w", err)
-			sleep(2 * time.Second)
-			continue
-		}
-		for poll := 0; poll < 4; poll++ {
-			balance, err := rpc.GetBalance(ctx, pubkey)
-			if err != nil {
-				lastErr = fmt.Errorf("airdrop balance: %w", err)
+	start := time.Now()
+	maxAttempts := int(budget / time.Second)
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+	for attempt := 0; ; attempt++ {
+		if _, err := rpc.RequestAirdrop(ctx, pubkey, lamports); err == nil {
+			for poll := 0; poll < 4; poll++ {
+				balance, berr := rpc.GetBalance(ctx, pubkey)
+				if berr == nil && balance >= lamports {
+					return balance, true
+				}
+				if time.Since(start) >= budget || attempt >= maxAttempts {
+					balance, _ := rpc.GetBalance(ctx, pubkey)
+					return balance, false
+				}
 				sleep(time.Second)
-				continue
 			}
-			if balance >= lamports {
-				return balance, nil
-			}
-			sleep(time.Second)
+			// The request landed but the balance has not; retry after a beat.
 		}
-		lastErr = fmt.Errorf("airdrop not confirmed after polling")
+		if time.Since(start) >= budget || attempt >= maxAttempts {
+			balance, _ := rpc.GetBalance(ctx, pubkey)
+			return balance, false
+		}
+		// Jittered backoff: 2..4s, growing with the attempt (bounded by the budget).
+		backoff := time.Duration(2+attempt%3) * time.Second
+		sleep(backoff)
 	}
-	return 0, fmt.Errorf("init: airdrop failed after retries: %v", lastErr)
 }
 
 // OperatorKey resolves the vault authority key per call: flag > env, never
@@ -230,6 +258,11 @@ func OperatorKey(getenv func(string) string, flagKey, flagPath string) (sol.Keyp
 // WriteConfigValue upserts a KEY=VALUE line in the config file (preserving
 // the rest). Only public values are ever written (a pubkey, never a key).
 func WriteConfigValue(path, key, value string) error {
+	return WriteConfigValues(path, map[string]string{key: value})
+}
+
+// WriteConfigValues upserts several keys at once.
+func WriteConfigValues(path string, values map[string]string) error {
 	b, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("config write: %w", err)
@@ -238,16 +271,64 @@ func WriteConfigValue(path, key, value string) error {
 	if len(b) > 0 {
 		lines = strings.Split(strings.TrimRight(string(b), "\n"), "\n")
 	}
-	found := false
 	for i, line := range lines {
 		k, _, ok := strings.Cut(strings.TrimSpace(line), "=")
-		if ok && k == key {
-			lines[i] = key + "=" + value
-			found = true
+		if ok {
+			if v, has := values[k]; has {
+				lines[i] = k + "=" + v
+			}
 		}
 	}
-	if !found {
-		lines = append(lines, key+"="+value)
+	for k, v := range values {
+		found := false
+		for _, line := range lines {
+			if strings.HasPrefix(strings.TrimSpace(line), k+"=") {
+				found = true
+			}
+		}
+		if !found {
+			lines = append(lines, k+"="+v)
+		}
 	}
 	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600)
+}
+
+// readConfig parses the config file into a map (missing file = empty).
+func readConfig(path string) (map[string]string, error) {
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return map[string]string{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("config read: %w", err)
+	}
+	out := map[string]string{}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		k, v, ok := strings.Cut(line, "=")
+		if ok && strings.TrimSpace(k) != "" {
+			out[strings.TrimSpace(k)] = strings.TrimSpace(v)
+		}
+	}
+	return out, nil
+}
+
+// firstNonEmpty returns the first non-empty value.
+func firstNonEmpty(vs ...string) string {
+	for _, v := range vs {
+		if v = strings.TrimSpace(v); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// isHostOnlyURL reports an endpoint with no path (the site base).
+func isHostOnlyURL(endpoint string) bool {
+	slash := strings.Index(endpoint, "://")
+	rest := endpoint
+	if slash >= 0 {
+		rest = endpoint[slash+3:]
+	}
+	return !strings.Contains(rest, "/")
 }
