@@ -3,6 +3,8 @@ package client
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/mrsirg97-rgb/orbit/sol"
@@ -20,12 +22,52 @@ type Config struct {
 	AllowWrite   bool
 }
 
+// loadEnvFile populates the process environment from the operator's env file
+// (only when the caller's env lacks the required values).
+func loadEnvFile(getenv func(string) string) error {
+	path := strings.TrimSpace(getenv("ORBIT_CONFIG"))
+	if path == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return errors.New("config: no ORBIT_CONFIG and no home directory")
+		}
+		path = filepath.Join(home, ".config", "orbit", "env")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("config: env file %s: %w", path, err)
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok || strings.TrimSpace(k) == "" {
+			continue
+		}
+		os.Setenv(strings.TrimSpace(k), strings.TrimSpace(v))
+	}
+	return nil
+}
+
 // LoadConfig reads the environment. It fails closed: any missing required
 // value, an unparseable key, or a program ID that is not the devnet IDL
 // address is an error, and writes stay off unless explicitly devnet.
+//
+// If the required ORBIT_* values are absent, the env file at $ORBIT_CONFIG
+// (default ~/.config/orbit/env) is loaded first — the scheduled fire's cron
+// environment carries no secrets, so the operator keeps them in that file
+// (chmod 600; gitignored). The file is KEY=VALUE lines, '#' comments.
 func LoadConfig(getenv func(string) string) (Config, error) {
 	if getenv == nil {
 		getenv = func(string) string { return "" }
+	}
+	if strings.TrimSpace(getenv("ORBIT_INDEXER")) == "" ||
+		strings.TrimSpace(getenv("ORBIT_AGENT_KEY")) == "" {
+		if err := loadEnvFile(getenv); err != nil {
+			return Config{}, err
+		}
 	}
 	indexer := strings.TrimSpace(getenv("ORBIT_INDEXER"))
 	rpc := strings.TrimSpace(getenv("ORBIT_RPC"))

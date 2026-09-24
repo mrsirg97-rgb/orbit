@@ -99,7 +99,18 @@ target: 850; the test band is [700, 1000]. Full must exceed compact and
 must exceed 1300. Goldens pin the exact bytes for both sizes from a fixed
 `ReadState` fixture.
 
-### 6. The block is the brief; the tools are the hands
+### 6. The block is per-fire, never per-register
+
+The prompt stored at register/refresh is a stub naming the identity
+(`world.StubBlock`): the live block is rebuilt at every fire. `run-job`
+loads the identity row, snapshots the live read side, runs `world.Build`
+at the row's size, refreshes the job prompt with the brief, and then fires.
+The agent never trades on a market as of the last refresh — the PROJECTS
+table it sees is the read side at fire time, and the tools re-read live
+anyway. A fire whose snapshot fails closes loudly (no brief, no worker).
+Two fires with different snapshots therefore produce different briefs.
+
+### 7. The block is the brief; the tools are the hands
 
 The ACTIONS section maps symbols to the three rig tools exactly:
 
@@ -115,7 +126,11 @@ plus the memo, so the agent's turn can cite proof. One action per fire.
 
 ## layout
 
-- `world/world.go` — `Build`, `Tokens`, the lexicon, the projection
+- `world/world.go` — `Build`, `StubBlock`, `Tokens`, the lexicon, the projection
+- `agent/fire.go` — the per-fire path: brief rebuild, prompt refresh, fire;
+  documents the register order (identity row -> job row + crontab line ->
+  line re-assert per fire) and why a fire can record the
+  "no crontab line (drift)" skip before the line lands
 - `world/world_test.go` — goldens (compact + full), token bands, nudge cases
 - `world/testdata/` — the fixed `ReadState` fixture + golden files
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mrsirg97-rgb/orbit/identity"
+	"github.com/mrsirg97-rgb/orbit/world"
 	"github.com/mrsirg97-rgb/rig/store"
 	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
 	scheddomain "github.com/mrsirg97-rgb/rig/store/scheduler/domain"
@@ -59,6 +60,95 @@ func openSched(t *testing.T, home string) sched.DB {
 		t.Fatal(err)
 	}
 	return db
+}
+
+func TestFireRebuildsBriefPerFire(t *testing.T) {
+	home := t.TempDir()
+	db := openSched(t, home)
+	defer db.DB.Close()
+	ct := &fakeCrontab{text: "SHELL=/bin/bash\n"}
+
+	row := identity.Row{
+		ID: "@AP2B3A", Name: "Torch Agent", Wallet: "So11111111111111111111111111111111111111112",
+		Bio: "A torch market agent.", Personality: "mercenary",
+		Cadence: "0 */8 * * *", Model: "dsv4", BlockSize: "compact",
+	}
+	stub := world.StubBlock(world.Identity{Name: row.Name, Bio: row.Bio, Personality: row.Personality})
+	if _, err := Register(context.Background(), db, ct, row, stub, "/x/orbit run-job", t.TempDir(), "sess-agent"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Two fixture snapshots with different values produce different briefs.
+	fixture := func(price float64) world.ReadState {
+		return world.ReadState{
+			Identity: world.Identity{Name: "@AP2B3A", Bio: "b", Personality: "mercenary"},
+			PnL:      world.PnlSummary{TotalRealizedPnl: 2_500_000},
+			Markets: []world.MarketView{
+				{Mint: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", Name: "Torch Test", Symbol: "TST", Status: "BONDING", PriceSOL: price, MCAPSOL: price * 1e9, ValueSOL: price * 1e6},
+			},
+		}
+	}
+	brief1, err := world.Build(fixture(0.00015), world.Compact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	brief2, err := world.Build(fixture(0.00030), world.Compact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if brief1 == brief2 {
+		t.Fatal("fixture briefs must differ")
+	}
+
+	spawn := &fakeSpawn{}
+	spawnFn := func(ctx context.Context, argv []string, cwd string, env []string, observe func([]byte)) (sched.SpawnResult, error) {
+		return spawn.spawn(ctx, argv, cwd, env, observe)
+	}
+	runJob := func(ctx context.Context) error {
+		t.Helper()
+		if err := sched.RunJob("j1", sched.RunOpts{
+			Home: home, Crontab: ct, Fetch: fakeFetch{}.fetch, Spawn: spawnFn,
+			WorkerCmd: []string{"/x/orbit"}, SwapURL: "http://127.0.0.1:8090",
+			Now:     func() time.Time { return time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC) },
+			Sandbox: "off",
+		}); err != nil {
+			return err
+		}
+		return nil
+	}
+	promptOf := func() string {
+		t.Helper()
+		spawn.mu.Lock()
+		defer spawn.mu.Unlock()
+		for i := 0; i < len(spawn.argv); i++ {
+			if spawn.argv[i] == "-p" && i+1 < len(spawn.argv) {
+				return spawn.argv[i+1]
+			}
+		}
+		t.Fatal("spawn argv lacks -p")
+		return ""
+	}
+
+	// Fire 1: brief built from the first snapshot.
+	if err := Fire(context.Background(), db, ct, "j1", row.ID, brief1, "/x/orbit run-job", runJob); err != nil {
+		t.Fatal(err)
+	}
+	got1 := promptOf()
+	if !strings.Contains(got1, brief1) {
+		t.Errorf("fire 1 prompt is stale: %q, want the fresh brief", got1[:20])
+	}
+
+	// Fire 2: the same job, a different snapshot -> a different brief.
+	if err := Fire(context.Background(), db, ct, "j1", row.ID, brief2, "/x/orbit run-job", runJob); err != nil {
+		t.Fatal(err)
+	}
+	got2 := promptOf()
+	if got2 == got1 {
+		t.Error("two fires with different snapshots produced the same brief")
+	}
+	if !strings.Contains(got2, brief2) {
+		t.Errorf("fire 2 prompt: got %q, want brief2", got2[:20])
+	}
 }
 
 func TestAgentJobFiresTheWorldBlock(t *testing.T) {

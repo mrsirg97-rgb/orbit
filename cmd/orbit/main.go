@@ -121,6 +121,35 @@ func runJob(args []string) int {
 		fmt.Fprintln(os.Stderr, "orbit: usage: run-job <key>")
 		return 2
 	}
+	// The per-fire brief: identity row -> live snapshot -> world block. Fail
+	// closed: no identity, no read, no fire.
+	ctx := context.Background()
+	idb := identityStore()
+	defer idb.DB.Close()
+	row, err := identity.Get(ctx, idb)
+	if err != nil {
+		die("run-job: %v", err)
+	}
+	cfg, err := client.LoadConfig(os.Getenv)
+	if err != nil {
+		die("run-job: %v", err)
+	}
+	tc, err := client.New(cfg)
+	if err != nil {
+		die("run-job: %v", err)
+	}
+	snap, err := tool.Snapshot(ctx, tc, world.Identity{Name: row.Name, Bio: row.Bio, Personality: row.Personality})
+	if err != nil {
+		die("run-job: brief: %v", err)
+	}
+	size := world.Compact
+	if row.BlockSize == "full" {
+		size = world.Full
+	}
+	brief, err := world.Build(snap, size)
+	if err != nil {
+		die("run-job: brief: %v", err)
+	}
 	self, err := os.Executable()
 	if err != nil {
 		die("%v", err)
@@ -139,17 +168,22 @@ func runJob(args []string) int {
 	if sandbox == "" {
 		sandbox = "off" // the operator's choice; the agent runtime is unsandboxed by default
 	}
-	if err := sched.RunJob(args[0], sched.RunOpts{
-		Home:      home,
-		Crontab:   sched.RealCrontab(""),
-		Fetch:     sched.RealFetch(0),
-		Spawn:     sched.RealSpawn,
-		WorkerCmd: []string{self},
-		SwapURL:   swapURL,
-		Sandbox:   sandbox,
-		RigHome:   rigHome(),
-		StateDir:  filepath.Join(rigHome(), "sessions"),
-	}); err != nil {
+	sdb := schedStore()
+	defer sdb.DB.Close()
+	run := func(ctx context.Context) error {
+		return sched.RunJob(args[0], sched.RunOpts{
+			Home:      home,
+			Crontab:   sched.RealCrontab(""),
+			Fetch:     sched.RealFetch(0),
+			Spawn:     sched.RealSpawn,
+			WorkerCmd: []string{self},
+			SwapURL:   swapURL,
+			Sandbox:   sandbox,
+			RigHome:   rigHome(),
+			StateDir:  filepath.Join(rigHome(), "sessions"),
+		})
+	}
+	if err := agent.Fire(ctx, sdb, sched.RealCrontab(""), args[0], row.ID, brief, self+" run-job", run); err != nil {
 		fmt.Fprintln(os.Stderr, "orbit:", err)
 		return 1
 	}
@@ -193,6 +227,10 @@ func runAgent(args []string) int {
 		if *model == "" {
 			die("agent: -model required")
 		}
+		blockSize := "compact"
+		if *full {
+			blockSize = "full"
+		}
 		row := identity.Row{
 			ID:          "@AP" + walletSuffix(tc.AgentPublic()),
 			Name:        *name,
@@ -204,6 +242,7 @@ func runAgent(args []string) int {
 			Stall:       *stall,
 			Budget:      *budget,
 			Timeout:     *timeout,
+			BlockSize:   blockSize,
 		}
 		if row.Name == "" {
 			row.Name = "torch agent"
@@ -248,18 +287,9 @@ func ensureJob(ctx context.Context, tc *client.TorchClient, idb store.DB, row id
 }
 
 func ensureJobAction(ctx context.Context, tc *client.TorchClient, idb store.DB, row identity.Row, full bool, action string) int {
-	size := world.Compact
-	if full {
-		size = world.Full
-	}
-	snap, err := tool.Snapshot(ctx, tc, world.Identity{Name: row.Name, Bio: row.Bio, Personality: row.Personality})
-	if err != nil {
-		die("agent: snapshot: %v", err)
-	}
-	block, err := world.Build(snap, size)
-	if err != nil {
-		die("agent: world: %v", err)
-	}
+	// The stored prompt is a stub naming the identity; the live world block is
+	// rebuilt per fire by run-job.
+	block := world.StubBlock(world.Identity{Name: row.Name, Bio: row.Bio, Personality: row.Personality})
 	self, err := os.Executable()
 	if err != nil {
 		die("%v", err)

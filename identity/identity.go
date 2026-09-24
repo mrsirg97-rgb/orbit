@@ -24,6 +24,7 @@ type Row struct {
 	Stall       int
 	Budget      float64
 	Timeout     int
+	BlockSize   string // "compact" | "full" (the per-fire world block size)
 	CreatedAt   string
 }
 
@@ -58,15 +59,26 @@ var Statements = []string{
 		stall INTEGER NOT NULL DEFAULT 0,
 		budget REAL NOT NULL DEFAULT 0,
 		timeout INTEGER NOT NULL DEFAULT 0,
+		block_size TEXT NOT NULL DEFAULT 'compact',
 		created_at TEXT NOT NULL
 	)`,
 }
 
-const SchemaVersion = 1
+const SchemaVersion = 2
+
+// migration adds block_size to stores created before per-fire briefs.
+func migration(tx *sql.Tx, from, to int) (string, error) {
+	if from < 2 {
+		if _, err := tx.Exec(`ALTER TABLE identity ADD COLUMN block_size TEXT NOT NULL DEFAULT 'compact'`); err != nil {
+			return "", err
+		}
+	}
+	return "", nil
+}
 
 // Store opens the identity store at path.
 func Store(path string) (store.DB, error) {
-	db, quarantined, report, err := store.Open(path, Statements, SchemaVersion)
+	db, quarantined, report, err := store.Open(path, Statements, SchemaVersion, migration)
 	if err != nil {
 		return store.DB{}, err
 	}
@@ -81,9 +93,9 @@ func Store(path string) (store.DB, error) {
 
 // Get returns the identity row (the single agent).
 func Get(ctx context.Context, db store.DB) (Row, error) {
-	row := db.DB.QueryRowContext(ctx, `SELECT id, name, wallet, bio, personality, cadence, model, stall, budget, timeout, created_at FROM identity LIMIT 1`)
+	row := db.DB.QueryRowContext(ctx, `SELECT id, name, wallet, bio, personality, cadence, model, stall, budget, timeout, block_size, created_at FROM identity LIMIT 1`)
 	var r Row
-	err := row.Scan(&r.ID, &r.Name, &r.Wallet, &r.Bio, &r.Personality, &r.Cadence, &r.Model, &r.Stall, &r.Budget, &r.Timeout, &r.CreatedAt)
+	err := row.Scan(&r.ID, &r.Name, &r.Wallet, &r.Bio, &r.Personality, &r.Cadence, &r.Model, &r.Stall, &r.Budget, &r.Timeout, &r.BlockSize, &r.CreatedAt)
 	if err == sql.ErrNoRows {
 		return Row{}, fmt.Errorf("identity: no row (register first)")
 	}
@@ -99,14 +111,18 @@ func Upsert(ctx context.Context, db store.DB, r Row) error {
 	if r.Cadence == "" {
 		r.Cadence = DefaultCadence(r.Personality)
 	}
+	if r.BlockSize == "" {
+		r.BlockSize = "compact"
+	}
 	if r.CreatedAt == "" {
 		r.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 	}
-	_, err := db.DB.ExecContext(ctx, `INSERT INTO identity (id, name, wallet, bio, personality, cadence, model, stall, budget, timeout, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	_, err := db.DB.ExecContext(ctx, `INSERT INTO identity (id, name, wallet, bio, personality, cadence, model, stall, budget, timeout, block_size, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET name=excluded.name, wallet=excluded.wallet, bio=excluded.bio,
 			personality=excluded.personality, cadence=excluded.cadence, model=excluded.model,
-			stall=excluded.stall, budget=excluded.budget, timeout=excluded.timeout`,
-		r.ID, r.Name, r.Wallet, r.Bio, r.Personality, r.Cadence, r.Model, r.Stall, r.Budget, r.Timeout, r.CreatedAt)
+			stall=excluded.stall, budget=excluded.budget, timeout=excluded.timeout,
+			block_size=excluded.block_size`,
+		r.ID, r.Name, r.Wallet, r.Bio, r.Personality, r.Cadence, r.Model, r.Stall, r.Budget, r.Timeout, r.BlockSize, r.CreatedAt)
 	return err
 }

@@ -464,3 +464,23 @@ func Bull(w string) bool { return bullWords[w] }
 
 // Bear reports whether the word is in the bearish lexicon (debug/testing).
 func Bear(w string) bool { return bearWords[w] }
+
+// StubBlock is the prompt stored at register/refresh: the identity header and
+// the static rules, with a line telling the fire to rebuild the live block.
+// The real world block is built per fire by run-job.
+func StubBlock(id Identity) string {
+	b := &strings.Builder{}
+	b.WriteString("LEGEND\n(&) $ \"*\" → BACK — buy a project. Vault-routed: the vault pays, the memo rides the tx.\n")
+	b.WriteString("(-) $ \"*\" → CUT — sell a project. Vault-routed: the vault receives, the memo rides the tx.\n")
+	b.WriteString("(!) $ \"*\" → MEMO — post a message on a project. A micro buy carries the memo.\n")
+	b.WriteString("(_) → SKIP — no action this fire.\n")
+	b.WriteString("$ is one FID from PROJECTS. One action per fire. Never invent a signature.\n")
+	b.WriteString("\nYOU ARE\n")
+	b.WriteString("NAME: " + id.Name + "\n")
+	b.WriteString("BIO: " + id.Bio + "\n")
+	b.WriteString("PERSONALITY: " + id.Personality + "\n")
+	b.WriteString("\nTHIS FIRE REBUILDS THE WORLD BLOCK: run-job snapshots the live read side\n")
+	b.WriteString("and replaces this stub with the current block (PROJECTS, INTEL, HLTH).\n")
+	b.WriteString("Read the live state with the market/intel/wallet tools.\n")
+	return b.String()
+}
