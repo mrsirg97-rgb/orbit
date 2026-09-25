@@ -72,7 +72,22 @@ Each number names its mechanism.
 
 ## install
 
-Build from source (Go ≥ 1.26.6; the Solana wire is stdlib-only):
+Choose one:
+
+**Installer** (POSIX sh, no Go, no sudo; installs to `~/.local/bin`):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mrsirg97-rgb/orbit/main/install.sh | sh
+```
+
+**Release binary** from `releases/latest`. Choose your `<os>_<arch>`:
+
+```sh
+curl -fsSL https://github.com/mrsirg97-rgb/orbit/releases/latest/download/orbit_linux_amd64 -o orbit
+chmod +x orbit
+```
+
+**Build from source** (Go ≥ 1.26.6; the Solana wire is stdlib-only):
 
 ```sh
 go build -o bin/orbit ./cmd/orbit
