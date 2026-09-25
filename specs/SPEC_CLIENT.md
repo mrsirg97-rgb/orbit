@@ -29,12 +29,13 @@ Devnet only. The operator's vault authority key never enters the process.
 
 `Config` is loaded from the environment at startup:
 
-Five loaders share one resolver, one required set per mode:
+Six loaders share one resolver, one required set per mode:
 
 | loader | indexer | rpc | vault creator | agent key | writes |
 |---|---|---|---|---|---|
 | `LoadConfig` (agent runtime) | yes | yes | yes | yes | devnet gate |
 | `LoadOperatorConfig` (vault/project operator) | yes | yes | yes | no | devnet gate |
+| `LoadOperatorCreateConfig` (vault create) | yes | yes | no | no | devnet gate |
 | `LoadReadConfig` (project list) | yes | yes | no | no | off |
 | `LoadBoardConfig` (board act) | no | yes | yes | yes | devnet gate |
 | `LoadBoardReadConfig` (board read) | no | yes | no | no | off |

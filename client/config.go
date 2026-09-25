@@ -102,6 +102,13 @@ func LoadOperatorConfig(getenv func(string) string) (Config, error) {
 	return loadConfig(getenv, requirements{vaultCreator: true, writes: true, indexer: true})
 }
 
+// LoadOperatorCreateConfig loads the config for the vault create step: writes
+// are enabled, but no prior ORBIT_VAULT_CREATOR is required — create derives
+// the creator from the operator key named at the call.
+func LoadOperatorCreateConfig(getenv func(string) string) (Config, error) {
+	return loadConfig(getenv, requirements{indexer: true, writes: true})
+}
+
 func LoadReadConfig(getenv func(string) string) (Config, error) {
 	return loadConfig(getenv, requirements{indexer: true})
 }

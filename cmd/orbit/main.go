@@ -65,7 +65,7 @@ import (
 	orbittool "github.com/mrsirg97-rgb/orbit/tool"
 )
 
-const Version = "0.1.0"
+const Version = "0.1.1"
 
 var orbitRows = []string{
 	"█▀█ █▀▄ █▀▄ █ █ ▀▀█",
@@ -1171,6 +1171,7 @@ func main() {
 		Operator: func(flagKey, flagPath string) (sol.Keypair, error) {
 			return onboard.OperatorKey(os.Getenv, flagKey, flagPath)
 		},
+		NewClient:    client.New,
 		IdentityDB:   idb,
 		SchedDB:      scdb,
 		Crontab:      sched.RealCrontab(""),
