@@ -1,25 +1,17 @@
-// Package sol is the minimal Solana wire: base58, keypairs, legacy message
-// compilation, ed25519 signing. Stdlib only. It is not a full client — the
-// JSON-RPC transport lives in client/rpc.go.
 package sol
 
 import (
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"hash"
 )
-
-// ── base58 ────────────────────────────────────────────────────────────
 
 const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
-// Encode encodes b as base58 (the Bitcoin alphabet).
 func Encode(b []byte) string {
-	digits := []byte{} // little-endian base58 digits
+	digits := []byte{}
 	for _, c := range b {
 		carry := int(c)
 		for j := 0; j < len(digits); j++ {
@@ -45,7 +37,6 @@ func Encode(b []byte) string {
 	return string(out)
 }
 
-// Decode decodes a base58 string.
 func Decode(s string) ([]byte, error) {
 	if s == "" {
 		return nil, nil
@@ -57,7 +48,7 @@ func Decode(s string) ([]byte, error) {
 	for i := 0; i < len(alphabet); i++ {
 		rev[alphabet[i]] = i
 	}
-	bytes := []byte{} // little-endian accumulator
+	bytes := []byte{}
 	for _, c := range s {
 		if c >= 256 || rev[c] == -1 {
 			return nil, fmt.Errorf("base58: invalid character %q", c)
@@ -85,16 +76,11 @@ func Decode(s string) ([]byte, error) {
 	return out, nil
 }
 
-// ── keypair ───────────────────────────────────────────────────────────
-
-// Keypair is a Solana keypair: a 32-byte seed + the derived public key.
 type Keypair struct {
 	Secret ed25519.PrivateKey
 	Public ed25519.PublicKey
 }
 
-// KeypairFromSecret derives a keypair from a base58 64-byte secret
-// (the Solana keypair file format: seed || public).
 func KeypairFromSecret(s string) (Keypair, error) {
 	raw, err := Decode(s)
 	if err != nil {
@@ -113,8 +99,6 @@ func KeypairFromSecret(s string) (Keypair, error) {
 	return Keypair{Secret: ed25519.PrivateKey(append(append([]byte{}, seed[:]...), pub[:]...)), Public: ed25519.PublicKey(pub[:])}, nil
 }
 
-// GenerateKeypair returns a fresh ed25519 keypair (crypto/rand; the secret
-// is the Solana keypair-file format: seed || public).
 func GenerateKeypair() (Keypair, error) {
 	var seed [32]byte
 	if _, err := rand.Read(seed[:]); err != nil {
@@ -125,35 +109,26 @@ func GenerateKeypair() (Keypair, error) {
 	return Keypair{Secret: secret, Public: ed25519.PublicKey(k.Public().(ed25519.PublicKey))}, nil
 }
 
-// Sign signs a message (the compiled transaction message) with the keypair.
 func (k Keypair) Sign(msg []byte) [64]byte {
 	var sig [64]byte
 	copy(sig[:], ed25519.Sign(k.Secret, msg))
 	return sig
 }
 
-// PublicBase58 returns the base58 public key.
 func (k Keypair) PublicBase58() string { return Encode(k.Public) }
 
-// ── transaction message ───────────────────────────────────────────────
-
-// AccountMeta is one account reference in an instruction.
 type AccountMeta struct {
 	Pubkey     string
 	IsSigner   bool
 	IsWritable bool
 }
 
-// Instruction is one program call.
 type Instruction struct {
 	ProgramID string
 	Accounts  []AccountMeta
 	Data      []byte
 }
 
-// Compile builds a legacy transaction message. The fee payer is always the
-// first required signer; account keys are deduplicated by first occurrence
-// with signer/writable flags merged (the SDK's compile semantics).
 func Compile(blockhash string, payer string, ixs []Instruction) ([]byte, error) {
 	type key struct {
 		pub string
@@ -171,13 +146,12 @@ func Compile(blockhash string, payer string, ixs []Instruction) ([]byte, error) 
 	}
 	signers := map[string]bool{}
 	writable := map[string]bool{}
-	// The fee payer signs and is writable even if no instruction lists it.
+
 	signers[payer] = true
 	writable[payer] = true
 	keyIndex(payer)
 	for _, ix := range ixs {
-		// Program ids are message keys too (Solana requires every instruction
-		// program id to be in the account list).
+
 		keyIndex(ix.ProgramID)
 		for _, a := range ix.Accounts {
 			keyIndex(a.Pubkey)
@@ -189,9 +163,7 @@ func Compile(blockhash string, payer string, ixs []Instruction) ([]byte, error) 
 			}
 		}
 	}
-	// Solana message keys are ordered: [writable signers][readonly signers]
-	// [writable non-signers][readonly non-signers]; the header counts come from
-	// that partition (web3.js CompiledKeys.getMessageComponents).
+
 	order := [][2]bool{{true, true}, {true, false}, {false, true}, {false, false}}
 	ordered := make([]key, 0, len(keys))
 	positions := map[string]byte{}
@@ -259,13 +231,10 @@ func SignTx(msg []byte, k Keypair) []byte {
 	return append(sig[:], msg...)
 }
 
-// EncodeTx returns the base58 wire form of a signed transaction (for logging
-// and the RPCs that accept base58).
 func EncodeTx(signed []byte) string {
 	return Encode(signed)
 }
 
-// Signature extracts the 64-byte signature from a signed transaction.
 func Signature(signedBase58 string) (string, error) {
 	b, err := Decode(signedBase58)
 	if err != nil {
@@ -275,15 +244,6 @@ func Signature(signedBase58 string) (string, error) {
 		return "", errors.New("tx: signed transaction too short")
 	}
 	return Encode(b[:64]), nil
-}
-
-// Hash is sha256, for discriminator verification.
-func Hash(b ...[]byte) []byte {
-	h := sha256.New()
-	for _, x := range b {
-		h.Write(x)
-	}
-	return h.Sum(nil)
 }
 
 func appendCompactU16(dst []byte, v int) []byte {
@@ -297,11 +257,6 @@ func appendCompactU16(dst []byte, v int) []byte {
 	}
 }
 
-// sha256New is the package's sha256 constructor (kept here so pda.go's
-// helper name is a single import).
-func sha256New() hash.Hash { return sha256.New() }
-
-// DecodeB64 decodes standard base64 (the RPC account data encoding).
 func DecodeB64(s string) ([]byte, error) {
 	b, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
@@ -310,7 +265,6 @@ func DecodeB64(s string) ([]byte, error) {
 	return b, nil
 }
 
-// PublicFromSeed derives the ed25519 public key for a 32-byte seed.
 func PublicFromSeed(seed []byte) ([]byte, error) {
 	if len(seed) != 32 {
 		return nil, errors.New("pubkey: seed must be 32 bytes")
@@ -319,13 +273,8 @@ func PublicFromSeed(seed []byte) ([]byte, error) {
 	return k.Public().(ed25519.PublicKey), nil
 }
 
-// SignVersionedTx signs a legacy message and wraps it in the v0 Versioned
-// transaction wire form (the @solana/web3.js v0 serialize layout):
-// [sig count][signatures][0x80 version][header+keys+blockhash+ixs][0x00 lookups].
-// The devnet RPC node only accepts versioned transactions.
 func SignVersionedTx(msg []byte, k Keypair) []byte {
-	// The v0 message = [0x80][legacy msg][0x00 lookups]; the signature is over
-	// that whole message, not the legacy part.
+
 	vmsg := make([]byte, 0, len(msg)+2)
 	vmsg = append(vmsg, 0x80)
 	vmsg = append(vmsg, msg...)
@@ -337,11 +286,6 @@ func SignVersionedTx(msg []byte, k Keypair) []byte {
 	return out
 }
 
-// SignVersionedTxMulti signs a legacy message with several keys (create_token:
-// the creator and the fresh mint) and wraps it in the v0 wire form. The
-// signatures are emitted in the message's signed-key order (the header's
-// required + readonly-signed count), each verified against the v0 message.
-// A missing signer fails loudly — no partial tx.
 func SignVersionedTxMulti(msg []byte, keys ...Keypair) ([]byte, error) {
 	if len(msg) < 3 {
 		return nil, errors.New("tx: legacy message too short")
@@ -378,8 +322,6 @@ func SignVersionedTxMulti(msg []byte, keys ...Keypair) ([]byte, error) {
 	return out, nil
 }
 
-// readKeys parses a legacy message's compact-u16 key count + 32-byte keys,
-// returning the remaining bytes and the key count.
 func readKeys(b []byte) ([]byte, int, error) {
 	var shift uint
 	n := 0

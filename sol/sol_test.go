@@ -6,9 +6,6 @@ import (
 	"testing"
 )
 
-// The SDK-verified vectors: @solana/web3.js 1.98.4 + @solana/spl-token,
-// seed program FghCwWojts9MbU3Pmog5peacaKrEYM5n1T68KWHy7TAh, mint
-// EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG, owner WSOL.
 func TestPDAMatchesSDK(t *testing.T) {
 	const program = "FghCwWojts9MbU3Pmog5peacaKrEYM5n1T68KWHy7TAh"
 	const mint = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
@@ -85,13 +82,12 @@ func TestBase58RoundTrip(t *testing.T) {
 }
 
 func TestKeypairFromSecret(t *testing.T) {
-	// A deterministic 64-byte secret from a known seed.
+
 	seed := make([]byte, 32)
 	for i := range seed {
 		seed[i] = byte(i)
 	}
-	// The real check: KeypairFromSecret accepts a correct secret and rejects
-	// a mismatched one.
+
 	valid := make([]byte, 64)
 	copy(valid[:32], seed)
 	derived := pubOf(seed)
@@ -139,7 +135,7 @@ func TestCompileAndSign(t *testing.T) {
 	if len(sig) == 0 {
 		t.Fatal("empty signature")
 	}
-	// The message must contain the blockhash and the program id.
+
 	if !bytes.Contains(signed[64:], must(t, blockhash)) {
 		t.Error("message lacks the blockhash")
 	}
