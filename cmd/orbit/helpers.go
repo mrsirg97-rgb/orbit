@@ -5,6 +5,8 @@ import (
 	"os"
 	"runtime/debug"
 	"strings"
+
+	"github.com/mrsirg97-rgb/orbit/client"
 )
 
 func walletSuffix(pubkey string) string {
@@ -31,8 +33,8 @@ func die(format string, a ...any) {
 	os.Exit(1)
 }
 
-func mustRigHome() string {
-	home, err := rigHome()
+func mustOrbitHome() string {
+	home, err := client.Home(os.Getenv)
 	if err != nil {
 		die("%v", err)
 	}

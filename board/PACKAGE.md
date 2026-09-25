@@ -65,7 +65,7 @@ SQLite is a cache rebuilt from it, never trusted.
 - The lease is pure: it materializes in the projection, and `Reap` only
   reports what the log shows as expired. The ended-session arm of the
   runtime's reap has no chain equivalent — the chain has no sessions.
-- `StorePath` is the runtime home's `orbit/board.sqlite`; `Open`
-  quarantines a corrupt file loudly.
+- `StorePath` is the orbit home's `board.sqlite`; `Open` quarantines a
+  corrupt file loudly.
 - `board/metadata` is the generation input: edit it and regenerate
   `ddl`/`domain`; never hand-edit the generated projections.

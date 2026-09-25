@@ -41,7 +41,7 @@ func boardRead(ctx context.Context, project board.Project) int {
 	if err != nil {
 		die("board: %v", err)
 	}
-	db, err := board.Open(board.StorePath(mustRigHome()))
+	db, err := board.Open(board.StorePath(mustOrbitHome()))
 	if err != nil {
 		die("board: store: %v", err)
 	}
@@ -64,7 +64,7 @@ func boardAct(ctx context.Context, project board.Project, verb string, rest []st
 	if err != nil {
 		die("board: %v", err)
 	}
-	db, err := board.Open(board.StorePath(mustRigHome()))
+	db, err := board.Open(board.StorePath(mustOrbitHome()))
 	if err != nil {
 		die("board: store: %v", err)
 	}

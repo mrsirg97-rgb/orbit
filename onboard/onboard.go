@@ -14,14 +14,7 @@ import (
 )
 
 func Home(getenv func(string) string) (string, error) {
-	if h := strings.TrimSpace(getenv("ORBIT_HOME")); h != "" {
-		return h, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", errors.New("onboard: no ORBIT_HOME and no home directory")
-	}
-	return filepath.Join(home, ".config", "orbit"), nil
+	return client.Home(getenv)
 }
 
 func ConfigPath(getenv func(string) string) (string, error) {

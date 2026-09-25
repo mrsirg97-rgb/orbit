@@ -30,7 +30,7 @@ natives, the `/earn` command beside `command.All()`, and the orbit title
 
 ### 1. cmd/orbit is rig's main, not a one-shot wrapper
 
-The binary's default path is the interactive one: config load (the rig
+The binary's default path is the interactive one: config load (the orbit
 home: settings, models, workers, plugins), the five stores, the python
 kernel, plugin discovery, the canonical middleware chain, the native tool
 table plus the four orbit tools, and the frontend door (`--tui auto`:
@@ -61,7 +61,7 @@ the fold trusts).
 `earn.Status` reads the wallet (held projects, PnL since start) and the
 board cache (the wallet's open claims, its last memo) — command time
 only. `/earn status` and each agent fire write the rows to the local
-snapshot (`<rig home>/orbit/status.json`, atomic temp + rename), and the
+snapshot (`<orbit home>/status.json`, atomic temp + rename), and the
 TUI's status callback reads only that file. Every command recaptures the
 status in rig, so a callback that touched the chain would put `/help` on
 the network; the snapshot keeps the footer local. The rows are as fresh

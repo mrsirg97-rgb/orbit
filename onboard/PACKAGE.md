@@ -9,9 +9,9 @@ operator key never passes through here — it is resolved per vault call
 
 ## What it includes
 
-- **`Home` / `ConfigPath`**: the orbit home (`ORBIT_HOME`, default
-  `~/.config/orbit`) and the config file the env loader reads as defaults
-  (`ORBIT_CONFIG` or the home's `config`).
+- **`Home` / `ConfigPath`**: the orbit home (default `~/.orbit`;
+  `RIG_HOME` overrides, `~/.rig` stays rig's) and the config file the env
+  loader reads as defaults (`ORBIT_CONFIG` or the home's `config`).
 - **`Init`**: generates the hot wallet (0600, resumable — an existing key
   is reused), upserts the config defaults (env > existing value >
   default; the operator's edits survive), requests the devnet airdrop with

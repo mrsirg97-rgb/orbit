@@ -16,15 +16,14 @@ import (
 )
 
 func identityStore() store.DB {
-	home, err := rigHome()
+	home, err := client.Home(os.Getenv)
 	if err != nil {
 		die("%v", err)
 	}
-	dir := filepath.Join(home, "orbit")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(home, 0o755); err != nil {
 		die("%v", err)
 	}
-	db, err := identity.Store(filepath.Join(dir, "identity.sqlite"))
+	db, err := identity.Store(filepath.Join(home, "identity.sqlite"))
 	if err != nil {
 		die("identity store: %v", err)
 	}
@@ -32,7 +31,7 @@ func identityStore() store.DB {
 }
 
 func schedStore() sched.DB {
-	home, err := rigHome()
+	home, err := client.Home(os.Getenv)
 	if err != nil {
 		die("%v", err)
 	}

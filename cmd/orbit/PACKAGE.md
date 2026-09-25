@@ -12,13 +12,12 @@ dispatch.
 
 ## What it includes
 
-- **main()**: the runtime path — flag/env/file config, the runtime home,
+- **main()**: the runtime path — flag/env/file config, the orbit home,
   the five stores, the python kernel, plugin discovery, the canonical
   middleware chain, the frontend selection (`-tui` auto / one-shot / plain
-  CLI) — plus the orbit wiring: the identity and board stores under the
-  runtime home's `orbit/`, the four orbit tools behind the lazy client
-  seam, the `/earn` command, the swarm adapter, and the earn footer
-  snapshot.
+  CLI) — plus the orbit wiring: the identity and board stores at the home
+  root, the four orbit tools behind the lazy client seam, the `/earn`
+  command, the swarm adapter, and the earn footer snapshot.
 - **The lazy seam** (`clientProvider`): the first tool use loads the agent
   config and fails loudly, naming `/earn`, when it is missing; a failed
   load is retried at the next use, so `/earn`'s init can fix it in the
@@ -32,8 +31,8 @@ dispatch.
   `switchRole`, `switchApprove`, `newSession`, `sessionResume`, the
   plugin reload/swap, `statusIn`/`earnRows` (the footer), and the
   `command.Env` closures over the root.
-- **Resolution helpers**: `rigHome` (the runtime home + its migration),
-  `resolveModel`, `sessionFor`, `checkOneShot`, `splitCSV`,
+- **Resolution helpers**: `client.Home` (the orbit home, `RIG_HOME`
+  overrides), `resolveModel`, `sessionFor`, `checkOneShot`, `splitCSV`,
   `effectiveNativeNames`, `registeredNativeNames`, `isMutating`.
 
 ## How it is consumed
@@ -59,13 +58,14 @@ dispatch.
 
 ## Gotchas
 
-- The earn footer is a local snapshot (`<runtime home>/orbit/status.json`),
-  never the chain at status-callback time: `/earn status` and each agent
-  fire write it, the status callback only reads the file, so every
-  command stays off the network.
-- Two homes: the hot key and the client config live in the orbit home
-  (`~/.config/orbit`); the identity rows, the board cache, and the status
-  snapshot live in the runtime home's `orbit/` dir.
+- The earn footer is a local snapshot (`~/.orbit/status.json`), never the
+  chain at status-callback time: `/earn status` and each agent fire write
+  it, the status callback only reads the file, so every command stays off
+  the network.
+- One home: the hot key, the client config, the identity rows, the board
+  cache, and the status snapshot all live in the orbit home (`~/.orbit`;
+  `RIG_HOME` overrides, `~/.rig` stays rig's — the binary pins a rig
+  version, so its stores never share migrations with the standalone rig).
 - The operator key is named per call (flag > env) and never stored.
 - `-version` reads the runtime's module version from the build info — the
   number is never hardcoded.

@@ -12,10 +12,11 @@ governs.
 
 ## What it includes
 
-- **Config loaders** (`config.go`): env-only, fail closed; five loaders,
-  one required set per mode (agent runtime, operator, read, board write,
-  board read). Reads never need a signing key; a present-but-bad key still
-  fails closed.
+- **Config loaders** (`config.go`): env-only, fail closed; `Home` resolves
+  the orbit home (`RIG_HOME`, default `~/.orbit`), and five loaders share
+  one resolver with one required set per mode (agent runtime, operator,
+  read, board write, board read). Reads never need a signing key; a
+  present-but-bad key still fails closed.
 - **The embedded IDL** (`idl/`): parsed once at init — discriminators,
   account order with signer/writable flags, borsh args. A builder for an
   instruction the IDL does not name is an init error, never a runtime

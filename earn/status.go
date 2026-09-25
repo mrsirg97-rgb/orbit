@@ -83,7 +83,7 @@ func rowsFrom(ctx context.Context, tc *client.TorchClient, st *board.Store, hold
 }
 
 func SnapshotPath(home string) string {
-	return filepath.Join(home, "orbit", "status.json")
+	return filepath.Join(home, "status.json")
 }
 
 func Snapshot(path string) (Rows, bool, error) {

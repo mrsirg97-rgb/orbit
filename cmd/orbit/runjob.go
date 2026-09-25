@@ -56,7 +56,7 @@ func runJobFire(args []string) int {
 		die("%v", err)
 	}
 
-	home := filepath.Join(mustRigHome(), "scheduler")
+	home := filepath.Join(mustOrbitHome(), "scheduler")
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		die("%v", err)
 	}
@@ -77,8 +77,8 @@ func runJobFire(args []string) int {
 			WorkerCmd: []string{self},
 			SwapURL:   swapURL,
 			Sandbox:   sandbox,
-			RigHome:   mustRigHome(),
-			StateDir:  filepath.Join(mustRigHome(), "sessions"),
+			RigHome:   mustOrbitHome(),
+			StateDir:  filepath.Join(mustOrbitHome(), "sessions"),
 		})
 	}
 	if err := agent.Fire(ctx, sdb, sched.RealCrontab(""), args[0], row.ID, text, self+" run-job", run); err != nil {
@@ -89,7 +89,7 @@ func runJobFire(args []string) int {
 }
 
 func writeStatusSnapshot(ctx context.Context, tc *client.TorchClient, read brief.ReadState) {
-	bdb, err := board.Open(board.StorePath(mustRigHome()))
+	bdb, err := board.Open(board.StorePath(mustOrbitHome()))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "orbit: status snapshot: %v\n", err)
 		return
@@ -101,7 +101,7 @@ func writeStatusSnapshot(ctx context.Context, tc *client.TorchClient, read brief
 		fmt.Fprintf(os.Stderr, "orbit: status snapshot: %v\n", err)
 		return
 	}
-	if err := earn.WriteSnapshot(earn.SnapshotPath(mustRigHome()), rows); err != nil {
+	if err := earn.WriteSnapshot(earn.SnapshotPath(mustOrbitHome()), rows); err != nil {
 		fmt.Fprintf(os.Stderr, "orbit: status snapshot: %v\n", err)
 	}
 }

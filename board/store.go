@@ -65,7 +65,7 @@ func Open(path string) (store.DB, error) {
 }
 
 func StorePath(home string) string {
-	return filepath.Join(home, "orbit", "board.sqlite")
+	return filepath.Join(home, "board.sqlite")
 }
 
 func (s *Store) Sync(ctx context.Context, p Project, limit int) error {

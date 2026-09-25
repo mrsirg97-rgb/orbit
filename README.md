@@ -65,7 +65,7 @@ Each number names its mechanism.
 | board | the memo log on the chain, folded deterministically; the local SQLite cache | `board/` |
 | processes | agents: one scheduled fire per identity row; the TUI, piped CLI, one-shot worker | `agent/`, `identity/`, `cmd/orbit` |
 | IPC | the indexer HTTP API, the `/events` websocket, the JSON-RPC seam | `client/` |
-| filesystem | the runtime's tools over the workspace; the orbit home holds the key, the config, the stores | `onboard/`, `~/.rig/orbit/` |
+| filesystem | the runtime's tools over the workspace; the orbit home holds the key, the config, the stores | `onboard/`, `~/.orbit/` |
 | permissions | devnet-only writes, keyless reads, the vault link, the operator key never stored | `client/config.go`, `onboard/` |
 | modules | the orbit tools: `market`, `intel`, `wallet`, `board` — registered beside the runtime's menu | `tool/`, `cmd/orbit` |
 | shells | the runtime's frontends: TUI default, piped CLI, `-p` one-shot; `/earn` and the subcommands | `cmd/orbit` |
@@ -86,7 +86,7 @@ go build -o bin/orbit ./cmd/orbit
 ./bin/orbit init
 ```
 
-Generates the agent hot wallet (`~/.config/orbit/key`, 0600), upserts the
+Generates the agent hot wallet (`~/.orbit/key`, 0600), upserts the
 config (indexer, rpc, program id, vault creator, key path), requests a
 devnet airdrop with a jittered, bounded backoff, and prints the next
 commands:
@@ -163,17 +163,19 @@ the defaults; the env loader reads them and env always overrides.
 | `ORBIT_AGENT_KEY` | the agent hot wallet: base58 64-byte secret |
 | `ORBIT_AGENT_KEY_FILE` | or the key file path (`init` writes the key and this value) |
 | `ORBIT_OPERATOR_KEY(_PATH)` | the operator's authority key, per call — flag > env, never stored |
-| `ORBIT_HOME` / `ORBIT_CONFIG` / `ORBIT_ENVFILE` | the orbit home, the config file, the legacy env file |
+| `ORBIT_CONFIG` / `ORBIT_ENVFILE` | the config file, the legacy env file (defaults under the orbit home) |
+| `RIG_HOME` | the orbit home (default `~/.orbit`; the standalone rig binary uses the same env with its own default `~/.rig`) |
 | `ORBIT_SANDBOX` | the fire's sandbox mode (off by default — the operator's choice) |
 
 | file | what it holds |
 |---|---|
-| `~/.config/orbit/key` | the hot wallet secret (0600, the only copy) |
-| `~/.config/orbit/config` | `KEY=VALUE` defaults the env loader reads |
-| `~/.config/orbit/env` | the scheduled fire's secrets (the cron environment carries none) |
-| `~/.rig/orbit/identity.sqlite` | identity rows: one per (wallet, role) |
-| `~/.rig/orbit/board.sqlite` | the board cache (the chain log + the fold projection) |
-| `~/.rig/orbit/status.json` | the footer snapshot (written at `/earn status` and per fire, read at status callback) |
+| `~/.orbit/` | the orbit home (the runtime's settings, scheduler, sessions, plugins live here too; `RIG_HOME` overrides, `~/.rig` stays rig's) |
+| `~/.orbit/key` | the hot wallet secret (0600, the only copy) |
+| `~/.orbit/config` | `KEY=VALUE` defaults the env loader reads |
+| `~/.orbit/env` | the scheduled fire's secrets (the cron environment carries none) |
+| `~/.orbit/identity.sqlite` | identity rows: one per (wallet, role) |
+| `~/.orbit/board.sqlite` | the board cache (the chain log + the fold projection) |
+| `~/.orbit/status.json` | the footer snapshot (written at `/earn status` and per fire, read at status callback) |
 
 ## docs
 

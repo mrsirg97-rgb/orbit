@@ -92,7 +92,6 @@ type root struct {
 	home  string
 
 	pluginsDir string
-	rigHome    string
 
 	activeID string
 	row      models.Model
@@ -317,12 +316,7 @@ func (r *root) applyVision() {
 }
 
 func (r *root) blobsDir() string {
-	if r.rigHome == "" {
-		if h, err := rigHome(); err == nil {
-			r.rigHome = h
-		}
-	}
-	return imagemarker.BlobsDir(r.rigHome)
+	return imagemarker.BlobsDir(mustOrbitHome())
 }
 
 func (r *root) swapIn(s *core.Session, rec2 *state.Recorder) {
@@ -679,30 +673,6 @@ func isWorkerTool(name string) bool {
 	return false
 }
 
-func rigHome() (string, error) {
-	if v := os.Getenv("RIG_HOME"); v != "" {
-		return v, nil
-	}
-	if h := userHome(); h == "" {
-		return "", errors.New("cannot resolve the home directory (set $HOME or RIG_HOME)")
-	} else {
-		newHome := filepath.Join(h, ".rig")
-		oldHome := filepath.Join(h, ".config", "rig")
-		if fi, err := os.Stat(oldHome); err == nil && fi.IsDir() {
-			if _, err := os.Stat(newHome); errors.Is(err, os.ErrNotExist) {
-				if err := os.Rename(oldHome, newHome); err != nil {
-					return "", fmt.Errorf("migrate the config home: %s -> %s: %v", oldHome, newHome, err)
-				}
-				fmt.Fprintf(os.Stderr, "rig: migrated the config home: %s -> %s\n", oldHome, newHome)
-			} else if err == nil {
-
-				fmt.Fprintf(os.Stderr, "rig: the old config home still exists: %s (the home here won: %s; merge or prune it by hand)\n", oldHome, newHome)
-			}
-		}
-		return newHome, nil
-	}
-}
-
 func resolveModel(id string, table models.Table) models.Model {
 	m, err := models.Resolve(table, id, os.LookupEnv)
 	if err != nil {
@@ -870,9 +840,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfgDir, err := rigHome()
+	cfgDir, err := client.Home(os.Getenv)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "rig:", err)
+		fmt.Fprintln(os.Stderr, "orbit:", err)
 		os.Exit(1)
 	}
 	cfg, err := config.Load(cfgDir, cwd)
@@ -1101,7 +1071,6 @@ func main() {
 		cwd:        cwd,
 		home:       userHome(),
 		pluginsDir: pluginsDir,
-		rigHome:    cfgDir,
 		activeID:   modelID,
 		row:        row,
 		runtime:    runtimeTable(cfg.Models, modelID, row),
@@ -1175,18 +1144,13 @@ func main() {
 	})
 
 	cp := &clientProvider{getenv: os.Getenv}
-	orbitHome := filepath.Join(cfgDir, "orbit")
-	if err := os.MkdirAll(orbitHome, 0o755); err != nil {
-		fmt.Fprintln(os.Stderr, "orbit:", err)
-		os.Exit(1)
-	}
-	idb, err := identity.Store(filepath.Join(orbitHome, "identity.sqlite"))
+	idb, err := identity.Store(filepath.Join(cfgDir, "identity.sqlite"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "orbit: identity store:", err)
 		os.Exit(1)
 	}
 	defer idb.DB.Close()
-	bdb, err := board.Open(filepath.Join(orbitHome, "board.sqlite"))
+	bdb, err := board.Open(filepath.Join(cfgDir, "board.sqlite"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "orbit: board store:", err)
 		os.Exit(1)
@@ -1215,7 +1179,7 @@ func main() {
 		Cwd:          cwd,
 		Session:      "orbit-earn",
 		Model:        func() string { return r.activeID },
-		SnapshotPath: filepath.Join(orbitHome, "status.json"),
+		SnapshotPath: filepath.Join(cfgDir, "status.json"),
 	}
 
 	workersEnv := command.Workers{File: filepath.Join(cfgDir, "workers.json")}

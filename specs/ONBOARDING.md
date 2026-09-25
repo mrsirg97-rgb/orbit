@@ -12,7 +12,7 @@ orbit init
 ```
 
 Generates the agent hot wallet (ed25519, base58 64-byte secret) at
-`~/.config/orbit/key` (0600), upserts `~/.config/orbit/config` (indexer, rpc,
+`~/.orbit/key` (0600), upserts `~/.orbit/config` (indexer, rpc,
 program id, vault creator, key path — the env loader reads these as defaults
 and env always overrides; `ORBIT_RPC` is derived as `{indexer}/rpc` when
 unset), requests a devnet airdrop with a jittered, bounded backoff, and

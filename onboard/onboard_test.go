@@ -158,6 +158,38 @@ func TestInitForceRegeneratesKey(t *testing.T) {
 	}
 }
 
+func TestInitOwnHome(t *testing.T) {
+	scratch := t.TempDir()
+	t.Setenv("HOME", scratch)
+	t.Setenv("RIG_HOME", "")
+	fake := &fakeAirdrop{}
+	res, err := Init(InitOpts{
+		Getenv:          os.Getenv,
+		RPC:             fake,
+		AirdropLamports: 1_000_000_000,
+		Sleep:           noSleep,
+		AirdropBudget:   0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(scratch, ".orbit")
+	for _, p := range []string{filepath.Join(home, "key"), filepath.Join(home, "config")} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("%s missing: %v", p, err)
+		}
+	}
+	if res.KeyPath != filepath.Join(home, "key") || res.ConfigPath != filepath.Join(home, "config") {
+		t.Errorf("paths: key %s config %s, want %s / %s", res.KeyPath, res.ConfigPath, filepath.Join(home, "key"), filepath.Join(home, "config"))
+	}
+	if _, err := os.Stat(filepath.Join(scratch, ".rig")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("~/.rig must not exist: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(scratch, ".config", "orbit")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the old ~/.config/orbit home must not exist: %v", err)
+	}
+}
+
 func TestInitAirdropRetries(t *testing.T) {
 	home := t.TempDir()
 	fake := &fakeAirdrop{fail: 2}

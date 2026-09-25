@@ -19,15 +19,26 @@ type Config struct {
 	AllowWrite   bool
 }
 
+func Home(getenv func(string) string) (string, error) {
+	if h := strings.TrimSpace(getenv("RIG_HOME")); h != "" {
+		return h, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", errors.New("config: no RIG_HOME and no home directory")
+	}
+	return filepath.Join(home, ".orbit"), nil
+}
+
 func configFile(getenv func(string) string) (string, error) {
 	if p := strings.TrimSpace(getenv("ORBIT_CONFIG")); p != "" {
 		return p, nil
 	}
-	home, err := os.UserHomeDir()
+	h, err := Home(getenv)
 	if err != nil {
-		return "", errors.New("config: no ORBIT_CONFIG and no home directory")
+		return "", err
 	}
-	return filepath.Join(home, ".config", "orbit", "config"), nil
+	return filepath.Join(h, "config"), nil
 }
 
 func readConfigFile(path string) (map[string]string, error) {
@@ -56,11 +67,11 @@ func readConfigFile(path string) (map[string]string, error) {
 func loadEnvFile(getenv func(string) string) error {
 	path := strings.TrimSpace(getenv("ORBIT_ENVFILE"))
 	if path == "" {
-		home, err := os.UserHomeDir()
+		h, err := Home(getenv)
 		if err != nil {
-			return errors.New("config: no ORBIT_ENVFILE and no home directory")
+			return err
 		}
-		path = filepath.Join(home, ".config", "orbit", "env")
+		path = filepath.Join(h, "env")
 	}
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {

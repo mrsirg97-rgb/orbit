@@ -225,3 +225,31 @@ func TestLoadBoardReadConfigNeedsOnlyRPC(t *testing.T) {
 		t.Errorf("read client carries write state: %+v", read.Config)
 	}
 }
+
+func TestHomeDefaultsToOrbit(t *testing.T) {
+	scratch := t.TempDir()
+	t.Setenv("HOME", scratch)
+	t.Setenv("RIG_HOME", "")
+	home, err := Home(func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(scratch, ".orbit"); home != want {
+		t.Errorf("home %s, want %s", home, want)
+	}
+}
+
+func TestHomeHonorsRigHome(t *testing.T) {
+	home, err := Home(func(k string) string {
+		if k == "RIG_HOME" {
+			return "/x/rig-home"
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if home != "/x/rig-home" {
+		t.Errorf("home %s, want /x/rig-home", home)
+	}
+}
