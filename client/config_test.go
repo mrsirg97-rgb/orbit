@@ -202,3 +202,40 @@ func TestLoadOperatorConfigNeedsNoAgentKey(t *testing.T) {
 		t.Error("operator config without the vault creator accepted")
 	}
 }
+
+// TestLoadBoardReadConfigNeedsOnlyRPC: a board read works with ORBIT_RPC
+// set and nothing else — no indexer, no vault creator, no agent key.
+func TestLoadBoardReadConfigNeedsOnlyRPC(t *testing.T) {
+	env := map[string]string{
+		"ORBIT_CONFIG": filepath.Join(t.TempDir(), "config"),
+		"ORBIT_RPC":    "https://x",
+	}
+	cfg, err := LoadBoardReadConfig(func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AllowWrite {
+		t.Error("board read config must keep the write gate off")
+	}
+	if cfg.VaultCreator != "" || cfg.AgentKey.PublicBase58() != "" {
+		t.Errorf("board read config must not carry a creator or key: %+v", cfg)
+	}
+	env["ORBIT_ENVFILE"] = filepath.Join(t.TempDir(), "none")
+	noRPC := map[string]string{
+		"ORBIT_CONFIG":  env["ORBIT_CONFIG"],
+		"ORBIT_ENVFILE": env["ORBIT_ENVFILE"],
+	}
+	if _, err := LoadBoardReadConfig(func(k string) string { return noRPC[k] }); err == nil {
+		t.Error("board read config without ORBIT_RPC accepted")
+	}
+	read, err := NewRead(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.RPC == nil || read.API == nil {
+		t.Error("read client missing seams")
+	}
+	if read.Config.Indexer != "" || read.Config.VaultCreator != "" {
+		t.Errorf("read client carries write state: %+v", read.Config)
+	}
+}

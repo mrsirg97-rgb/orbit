@@ -9,147 +9,150 @@ import (
 	"github.com/mrsirg97-rgb/rig/store"
 )
 
-func TestRoleDefaults(t *testing.T) {
-	cases := []struct {
-		role       Role
-		cadence    string
-		block      string
-		budget     float64
-		stall      int
-		timeout    int
-		stakeScale float64
-		shapes     string
-	}{
-		{Architect, "0 12 * * *", "full", 5, 90, 120, 4, "task | brief | accept"},
-		{Worker, "0 */2 * * *", "compact", 0.5, 30, 45, 0.25, "claim | note | complete"},
-		{Reviewer, "0 */6 * * *", "full", 1, 60, 60, 1, "accept | reject"},
+func TestDefaults(t *testing.T) {
+	d := Defaults()
+	if d.Cadence != "0 */2 * * *" || d.BlockSize != "compact" || d.Budget != 0.5 ||
+		d.Stall != 30 || d.Timeout != 45 {
+		t.Errorf("defaults %+v", d)
 	}
-	for _, c := range cases {
-		d, err := DefaultsFor(c.role)
-		if err != nil {
-			t.Fatalf("%s: %v", c.role, err)
-		}
-		if d.Cadence != c.cadence || d.BlockSize != c.block || d.Budget != c.budget ||
-			d.Stall != c.stall || d.Timeout != c.timeout || d.StakeScale != c.stakeScale {
-			t.Errorf("%s defaults %+v", c.role, d)
-		}
-		if !strings.Contains(d.MemoShapes, c.shapes) {
-			t.Errorf("%s memo shapes %q, want %q", c.role, d.MemoShapes, c.shapes)
-		}
-		if d.Directive == "" || d.DefaultName == "" || d.DefaultBio == "" {
-			t.Errorf("%s defaults incomplete: %+v", c.role, d)
-		}
+	if d.Name == "" || d.Bio == "" {
+		t.Errorf("defaults incomplete: %+v", d)
 	}
 }
 
-func TestUnknownRoleRefusesNamingTheThree(t *testing.T) {
-	for _, in := range []string{"pirate", "", "ARCHITECT", "architect,worker"} {
-		_, err := ParseRole(in)
-		if err == nil {
-			t.Fatalf("ParseRole(%q) accepted", in)
-		}
-		for _, name := range []string{"architect", "worker", "reviewer"} {
-			if !strings.Contains(err.Error(), name) {
-				t.Errorf("ParseRole(%q) error %q does not name %q", in, err, name)
-			}
-		}
-	}
-	if got, err := ParseRole(" worker "); err != nil || got != Worker {
-		t.Errorf("trimmed role: %v, %v", got, err)
-	}
-}
-
-func TestNewRowAppliesDefaultsAndOverrides(t *testing.T) {
+func TestNewRowWithoutRole(t *testing.T) {
 	const wallet = "So11111111111111111111111111111111111111112"
-	row, err := NewRow(wallet, Worker, Overrides{Model: "dsv4"})
+	row, err := NewRow(wallet, Overrides{Model: "dsv4"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if row.ID != "@AP1112-worker" {
-		t.Errorf("id %s", row.ID)
+	if row.ID != "@AP1112" {
+		t.Errorf("id %s, want the wallet tag @AP1112", row.ID)
 	}
 	if row.Cadence != "0 */2 * * *" || row.BlockSize != "compact" || row.Budget != 0.5 ||
-		row.Stall != 30 || row.Timeout != 45 || row.StakeScale != 0.25 {
-		t.Errorf("role defaults not applied: %+v", row)
+		row.Stall != 30 || row.Timeout != 45 {
+		t.Errorf("defaults not applied: %+v", row)
 	}
-	if row.Voice != "mercenary" {
-		t.Errorf("voice %q, want the default personality", row.Voice)
+	if row.Name != "torch agent" || row.Model != "dsv4" {
+		t.Errorf("name/model: %+v", row)
 	}
-	if row.Name != "torch worker" {
-		t.Errorf("name %q", row.Name)
+	if row.Bio == "" || row.Wallet != wallet {
+		t.Errorf("bio/wallet: %+v", row)
 	}
+}
 
-	over, err := NewRow(wallet, Worker, Overrides{
+func TestNewRowOverrides(t *testing.T) {
+	const wallet = "So11111111111111111111111111111111111111112"
+	row, err := NewRow(wallet, Overrides{
 		Name: "Beta", Cadence: "0 1 * * *", Model: "qwen3.8-27b", Budget: 2.5,
-		Voice: "scout",
+		Stall: 45, Timeout: 90, Full: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if over.Name != "Beta" || over.Cadence != "0 1 * * *" || over.Model != "qwen3.8-27b" || over.Budget != 2.5 {
-		t.Errorf("overrides lost: %+v", over)
+	if row.Name != "Beta" || row.Cadence != "0 1 * * *" || row.Model != "qwen3.8-27b" || row.Budget != 2.5 {
+		t.Errorf("overrides lost: %+v", row)
 	}
-	if over.Voice != "scout" {
-		t.Errorf("voice override lost: %q", over.Voice)
+	if row.Stall != 45 || row.Timeout != 90 {
+		t.Errorf("stall/timeout overrides lost: %+v", row)
 	}
-	if over.Stall != 30 || over.Timeout != 45 || over.BlockSize != "compact" {
-		t.Errorf("role defaults clobbered by overrides: %+v", over)
-	}
-}
-
-func TestNewRowArchitectAndReviewer(t *testing.T) {
-	const wallet = "So11111111111111111111111111111111111111112"
-	for _, c := range []struct {
-		role Role
-		id   string
-	}{
-		{Architect, "@AP1112-architect"},
-		{Reviewer, "@AP1112-reviewer"},
-	} {
-		row, err := NewRow(wallet, c.role, Overrides{Model: "dsv4"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if row.ID != c.id {
-			t.Errorf("%s id %s, want %s", c.role, row.ID, c.id)
-		}
+	if row.BlockSize != "full" {
+		t.Errorf("block size %s, want the full override", row.BlockSize)
 	}
 }
 
 func TestNewRowRefusesMissingModel(t *testing.T) {
-	if _, err := NewRow("So11111111111111111111111111111111111111112", Worker, Overrides{}); err == nil || !strings.Contains(err.Error(), "model") {
+	if _, err := NewRow("So11111111111111111111111111111111111111112", Overrides{}); err == nil || !strings.Contains(err.Error(), "model") {
 		t.Errorf("missing model: %v", err)
 	}
 }
 
-func TestNewRowRefusesUnknownVoice(t *testing.T) {
-	_, err := NewRow("So11111111111111111111111111111111111111112", Worker, Overrides{Model: "dsv4", Voice: "pirate"})
-	if err == nil {
-		t.Fatal("unknown voice accepted")
+func TestUpsertOneRowPerWallet(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "identity.sqlite")
+	db, err := Store(path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, v := range Voices {
-		if !strings.Contains(err.Error(), v) {
-			t.Errorf("voice error does not name %s: %v", v, err)
-		}
+	defer db.DB.Close()
+	ctx := context.Background()
+	const wallet = "So11111111111111111111111111111111111111112"
+	if err := Upsert(ctx, db, Row{Name: "Alpha", Wallet: wallet, Model: "dsv4"}); err != nil {
+		t.Fatal(err)
+	}
+	// A second register for the same wallet is the same row, whatever id
+	// the caller names — one row per wallet, never two.
+	if err := Upsert(ctx, db, Row{Name: "Beta", Wallet: wallet, Model: "dsv4"}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := List(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows: %d, want 1 per wallet", len(rows))
+	}
+	if rows[0].ID != "@AP1112" || rows[0].Name != "Beta" {
+		t.Errorf("row: %+v", rows[0])
 	}
 }
 
-func TestTagMemoCarriesRole(t *testing.T) {
-	memo := TagMemo("worker", "claim: t3 — backed it")
-	if !strings.HasPrefix(memo, "[worker] ") {
-		t.Errorf("memo %q lacks the role tag", memo)
+func TestStoreMigrationFromV3DropsRoles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "identity.sqlite")
+	oldStatements := []string{
+		`CREATE TABLE IF NOT EXISTS identity (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			wallet TEXT NOT NULL,
+			bio TEXT NOT NULL,
+			personality TEXT NOT NULL,
+			role TEXT NOT NULL DEFAULT 'worker',
+			voice TEXT NOT NULL DEFAULT '',
+			cadence TEXT NOT NULL,
+			model TEXT NOT NULL,
+			stall INTEGER NOT NULL DEFAULT 0,
+			budget REAL NOT NULL DEFAULT 0,
+			timeout INTEGER NOT NULL DEFAULT 0,
+			block_size TEXT NOT NULL DEFAULT 'compact',
+			stake_scale REAL NOT NULL DEFAULT 1,
+			created_at TEXT NOT NULL
+		)`,
 	}
-	if !strings.Contains(memo, "claim: t3") {
-		t.Errorf("memo lost the text: %q", memo)
+	db, _, _, err := store.Open(path, oldStatements, 3)
+	if err != nil {
+		t.Fatal(err)
 	}
-}
+	const wallet = "So11111111111111111111111111111111111111112"
+	if _, err := db.DB.Exec(`INSERT INTO identity (id, name, wallet, bio, personality, role, voice, cadence, model, stall, budget, timeout, block_size, stake_scale, created_at)
+		VALUES ('@AP1112-worker', 'worker agent', ?, 'bio', 'mercenary', 'worker', 'mercenary', '0 */2 * * *', 'dsv4', 30, 0.5, 45, 'compact', 0.25, '2026-08-15T12:00:00Z')`, wallet); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.DB.Exec(`INSERT INTO identity (id, name, wallet, bio, personality, role, voice, cadence, model, stall, budget, timeout, block_size, stake_scale, created_at)
+		VALUES ('@AP1112-architect', 'arch agent', ?, 'bio2', 'scout', 'architect', 'scout', '0 12 * * *', 'dsv4', 90, 5, 120, 'full', 4, '2026-08-16T12:00:00Z')`, wallet); err != nil {
+		t.Fatal(err)
+	}
+	db.DB.Close()
 
-func TestStakeLamports(t *testing.T) {
-	if got := StakeLamports(0.25); got != 2_500_000 {
-		t.Errorf("0.25x stake %d, want 2500000", got)
+	open, err := Store(path)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := StakeLamports(4); got != 40_000_000 {
-		t.Errorf("4x stake %d, want 40000000", got)
+	defer open.DB.Close()
+	rows, err := List(context.Background(), open)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("migrated rows: %d, want 1 per wallet", len(rows))
+	}
+	row := rows[0]
+	if row.ID != "@AP1112" {
+		t.Errorf("migrated id %s, want the wallet tag", row.ID)
+	}
+	if row.Name != "arch agent" {
+		t.Errorf("migrated kept the wrong row: %+v", row)
+	}
+	if row.Cadence != "0 12 * * *" || row.BlockSize != "full" || row.Stall != 90 || row.Timeout != 120 || row.Budget != 5 {
+		t.Errorf("migrated row lost fields: %+v", row)
 	}
 }
 
@@ -190,13 +193,32 @@ func TestStoreMigrationFromV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if row.Role != "worker" {
-		t.Errorf("migrated role %q, want worker", row.Role)
-	}
-	if row.StakeScale != 1 {
-		t.Errorf("migrated stake scale %v, want 1", row.StakeScale)
-	}
-	if row.BlockSize != "compact" || row.Model != "dsv4" {
+	if row.Cadence != "0 */8 * * *" || row.Model != "dsv4" || row.Budget != 1.25 {
 		t.Errorf("migrated row lost fields: %+v", row)
+	}
+	if row.BlockSize != "compact" {
+		t.Errorf("block size %s", row.BlockSize)
+	}
+}
+
+func TestUpsertRefusesWalletTagCollision(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "identity.sqlite")
+	db, err := Store(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.DB.Close()
+	ctx := context.Background()
+	if err := Upsert(ctx, db, Row{Name: "A", Wallet: "So11111111111111111111111111111111111111112", Model: "dsv4"}); err != nil {
+		t.Fatal(err)
+	}
+	// A different wallet whose last 4 chars collide with the first must
+	// never silently re-own the row.
+	other := "9" + strings.Repeat("9", 39) + "1112"
+	if other == "So11111111111111111111111111111111111111112" {
+		t.Fatal("test wallet construction collides")
+	}
+	if err := Upsert(ctx, db, Row{Name: "B", Wallet: other, Model: "dsv4"}); err == nil {
+		t.Fatal("wallet tag collision accepted")
 	}
 }

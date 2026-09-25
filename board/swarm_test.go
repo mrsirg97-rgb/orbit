@@ -139,7 +139,7 @@ func openBoardStore(t *testing.T) (store.DB, *Store) {
 		t.Fatal(err)
 	}
 	tc, _ := boardTestClient(t, testMint)
-	st := &Store{Client: tc, DB: db, Role: "worker"}
+	st := &Store{Client: tc, DB: db}
 	return db, st
 }
 
@@ -183,21 +183,21 @@ func TestSwarmDrainAgainstRecordedLog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(claim, "[worker] claim 1") || !strings.HasPrefix(claim, "sigBoard") {
+	if !strings.Contains(claim, "claim 1") || !strings.HasPrefix(claim, "sigBoard") {
 		t.Errorf("claim reply: %s", claim)
 	}
 	complete, err := st.Complete(context.Background(), project, "1", "w1", true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(complete, "[worker] complete 1") {
+	if !strings.Contains(complete, "complete 1") {
 		t.Errorf("complete reply: %s", complete)
 	}
 	accept, err := st.Accept(context.Background(), project, "1", "r1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(accept, "[reviewer] accept 1") {
+	if !strings.Contains(accept, "accept 1") {
 		t.Errorf("accept reply: %s", accept)
 	}
 	board, err := st.BoardFromCache(context.Background(), project)
@@ -214,7 +214,7 @@ func TestSwarmDrainAgainstRecordedLog(t *testing.T) {
 	if len(dbFakeSent(st)) != 3 {
 		t.Errorf("sent txs: %d, want 3", len(dbFakeSent(st)))
 	}
-	for _, memo := range []string{"[worker] claim 1", "[worker] complete 1", "[reviewer] accept 1"} {
+	for _, memo := range []string{"claim 1", "complete 1", "accept 1"} {
 		if !strings.Contains(lastTxMemos(st), memo) {
 			t.Errorf("memo %q missing from the sent txs", memo)
 		}
@@ -228,9 +228,9 @@ func TestSwarmReapExpiredClaim(t *testing.T) {
 	old := now.Add(-Lease - time.Hour).Format(time.RFC3339)
 	seedRecordedLog(t, db, testMint, []client.MessageRow{
 		{Mint: testMint, MessageID: 1, Sender: "11111111111111111111111111111111111111111",
-			MemoText: "[architect] task 3: Reap me", Slot: 1, Signature: "sigT3", CreatedAt: old},
+			MemoText: "task 3: Reap me", Slot: 1, Signature: "sigT3", CreatedAt: old},
 		{Mint: testMint, MessageID: 2, Sender: "22222222222222222222222222222222222222222",
-			MemoText: "[worker] claim 3", Slot: 2, Signature: "sigC3", CreatedAt: old},
+			MemoText: "claim 3", Slot: 2, Signature: "sigC3", CreatedAt: old},
 	})
 	project := Project{Mint: testMint, Label: "torch test"}
 	reap, err := st.Reap(context.Background(), project, nil, "arch")
@@ -244,7 +244,7 @@ func TestSwarmReapExpiredClaim(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(claim, "[worker] claim 3") {
+	if !strings.Contains(claim, "claim 3") {
 		t.Errorf("re-claim reply: %s", claim)
 	}
 }
@@ -333,4 +333,40 @@ func compact(b []byte) (int, []byte, bool) {
 		return (v & 0x7f) | int(b[1])<<7, b[2:], true
 	}
 	return v, b[1:], true
+}
+
+func TestOpenMigratesV1Cache(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "board.sqlite")
+	old := []string{
+		`CREATE TABLE IF NOT EXISTS tasks (
+			project TEXT NOT NULL,
+			id TEXT NOT NULL,
+			title TEXT NOT NULL,
+			brief TEXT NOT NULL,
+			status TEXT NOT NULL,
+			owner TEXT NOT NULL,
+			claimed_at TEXT NOT NULL,
+			completed_at TEXT NOT NULL,
+			accepted_by TEXT NOT NULL,
+			rejected_by TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (project, id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`,
+	}
+	db, _, _, err := store.Open(path, old, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.DB.Close()
+	open, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer open.DB.Close()
+	if _, err := open.DB.Exec(`INSERT INTO tasks (project, id, title, brief, status, funder, owner, claimed_at, completed_at, accepted_by, rejected_by, created_at, updated_at)
+		VALUES ('p', '1', 't', '', 'pending', 'f', '', '', '', '', '', '', '')`); err != nil {
+		t.Fatalf("migrated cache rejects the funder column: %v", err)
+	}
 }

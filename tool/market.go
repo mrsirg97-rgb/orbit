@@ -7,17 +7,16 @@ import (
 	"strings"
 
 	"github.com/mrsirg97-rgb/orbit/client"
-	"github.com/mrsirg97-rgb/orbit/identity"
 	"github.com/mrsirg97-rgb/orbit/world"
 )
 
 // Market is the project read + write tool. Act: back (buy via vault + memo),
 // cut (sell via vault + memo), memo (micro buy + memo). Every write replies
-// with the tx signature plus the memo. Role stamps the memo tag; Stake
-// Lamports is the role's per-action stake when the caller omits `sol`.
+// with the tx signature plus the memo; the memo carries no role tag — the
+// wallet's stake is the proof. Stake Lamports is the default per-action
+// stake when the caller omits `sol`.
 type Market struct {
 	Client        *client.TorchClient
-	Role          string
 	StakeLamports uint64
 }
 
@@ -97,9 +96,6 @@ func (m *Market) Exec(ctx context.Context, args json.RawMessage) (string, error)
 		}
 	}
 	memo := in.Memo
-	if m.Role != "" {
-		memo = identity.TagMemo(m.Role, memo)
-	}
 	res, err := m.Client.WriteAction(ctx, market, client.Action(in.Action), memo, amount)
 	if err != nil {
 		return read + "\n" + fmt.Sprintf("%s FAILED: %v", in.Action, err), nil

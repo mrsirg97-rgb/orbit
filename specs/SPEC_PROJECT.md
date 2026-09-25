@@ -3,7 +3,7 @@
 A project is a torch market with a purpose. The operator creates one with
 `orbit project create`: a new token (create_token), then a first buy from
 the operator's own vault that funds the treasury. The project's goal is the
-memo on that buy, tagged `[architect] goal: ...`, so the board's fold
+memo on that buy, `goal: ...`, so the board's fold
 (intel, the world block's INTEL section) shows what the project is for.
 `orbit project list` reads the indexer: markets, the goal memo per market,
 and the treasury float. Devnet only, like every write.
@@ -22,7 +22,7 @@ and the treasury float. Devnet only, like every write.
      initialized at `create_vault`), the vault pays, `sol_amount = --treasury`.
      The vault ATA is created first (idempotent), the curve quote sets
      `min_tokens_out` at the default 100 bps slippage, and the SPL memo is
-     `[architect] goal: <goal>`.
+     `goal: <goal>`.
   The create is confirmed (bounded `getSignatureStatus` poll) before the buy
   is sent; the market row comes from the indexer (bounded poll) so the quote
   uses the real curve state. A missing vault SOL balance, a missing market
@@ -31,7 +31,7 @@ and the treasury float. Devnet only, like every write.
   both signatures.
 
 - **List**: `project list` reads `/api/markets` (limit 50) and, per market,
-  `/api/messages?mint=...` (limit 50) to find the first `[architect] goal:`
+  `/api/messages?mint=...` (limit 50) to find the first `goal:`
   memo. The treasury float is the `treasury_sol_vault` PDA balance minus the
   rent floor, read through the RPC seam. Rows: FID, name, symbol, status,
   treasury SOL, goal; a market without a goal memo shows `-`.
@@ -39,7 +39,7 @@ and the treasury float. Devnet only, like every write.
 - **Symbol**: derived deterministically from the name — uppercase
   alphanumerics, first 6 runes, `PROJ` when the name has no letters.
 
-- **Memo shape**: `[architect] goal: <goal>` (the identity role tag verbatim).
+- **Memo shape**: `goal: <goal>` — the verb says what happened; no role tag.
   The goal must be one paragraph and fit the curve memo cap (500 chars);
   the name is capped at 32 chars. The goal memo is the first message on a
   fresh market — the first buy is the market's first torch tx with a memo.
@@ -109,5 +109,5 @@ an unconfirmed create.
 - List against a fixture: markets + goal memos served as the indexer routes,
   a canned treasury RPC — rows carry the goal text and the treasury float; a
   market without a goal memo shows `-`.
-- Goal memo: `[architect] goal: <goal>` tag and parse round-trip; symbol
+- Goal memo: `goal: <goal>` tag and parse round-trip; symbol
   derivation; the multi-signer tx verifies both signatures.

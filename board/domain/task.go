@@ -18,6 +18,7 @@ type Task struct {
 	ClaimedAt   string `db:"claimed_at"`
 	CompletedAt string `db:"completed_at"`
 	CreatedAt   string `db:"created_at"`
+	Funder      string `db:"funder"`
 	Owner       string `db:"owner"`
 	RejectedBy  string `db:"rejected_by"`
 	Status      string `db:"status"`
@@ -50,6 +51,7 @@ func ScanTask(row lazy.ScanRow) (Task, error) {
 		&out.ClaimedAt,
 		&out.CompletedAt,
 		&out.CreatedAt,
+		&out.Funder,
 		&out.Owner,
 		&out.RejectedBy,
 		&out.Status,
@@ -79,7 +81,7 @@ func (d *taskDomain) GetTask(ctx context.Context, project string, id string) *la
 		return l
 	}
 	row := tx.QueryRowContext(ctx,
-		`SELECT "project", "id", "accepted_by", "brief", "claimed_at", "completed_at", "created_at", "owner", "rejected_by", "status", "title", "updated_at" FROM "tasks" WHERE "project" = $1 AND "id" = $2`,
+		`SELECT "project", "id", "accepted_by", "brief", "claimed_at", "completed_at", "created_at", "funder", "owner", "rejected_by", "status", "title", "updated_at" FROM "tasks" WHERE "project" = $1 AND "id" = $2`,
 		project,
 		id,
 	)
@@ -104,7 +106,7 @@ func (d *taskDomain) WindowTaskByProject(ctx context.Context, project string, fr
 		return l
 	}
 	rows, err := tx.QueryContext(ctx,
-		`SELECT "project", "id", "accepted_by", "brief", "claimed_at", "completed_at", "created_at", "owner", "rejected_by", "status", "title", "updated_at" FROM "tasks" WHERE "project" = $1 AND "id" >= $2 AND "id" < $3 ORDER BY "project", "id" LIMIT $4`,
+		`SELECT "project", "id", "accepted_by", "brief", "claimed_at", "completed_at", "created_at", "funder", "owner", "rejected_by", "status", "title", "updated_at" FROM "tasks" WHERE "project" = $1 AND "id" >= $2 AND "id" < $3 ORDER BY "project", "id" LIMIT $4`,
 		project,
 		from, to, limit,
 	)
@@ -138,7 +140,7 @@ func (d *taskDomain) PageTaskByProject(ctx context.Context, project string, afte
 		return l
 	}
 	rows, err := tx.QueryContext(ctx,
-		`SELECT "project", "id", "accepted_by", "brief", "claimed_at", "completed_at", "created_at", "owner", "rejected_by", "status", "title", "updated_at" FROM "tasks" WHERE "project" = $1 AND "id" > $2 ORDER BY "project", "id" LIMIT $3`,
+		`SELECT "project", "id", "accepted_by", "brief", "claimed_at", "completed_at", "created_at", "funder", "owner", "rejected_by", "status", "title", "updated_at" FROM "tasks" WHERE "project" = $1 AND "id" > $2 ORDER BY "project", "id" LIMIT $3`,
 		project,
 		after, limit,
 	)
@@ -169,7 +171,7 @@ func (d *taskDomain) InsertTask(ctx context.Context, row Task) (*Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `INSERT INTO "tasks" ("project", "id", "accepted_by", "brief", "claimed_at", "completed_at", "created_at", "owner", "rejected_by", "status", "title", "updated_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING "project", "id", "accepted_by", "brief", "claimed_at", "completed_at", "created_at", "owner", "rejected_by", "status", "title", "updated_at"`,
+	rows, err := tx.QueryContext(ctx, `INSERT INTO "tasks" ("project", "id", "accepted_by", "brief", "claimed_at", "completed_at", "created_at", "funder", "owner", "rejected_by", "status", "title", "updated_at") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING "project", "id", "accepted_by", "brief", "claimed_at", "completed_at", "created_at", "funder", "owner", "rejected_by", "status", "title", "updated_at"`,
 		row.Project,
 		row.Id,
 		row.AcceptedBy,
@@ -177,6 +179,7 @@ func (d *taskDomain) InsertTask(ctx context.Context, row Task) (*Task, error) {
 		row.ClaimedAt,
 		row.CompletedAt,
 		row.CreatedAt,
+		row.Funder,
 		row.Owner,
 		row.RejectedBy,
 		row.Status,
@@ -194,7 +197,7 @@ func (d *taskDomain) DeleteTask(ctx context.Context, project string, id string) 
 	if err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `DELETE FROM "tasks" WHERE "project" = $1 AND "id" = $2 RETURNING "project", "id", "accepted_by", "brief", "claimed_at", "completed_at", "created_at", "owner", "rejected_by", "status", "title", "updated_at"`,
+	rows, err := tx.QueryContext(ctx, `DELETE FROM "tasks" WHERE "project" = $1 AND "id" = $2 RETURNING "project", "id", "accepted_by", "brief", "claimed_at", "completed_at", "created_at", "funder", "owner", "rejected_by", "status", "title", "updated_at"`,
 		project,
 		id,
 	)
@@ -209,12 +212,13 @@ func (d *taskDomain) UpdateTask(ctx context.Context, row Task) (*Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `UPDATE "tasks" SET "accepted_by" = $1, "brief" = $2, "claimed_at" = $3, "completed_at" = $4, "created_at" = $5, "owner" = $6, "rejected_by" = $7, "status" = $8, "title" = $9, "updated_at" = $10 WHERE "project" = $11 AND "id" = $12 RETURNING "project", "id", "accepted_by", "brief", "claimed_at", "completed_at", "created_at", "owner", "rejected_by", "status", "title", "updated_at"`,
+	rows, err := tx.QueryContext(ctx, `UPDATE "tasks" SET "accepted_by" = $1, "brief" = $2, "claimed_at" = $3, "completed_at" = $4, "created_at" = $5, "funder" = $6, "owner" = $7, "rejected_by" = $8, "status" = $9, "title" = $10, "updated_at" = $11 WHERE "project" = $12 AND "id" = $13 RETURNING "project", "id", "accepted_by", "brief", "claimed_at", "completed_at", "created_at", "funder", "owner", "rejected_by", "status", "title", "updated_at"`,
 		row.AcceptedBy,
 		row.Brief,
 		row.ClaimedAt,
 		row.CompletedAt,
 		row.CreatedAt,
+		row.Funder,
 		row.Owner,
 		row.RejectedBy,
 		row.Status,

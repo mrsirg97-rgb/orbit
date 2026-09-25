@@ -7,16 +7,15 @@ import (
 	"time"
 
 	"github.com/mrsirg97-rgb/orbit/board/domain"
-	"github.com/mrsirg97-rgb/orbit/identity"
 )
 
 // The swarm surface: rig's board seam, chain-backed. The vocabulary is the
 // todo store's swarm surface verbatim — claim / note / complete / accept /
 // reject / reap — so a drain worker works on a chain board with no change
 // to rig: claim is the memo, the lease is the fold's expiry, and reap
-// returns expired claims to pending. The roles are the surface's own (a
-// worker drain claims and completes, a reviewer drain verdicts, the
-// supervisor's notes are the architect's), never the agent's row.
+// returns expired claims to pending. The surface has no roles: any wallet
+// may claim, note, complete, and reject; accept is honoured only from the
+// task's funder (the fold decides).
 
 // Claim takes the first pending task on the live board and writes the
 // claim memo + micro buy. Nothing to do when no task is pending.
@@ -31,33 +30,34 @@ func (s *Store) Claim(ctx context.Context, p Project, session string) (string, e
 	if id == 0 {
 		return "nothing to do", nil
 	}
-	return s.Act(ctx, p, Shape{Role: string(identity.Worker), Verb: "claim", ID: id})
+	return s.Act(ctx, p, Shape{Verb: "claim", ID: id})
 }
 
-// Note appends the supervisor's finding to a task: notes are how agents
+// Note appends a contributor's finding to a task: notes are how agents
 // talk about shared work, so no hold is needed.
 func (s *Store) Note(ctx context.Context, p Project, id, text, session string) (string, error) {
 	taskID, ok := parseMemoID(id)
 	if !ok {
 		return "", fmt.Errorf("board note: bad task id %q", id)
 	}
-	return s.Act(ctx, p, Shape{Role: string(identity.Architect), Verb: "note", ID: taskID, Text: text})
+	return s.Act(ctx, p, Shape{Verb: "note", ID: taskID, Text: text})
 }
 
-// Complete submits a claimed task for review. A worker drain completes
-// with worker=true; the interactive path lands done directly (the accept
-// memo follows the complete, so the log stays uniform).
+// Complete submits a claimed task for review. A drain completes with
+// worker=true; the interactive path lands done directly (the accept memo
+// follows the complete, so the log stays uniform) — the fold honours the
+// accept only when the caller is the task's funder.
 func (s *Store) Complete(ctx context.Context, p Project, id, session string, worker bool) (string, error) {
 	taskID, ok := parseMemoID(id)
 	if !ok {
 		return "", fmt.Errorf("board complete: bad task id %q", id)
 	}
-	reply, err := s.Act(ctx, p, Shape{Role: string(identity.Worker), Verb: "complete", ID: taskID})
+	reply, err := s.Act(ctx, p, Shape{Verb: "complete", ID: taskID})
 	if err != nil {
 		return "", err
 	}
 	if !worker {
-		accept, err := s.Act(ctx, p, Shape{Role: string(identity.Architect), Verb: "accept", ID: taskID})
+		accept, err := s.Act(ctx, p, Shape{Verb: "accept", ID: taskID})
 		if err != nil {
 			return "", err
 		}
@@ -66,23 +66,24 @@ func (s *Store) Complete(ctx context.Context, p Project, id, session string, wor
 	return reply, nil
 }
 
-// Accept verdicts a review task as done.
+// Accept writes the accept memo. The fold honours it only from the task's
+// funder — a non-funder's accept is a memo that does not move the state.
 func (s *Store) Accept(ctx context.Context, p Project, id, session string) (string, error) {
 	taskID, ok := parseMemoID(id)
 	if !ok {
 		return "", fmt.Errorf("board accept: bad task id %q", id)
 	}
-	return s.Act(ctx, p, Shape{Role: string(identity.Reviewer), Verb: "accept", ID: taskID})
+	return s.Act(ctx, p, Shape{Verb: "accept", ID: taskID})
 }
 
-// Reject verdicts a review task back to pending; the reason rides the
-// reject memo and lands in the task's notes.
+// Reject writes the dissent memo; the reason rides the reject memo and
+// lands in the task's notes. The fold honours it from anyone.
 func (s *Store) Reject(ctx context.Context, p Project, id, reason, session string) (string, error) {
 	taskID, ok := parseMemoID(id)
 	if !ok {
 		return "", fmt.Errorf("board reject: bad task id %q", id)
 	}
-	return s.Act(ctx, p, Shape{Role: string(identity.Reviewer), Verb: "reject", ID: taskID, Text: reason})
+	return s.Act(ctx, p, Shape{Verb: "reject", ID: taskID, Text: reason})
 }
 
 // Reap returns expired claims to pending. The lease is the fold's expiry:
@@ -91,7 +92,7 @@ func (s *Store) Reject(ctx context.Context, p Project, id, reason, session strin
 // lease whose task is pending — the expiry materialized). The ended-session
 // arm is the todo store's, not the chain's: the chain has no sessions, only
 // leases.
-func (s *Store) Reap(ctx context.Context, p Project, ended []string, architect string) (string, error) {
+func (s *Store) Reap(ctx context.Context, p Project, ended []string, funder string) (string, error) {
 	if err := s.Sync(ctx, p, 100); err != nil {
 		return "", err
 	}

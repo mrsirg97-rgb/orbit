@@ -23,7 +23,7 @@ func TestGoalMemoRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if memo != "[architect] goal: Research whether sentiment predicts price." {
+	if memo != "goal: Research whether sentiment predicts price." {
 		t.Errorf("memo: %q", memo)
 	}
 	goal, ok := GoalFrom(memo)
@@ -195,7 +195,7 @@ func TestListPrefersFirstGoalMemo(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(rows[0].Goal, "Research how much") {
-		t.Errorf("goal not the first [architect] memo: %q", rows[0].Goal)
+		t.Errorf("goal not the first goal memo: %q", rows[0].Goal)
 	}
 }
 
@@ -284,7 +284,7 @@ func TestCreateSendsCreateThenBuyWithGoalMemo(t *testing.T) {
 	if res.Symbol != "CONTEX" {
 		t.Errorf("symbol: %s", res.Symbol)
 	}
-	if res.Goal != "[architect] goal: Research whether sentiment predicts price." {
+	if res.Goal != "goal: Research whether sentiment predicts price." {
 		t.Errorf("goal memo: %q", res.Goal)
 	}
 	create := rpc.sent[0]
@@ -302,7 +302,7 @@ func TestCreateSendsCreateThenBuyWithGoalMemo(t *testing.T) {
 		t.Error("create tx lacks the create_token discriminator")
 	}
 	buy := rpc.sent[1]
-	if !bytes.Contains(buy, []byte("[architect] goal: Research whether sentiment predicts price.")) {
+	if !bytes.Contains(buy, []byte("goal: Research whether sentiment predicts price.")) {
 		t.Error("buy tx lacks the goal memo")
 	}
 	buyDisc, err := tc.IDL.Discriminator("buy_via_vault")

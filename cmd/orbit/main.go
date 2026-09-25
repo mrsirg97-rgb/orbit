@@ -92,17 +92,17 @@ func runWorker(args []string) int {
 	if err != nil {
 		die("%v", err)
 	}
-	role, stake := workerIdentity()
+	stake := workerIdentity()
 	bs, err := board.Open(board.StorePath(rigHome()))
 	if err != nil {
 		die("board store: %v", err)
 	}
 	defer bs.DB.Close()
 	tools := []core.Tool{
-		&tool.Market{Client: tc, Role: role, StakeLamports: stake},
+		&tool.Market{Client: tc, StakeLamports: stake},
 		&tool.Intel{Client: tc},
 		&tool.Wallet{Client: tc},
-		&tool.Board{Store: &board.Store{Client: tc, DB: bs, Role: role}, Client: tc, Role: role},
+		&tool.Board{Store: &board.Store{Client: tc, DB: bs}, Client: tc},
 	}
 	if *allow != "" {
 		allowed := map[string]bool{}
@@ -156,15 +156,7 @@ func runJob(args []string) int {
 	if err != nil {
 		die("run-job: %v", err)
 	}
-	d, err := identity.DefaultsFor(identity.Role(row.Role))
-	if err != nil {
-		die("run-job: %v", err)
-	}
-	snap, err := tool.Snapshot(ctx, tc, world.Identity{
-		Name: row.Name, Bio: row.Bio, Personality: row.Personality,
-		Role: row.Role, Directive: d.Directive, MemoShapes: d.MemoShapes,
-		Stake: identity.StakeLamports(row.StakeScale), Voice: row.Voice,
-	})
+	snap, err := tool.Snapshot(ctx, tc, world.Identity{Name: row.Name, Bio: row.Bio})
 	if err != nil {
 		die("run-job: brief: %v", err)
 	}
@@ -219,16 +211,13 @@ func runJob(args []string) int {
 func runAgent(args []string) int {
 	fs := flag.NewFlagSet("agent", flag.ContinueOnError)
 	aaction := fs.String("action", "register", "register | refresh | show | list")
-	roleFlag := fs.String("role", "", "architect | worker | reviewer (required for register)")
-	voice := fs.String("voice", "", "loyalist | mercenary | provocateur | scout | whale (colors the memo tone only)")
-	name := fs.String("name", "", "agent display name (default from role)")
+	name := fs.String("name", "", "agent display name")
 	bio := fs.String("bio", "", "agent bio")
-	personality := fs.String("personality", "mercenary", "loyalist | mercenary | provocateur | scout | whale")
-	cadence := fs.String("cadence", "", "5-field cron (default from role)")
+	cadence := fs.String("cadence", "", "5-field cron")
 	model := fs.String("model", "", "worker model (required)")
-	stall := fs.Int("stall", 0, "stall minutes (0 = role default)")
-	budget := fs.Float64("budget", 0, "dollar budget cap (0 = role default)")
-	timeout := fs.Int("timeout", 0, "timeout minutes (0 = role default)")
+	stall := fs.Int("stall", 0, "stall minutes")
+	budget := fs.Float64("budget", 0, "dollar budget cap")
+	timeout := fs.Int("timeout", 0, "timeout minutes")
 	full := fs.Bool("full", false, "register with the full world block")
 	fs.SetOutput(os.Stderr)
 	// The action is the first positional; flags follow it (flag.Parse stops at
@@ -253,15 +242,11 @@ func runAgent(args []string) int {
 		if err != nil {
 			die("%v", err)
 		}
-		role, err := identity.ParseRole(*roleFlag)
-		if err != nil {
-			die("%v", err)
-		}
 		if *model == "" {
 			die("agent: -model required")
 		}
-		row, err := identity.NewRow(tc.AgentPublic(), role, identity.Overrides{
-			Name: *name, Bio: *bio, Personality: *personality, Voice: *voice,
+		row, err := identity.NewRow(tc.AgentPublic(), identity.Overrides{
+			Name: *name, Bio: *bio,
 			Cadence: *cadence, Model: *model, Budget: *budget,
 			Stall: *stall, Timeout: *timeout, Full: *full,
 		})
@@ -303,14 +288,14 @@ func runAgent(args []string) int {
 		}
 		sdb := schedStore()
 		defer sdb.DB.Close()
-		fmt.Printf("%-22s %-10s %-16s %-8s %-12s %-8s %-8s %s\n", "ID", "ROLE", "NAME", "MODEL", "CADENCE", "BLOCK", "BUDGET", "JOB")
+		fmt.Printf("%-22s %-16s %-8s %-12s %-8s %-8s %s\n", "ID", "NAME", "MODEL", "CADENCE", "BLOCK", "BUDGET", "JOB")
 		for _, row := range rows {
 			jobID := findJobID(ctx, sdb, agent.JobName(row.ID))
 			if jobID == "" {
 				jobID = "-"
 			}
-			fmt.Printf("%-22s %-10s %-16s %-8s %-12s %-8s $%-7.2f %s\n",
-				row.ID, row.Role, row.Name, row.Model, row.Cadence, row.BlockSize, row.Budget, jobID)
+			fmt.Printf("%-22s %-16s %-8s %-12s %-8s $%-7.2f %s\n",
+				row.ID, row.Name, row.Model, row.Cadence, row.BlockSize, row.Budget, jobID)
 		}
 		return 0
 	default:
@@ -324,17 +309,9 @@ func ensureJob(ctx context.Context, idb store.DB, row identity.Row) int {
 }
 
 func ensureJobAction(ctx context.Context, idb store.DB, row identity.Row, action string) int {
-	// The stored prompt is a stub naming the identity and its role; the live
-	// world block is rebuilt per fire by run-job.
-	d, err := identity.DefaultsFor(identity.Role(row.Role))
-	if err != nil {
-		die("%v", err)
-	}
-	block := world.StubBlock(world.Identity{
-		Name: row.Name, Bio: row.Bio, Personality: row.Personality,
-		Role: row.Role, Directive: d.Directive, MemoShapes: d.MemoShapes,
-		Stake: identity.StakeLamports(row.StakeScale), Voice: row.Voice,
-	})
+	// The stored prompt is a stub naming the identity; the live world block
+	// is rebuilt per fire by run-job.
+	block := world.StubBlock(world.Identity{Name: row.Name, Bio: row.Bio})
 	self, err := os.Executable()
 	if err != nil {
 		die("%v", err)
@@ -366,9 +343,6 @@ func printAgent(ctx context.Context, idb store.DB, row identity.Row) int {
 	fmt.Printf("AGENT      %s\n", row.ID)
 	fmt.Printf("NAME       %s\n", row.Name)
 	fmt.Printf("WALLET     %s\n", row.Wallet)
-	fmt.Printf("ROLE       %s\n", row.Role)
-	fmt.Printf("VOICE      %s\n", row.Voice)
-	fmt.Printf("PERSONALITY %s\n", row.Personality)
 	fmt.Printf("BIO        %s\n", row.Bio)
 	fmt.Printf("CADENCE    %s\n", row.Cadence)
 	fmt.Printf("MODEL      %s\n", row.Model)
@@ -376,7 +350,6 @@ func printAgent(ctx context.Context, idb store.DB, row identity.Row) int {
 	fmt.Printf("BUDGET     $%.2f\n", row.Budget)
 	fmt.Printf("STALL      %dm\n", row.Stall)
 	fmt.Printf("TIMEOUT    %dm\n", row.Timeout)
-	fmt.Printf("STAKE      %.2fx (%s SOL per action)\n", row.StakeScale, client.FormatSOL(identity.StakeLamports(row.StakeScale)))
 	fmt.Printf("CREATED    %s\n", row.CreatedAt)
 	sdb := schedStore()
 	defer sdb.DB.Close()
@@ -468,7 +441,7 @@ func runSnapshot(args []string) int {
 	if err != nil {
 		die("%v", err)
 	}
-	snap, err := tool.Snapshot(context.Background(), tc, world.Identity{Name: "@AP" + walletSuffix(tc.AgentPublic()), Bio: "torch agent", Personality: "mercenary", Role: "worker", Directive: "claims and completes tasks", MemoShapes: "claim | note | complete", Stake: identity.StakeLamports(0.25), Voice: "mercenary"})
+	snap, err := tool.Snapshot(context.Background(), tc, world.Identity{Name: "@AP" + walletSuffix(tc.AgentPublic()), Bio: "torch agent"})
 	if err != nil {
 		die("snapshot: %v", err)
 	}
@@ -538,26 +511,23 @@ func walletSuffix(pubkey string) string {
 	return strings.ToUpper(s)
 }
 
-// workerIdentity resolves the worker's role and per-action stake. The
-// scheduler fire sets ORBIT_AGENT_ID (run-job); direct -p use falls back to
-// the newest row, and without any row the tools run untagged.
-func workerIdentity() (string, uint64) {
+// workerIdentity resolves the worker's per-action stake — one set of
+// defaults, no roles. The scheduler fire sets ORBIT_AGENT_ID (run-job);
+// direct -p use falls back to the newest row, and without any row the
+// tools run with no default stake.
+func workerIdentity() uint64 {
 	ctx := context.Background()
 	idb := identityStore()
 	defer idb.DB.Close()
 	id := os.Getenv("ORBIT_AGENT_ID")
-	var row identity.Row
-	var err error
 	if id != "" {
-		row, err = identity.GetByID(ctx, idb, id)
-		if err != nil {
+		if _, err := identity.GetByID(ctx, idb, id); err != nil {
 			die("worker: identity %s: %v", id, err)
 		}
 	} else {
-		row, err = identity.Get(ctx, idb)
-		if err != nil {
-			return "", 0
+		if _, err := identity.Get(ctx, idb); err != nil {
+			return 0
 		}
 	}
-	return row.Role, identity.StakeLamports(row.StakeScale)
+	return identity.BaseStakeLamports
 }

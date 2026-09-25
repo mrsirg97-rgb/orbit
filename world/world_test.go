@@ -31,7 +31,7 @@ func fixtureReadState() ReadState {
 		{Mint: "6c1GnPmJ6Wn9T3lD0S2vX1wO5uF4zK7hY9bMeE2gI3qN", Name: "India", Symbol: "IND", Status: "BONDING", PriceSOL: 0.00004, MCAPSOL: 40000},
 	}
 	return ReadState{
-		Identity: Identity{Name: "@AP2B3A", Bio: "A torch market agent. Reads, posts, and trades with conviction.", Personality: "mercenary", Role: "worker", Directive: "claims and completes tasks", MemoShapes: "claim | note | complete", Stake: 2_500_000, Voice: "mercenary"},
+		Identity: Identity{Name: "@AP2B3A", Bio: "A torch market agent. Reads, posts, and trades with conviction."},
 		PnL: PnlSummary{
 			TotalRealizedPnl: 2_500_000,
 			ByMint: []PnlByMint{
@@ -161,7 +161,7 @@ func TestProjection(t *testing.T) {
 	}
 }
 
-func TestRoleRidesTheBlock(t *testing.T) {
+func TestYouAreDescribesTheWallet(t *testing.T) {
 	read := fixtureReadState()
 	for _, size := range []Size{Compact, Full} {
 		got, err := Build(read, size)
@@ -169,10 +169,9 @@ func TestRoleRidesTheBlock(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, want := range []string{
-			"ROLE: worker — claims and completes tasks",
-			"MEMO SHAPES: claim | note | complete",
-			"STAKE: 0.0025 SOL per action.",
-			"VOICE: Lone wolf. Every angle is a trade; drop alpha only when it pays.",
+			"NAME: @AP2B3A",
+			"PNL: +0.0025 SOL realized.",
+			"POSITIONS: rNjTjmVx long at_risk 0.0050 SOL.",
 		} {
 			if !strings.Contains(got, want) {
 				name := "compact"
@@ -180,6 +179,15 @@ func TestRoleRidesTheBlock(t *testing.T) {
 					name = "full"
 				}
 				t.Errorf("%s block missing %q", name, want)
+			}
+		}
+		for _, gone := range []string{"ROLE:", "MEMO SHAPES:", "VOICE:", "PERSONALITY:", "STAKE:"} {
+			if strings.Contains(got, gone) {
+				name := "compact"
+				if size == Full {
+					name = "full"
+				}
+				t.Errorf("%s block still carries %q", name, gone)
 			}
 		}
 	}

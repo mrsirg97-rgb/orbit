@@ -4,8 +4,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/mrsirg97-rgb/orbit/identity"
 )
 
 // Lease is the claim's expiry: a claim older than this is inapplicable at
@@ -28,13 +26,15 @@ type Note struct {
 	At     string
 }
 
-// Task is the fold's state for one task id on a project.
+// Task is the fold's state for one task id on a project. Funder is the
+// wallet that posted and funded the task — the wallet whose accept counts.
 type Task struct {
 	Project     string
 	ID          int
 	Title       string
 	Brief       string
 	Status      string
+	Funder      string
 	Owner       string
 	ClaimedAt   string
 	CompletedAt string
@@ -46,9 +46,13 @@ type Task struct {
 }
 
 // Fold is the pure board fold: a project's parsed memo log in log order
-// applied to the task board. Malformed, foreign, or inapplicable memos are
-// skipped, never thrown; the lease is the one stateful-looking rule and it
-// is pure — a claim older than Lease does not apply.
+// applied to the task board. Ownership and stake decide, never a label:
+// the task memo's sender is the task's funder (brief and accept count only
+// from the funder), while claim, note, complete, and reject are honoured
+// from anyone whose memo is in the log — gated only by task state.
+// Malformed, foreign, or inapplicable memos are skipped, never thrown; the
+// lease is the one stateful-looking rule and it is pure — a claim older
+// than Lease does not apply.
 func Fold(project string, memos []Memo, now time.Time) []Task {
 	states := map[int]*Task{}
 	for _, m := range memos {
@@ -62,7 +66,7 @@ func Fold(project string, memos []Memo, now time.Time) []Task {
 			}
 			states[m.ID] = &Task{
 				Project: project, ID: m.ID, Title: m.Text, Status: StatusPending,
-				CreatedAt: m.At, UpdatedAt: m.At,
+				Funder: m.Sender, CreatedAt: m.At, UpdatedAt: m.At,
 			}
 			continue
 		}
@@ -71,13 +75,14 @@ func Fold(project string, memos []Memo, now time.Time) []Task {
 			// The id exists: a second create is inapplicable (never re-own).
 			continue
 		case "brief":
-			if st.Brief != "" || m.Role != string(identity.Architect) {
+			// The brief is the funder's: ownership, not a role.
+			if st.Brief != "" || m.Sender != st.Funder {
 				continue
 			}
 			st.Brief = m.Text
 			st.UpdatedAt = m.At
 		case "claim":
-			if st.Status != StatusPending || m.Role != string(identity.Worker) {
+			if st.Status != StatusPending {
 				continue
 			}
 			if now.Sub(parseAt(m.At)) > Lease {
@@ -91,21 +96,27 @@ func Fold(project string, memos []Memo, now time.Time) []Task {
 			st.Notes = append(st.Notes, Note{Sender: m.Sender, Text: m.Text, At: m.At})
 			st.UpdatedAt = m.At
 		case "complete":
-			if st.Status != StatusActive || st.Owner != m.Sender || m.Role != string(identity.Worker) {
+			// Honoured from anyone who paid for the memo: only the state
+			// gate stays — the task must be active.
+			if st.Status != StatusActive {
 				continue
 			}
 			st.Status = StatusReview
 			st.CompletedAt = m.At
 			st.UpdatedAt = m.At
 		case "accept":
-			if st.Status != StatusReview || (m.Role != string(identity.Architect) && m.Role != string(identity.Reviewer)) {
+			// Only the wallet that posted and funded the task accepts.
+			if st.Status != StatusReview || m.Sender != st.Funder {
 				continue
 			}
 			st.Status = StatusDone
 			st.AcceptedBy = m.Sender
 			st.UpdatedAt = m.At
 		case "reject":
-			if st.Status != StatusReview || m.Role != string(identity.Reviewer) {
+			// Reject is dissent, honoured from anyone who paid; the reason
+			// lands in the notes. A short (reject plus a vault-routed short
+			// on the project) is a later PR.
+			if st.Status != StatusReview {
 				continue
 			}
 			st.Status = StatusPending
@@ -126,11 +137,11 @@ func Fold(project string, memos []Memo, now time.Time) []Task {
 	return tasks
 }
 
-// ParseAllowed reports a memo whose shape is in the grammar (role + verb +
-// id): the fold applies only allowed shapes. Goal memos and malformed rows
+// ParseAllowed reports a memo whose shape is in the grammar (verb + id):
+// the fold applies only allowed shapes. Goal memos and malformed rows
 // return false — replay is total, inapplicable rows are skipped.
 func ParseAllowed(m Memo) bool {
-	if !validVerb(m.Verb) || !roleAllowed(m.Role, m.Verb) {
+	if !validVerb(m.Verb) {
 		return false
 	}
 	if m.ID <= 0 {
@@ -161,7 +172,7 @@ func NextID(tasks []Task) int {
 // GoalFrom parses the project goal memo.
 func GoalFrom(memo string) (string, bool) {
 	rest := strings.TrimSpace(memo)
-	const tag = "[architect] goal:"
+	const tag = "goal:"
 	if !strings.HasPrefix(rest, tag) {
 		return "", false
 	}

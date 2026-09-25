@@ -43,6 +43,23 @@ func New(cfg Config) (*TorchClient, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
+	return wire(cfg)
+}
+
+// NewRead wires the read-only client: no vault creator, no agent key — a
+// read needs only the RPC endpoint (the indexer stays optional). The
+// devnet-only gate still holds: a non-devnet program id refuses.
+func NewRead(cfg Config) (*TorchClient, error) {
+	if cfg.RPC == "" {
+		return nil, errors.New("config: rpc required")
+	}
+	if cfg.ProgramID != DevnetProgramID {
+		return nil, fmt.Errorf("config: program %s is not the devnet program %s (devnet only)", cfg.ProgramID, DevnetProgramID)
+	}
+	return wire(cfg)
+}
+
+func wire(cfg Config) (*TorchClient, error) {
 	id, err := idl.LoadIDL()
 	if err != nil {
 		return nil, err

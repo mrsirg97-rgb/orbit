@@ -13,12 +13,11 @@ import (
 // Board is the shared-board tool: read a project's board, or act — task,
 // brief, claim, note, complete, accept, reject. Every act is one memo + one
 // vault-routed micro buy; the reply carries the tx signature plus the memo.
-// The role comes from the identity row (the tool refuses a verb the row's
-// memo shapes do not name).
+// No roles: any wallet may act — the fold decides ownership (the funder's
+// accept) and stake.
 type Board struct {
 	Store  *board.Store
 	Client *client.TorchClient
-	Role   string
 }
 
 func (b *Board) Name() string { return "board" }
@@ -62,10 +61,7 @@ func (b *Board) Exec(ctx context.Context, args json.RawMessage) (string, error) 
 	if in.Action == "" {
 		return b.Store.Board(ctx, project)
 	}
-	if !board.Allowed(b.Role, in.Action) {
-		return "", fmt.Errorf("board: role %s cannot %s", b.Role, in.Action)
-	}
-	shape := board.Shape{Role: b.Role, Verb: in.Action, ID: in.ID, Text: in.Text}
+	shape := board.Shape{Verb: in.Action, ID: in.ID, Text: in.Text}
 	if in.Action == "task" && in.ID == 0 {
 		next, err := b.Store.NextID(ctx, project)
 		if err != nil {

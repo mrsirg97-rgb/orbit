@@ -1,8 +1,7 @@
-// Package identity is the agent's local identity row: name, wallet, role,
-// bio, personality, voice, cadence, model, and the job's stall/budget/
-// timeout. One row per (wallet, role) — the role suffix is the agent id, so
-// one wallet can host an architect, a worker, and a reviewer side by side.
-// The on-chain AgentProfile checkpoint is a later PR.
+// Package identity is the agent's local identity row: name, wallet, bio,
+// cadence, model, and the job's stall/budget/timeout. One row per wallet —
+// the wallet is the agent's identity, never a role label. The on-chain
+// AgentProfile checkpoint is a later PR.
 package identity
 
 import (
@@ -15,185 +14,81 @@ import (
 	"github.com/mrsirg97-rgb/rig/store"
 )
 
-// Role is rig's swarm role carried onto the chain. The role owns cadence,
-// world size, budget, stall, timeout, and stake scale; it never changes with
-// the voice.
-type Role string
-
-const (
-	Architect Role = "architect"
-	Worker    Role = "worker"
-	Reviewer  Role = "reviewer"
-)
-
-func (r Role) Valid() bool {
-	return r == Architect || r == Worker || r == Reviewer
+// RegisterDefaults is the one set of register defaults: cadence, world
+// size, budget, stall, and timeout. No roles — every wallet registers with
+// the same sensible defaults unless the flags override them.
+type RegisterDefaults struct {
+	Name      string
+	Bio       string
+	Cadence   string
+	BlockSize string
+	Budget    float64
+	Stall     int
+	Timeout   int
 }
 
-// ParseRole accepts exactly one of the three roles; anything else refuses
-// naming the three.
-func ParseRole(s string) (Role, error) {
-	r := Role(strings.TrimSpace(s))
-	if r.Valid() {
-		return r, nil
-	}
-	if s == "" {
-		return "", fmt.Errorf("identity: role required (architect, worker, reviewer)")
-	}
-	return "", fmt.Errorf("identity: unknown role %q (architect, worker, reviewer)", s)
+var defaults = RegisterDefaults{
+	Name:      "torch agent",
+	Bio:       "A torch contributor. Proposes and funds tasks, claims and completes work, verdicts with a reason.",
+	Cadence:   "0 */2 * * *",
+	BlockSize: "compact",
+	Budget:    0.5,
+	Stall:     30,
+	Timeout:   45,
 }
 
-// RoleDefaults is one row of the role table: what a role may do (directive,
-// memo shapes) and how its agent is configured.
-type RoleDefaults struct {
-	DefaultName string
-	DefaultBio  string
-	Cadence     string
-	BlockSize   string
-	Budget      float64
-	Stall       int
-	Timeout     int
-	StakeScale  float64
-	Directive   string
-	MemoShapes  string
-}
+// Defaults returns the one set of register defaults.
+func Defaults() RegisterDefaults { return defaults }
 
-var roleDefaults = map[Role]RoleDefaults{
-	Architect: {
-		DefaultName: "torch architect",
-		DefaultBio:  "Proposes and funds tasks on a project. A reject from a reviewer is a correction.",
-		Cadence:     "0 12 * * *",
-		BlockSize:   "full",
-		Budget:      5,
-		Stall:       90,
-		Timeout:     120,
-		StakeScale:  4,
-		Directive:   "proposes and funds tasks on a project",
-		MemoShapes:  "task | brief | accept",
-	},
-	Worker: {
-		DefaultName: "torch worker",
-		DefaultBio:  "Claims and completes tasks. Small stakes, steady fires.",
-		Cadence:     "0 */2 * * *",
-		BlockSize:   "compact",
-		Budget:      0.5,
-		Stall:       30,
-		Timeout:     45,
-		StakeScale:  0.25,
-		Directive:   "claims and completes tasks",
-		MemoShapes:  "claim | note | complete",
-	},
-	Reviewer: {
-		DefaultName: "torch reviewer",
-		DefaultBio:  "Verdicts completed work: accept or reject, with a reason. A reject is a costly no.",
-		Cadence:     "0 */6 * * *",
-		BlockSize:   "full",
-		Budget:      1,
-		Stall:       60,
-		Timeout:     60,
-		StakeScale:  1,
-		Directive:   "verdicts completed work: accept or reject, with a reason",
-		MemoShapes:  "accept | reject",
-	},
-}
-
-// DefaultsFor returns the role's row; an unknown role refuses naming the
-// three.
-func DefaultsFor(role Role) (RoleDefaults, error) {
-	if d, ok := roleDefaults[role]; ok {
-		return d, nil
-	}
-	if role == "" {
-		return RoleDefaults{}, fmt.Errorf("identity: role required (architect, worker, reviewer)")
-	}
-	return RoleDefaults{}, fmt.Errorf("identity: unknown role %q (architect, worker, reviewer)", role)
-}
-
-// Voices are Pyre's archetypes: they color the memo tone only and never
-// change what the role may do.
-var Voices = []string{"loyalist", "mercenary", "provocateur", "scout", "whale"}
-
-// ValidVoice reports a Pyre archetype.
-func ValidVoice(v string) bool {
-	for _, a := range Voices {
-		if a == v {
-			return true
-		}
-	}
-	return false
-}
-
-// BaseStakeLamports is the stake of one default action (0.01 SOL); the role's
-// StakeScale scales it per action.
+// BaseStakeLamports is the default per-action stake (0.01 SOL) for market
+// writes; the board's memo buy is separate (client.MemoBuyLamports).
 const BaseStakeLamports uint64 = 10_000_000
 
-// StakeLamports applies the role's stake scale to the base stake.
-func StakeLamports(scale float64) uint64 {
-	return uint64(float64(BaseStakeLamports) * scale)
-}
-
-// AgentID is the identity row's key: the wallet's short tag plus the role.
-func AgentID(wallet string, role Role) string {
+// AgentID is the identity row's key: the wallet's short tag. One row per
+// wallet — no role suffix.
+func AgentID(wallet string) string {
 	s := wallet
 	if len(s) > 4 {
 		s = s[len(s)-4:]
 	}
-	return "@AP" + strings.ToUpper(s) + "-" + string(role)
+	return "@AP" + strings.ToUpper(s)
 }
 
-// TagMemo stamps the role onto a memo text so the board can fold who did
-// what. The voice colors the text; the tag stays the role.
-func TagMemo(role, text string) string {
-	return "[" + role + "] " + strings.TrimSpace(text)
-}
-
-// Overrides are the register flags that beat the role defaults.
+// Overrides are the register flags that beat the defaults.
 type Overrides struct {
-	Name        string
-	Bio         string
-	Personality string
-	Voice       string
-	Cadence     string
-	Model       string
-	Budget      float64
-	Stall       int
-	Timeout     int
-	Full        bool
+	Name    string
+	Bio     string
+	Cadence string
+	Model   string
+	Budget  float64
+	Stall   int
+	Timeout int
+	Full    bool
 }
 
-// Row is one agent identity.
+// Row is one agent identity: one row per wallet.
 type Row struct {
-	ID          string
-	Name        string
-	Wallet      string
-	Bio         string
-	Personality string
-	Role        string
-	Voice       string
-	Cadence     string
-	Model       string
-	Stall       int
-	Budget      float64
-	Timeout     int
-	BlockSize   string
-	StakeScale  float64
-	CreatedAt   string
+	ID        string
+	Name      string
+	Wallet    string
+	Bio       string
+	Cadence   string
+	Model     string
+	Stall     int
+	Budget    float64
+	Timeout   int
+	BlockSize string
+	CreatedAt string
 }
 
-// NewRow resolves the identity row from the role defaults and the overrides:
-// cadence, world size, budget, stall, timeout, stake scale, name, and bio
-// come from the role unless the flag overrides them. Model is always
-// explicit — the operator picks the fleet model.
-func NewRow(wallet string, role Role, o Overrides) (Row, error) {
-	d, err := DefaultsFor(role)
-	if err != nil {
-		return Row{}, err
-	}
+// NewRow resolves the identity row from the defaults and the overrides:
+// cadence, world size, budget, stall, and timeout come from the defaults
+// unless the flag overrides them. Model is always explicit — the operator
+// picks the fleet model.
+func NewRow(wallet string, o Overrides) (Row, error) {
+	d := defaults
 	if strings.TrimSpace(o.Model) == "" {
 		return Row{}, fmt.Errorf("identity: model required")
-	}
-	if o.Voice != "" && !ValidVoice(o.Voice) {
-		return Row{}, fmt.Errorf("identity: unknown voice %q (%s)", o.Voice, strings.Join(Voices, ", "))
 	}
 	blockSize := d.BlockSize
 	if o.Full {
@@ -217,35 +112,23 @@ func NewRow(wallet string, role Role, o Overrides) (Row, error) {
 	}
 	name := o.Name
 	if name == "" {
-		name = d.DefaultName
+		name = d.Name
 	}
 	bio := o.Bio
 	if bio == "" {
-		bio = d.DefaultBio
-	}
-	personality := o.Personality
-	if personality == "" {
-		personality = "mercenary"
-	}
-	voice := o.Voice
-	if voice == "" {
-		voice = personality
+		bio = d.Bio
 	}
 	return Row{
-		ID:          AgentID(wallet, role),
-		Name:        name,
-		Wallet:      wallet,
-		Bio:         bio,
-		Personality: personality,
-		Role:        string(role),
-		Voice:       voice,
-		Cadence:     cadence,
-		Model:       o.Model,
-		Stall:       stall,
-		Budget:      budget,
-		Timeout:     timeout,
-		BlockSize:   blockSize,
-		StakeScale:  d.StakeScale,
+		ID:        AgentID(wallet),
+		Name:      name,
+		Wallet:    wallet,
+		Bio:       bio,
+		Cadence:   cadence,
+		Model:     o.Model,
+		Stall:     stall,
+		Budget:    budget,
+		Timeout:   timeout,
+		BlockSize: blockSize,
 	}, nil
 }
 
@@ -256,24 +139,22 @@ var Statements = []string{
 		name TEXT NOT NULL,
 		wallet TEXT NOT NULL,
 		bio TEXT NOT NULL,
-		personality TEXT NOT NULL,
-		role TEXT NOT NULL DEFAULT 'worker',
-		voice TEXT NOT NULL DEFAULT '',
 		cadence TEXT NOT NULL,
 		model TEXT NOT NULL,
 		stall INTEGER NOT NULL DEFAULT 0,
 		budget REAL NOT NULL DEFAULT 0,
 		timeout INTEGER NOT NULL DEFAULT 0,
 		block_size TEXT NOT NULL DEFAULT 'compact',
-		stake_scale REAL NOT NULL DEFAULT 1,
 		created_at TEXT NOT NULL
 	)`,
 }
 
-const SchemaVersion = 3
+const SchemaVersion = 4
 
-// migration adds block_size (v2), then role/voice/stake_scale (v3) to stores
-// created before the roles landed.
+// migration adds block_size (v2), then role/voice/stake_scale (v3) to
+// stores created before the roles landed; v4 removes the role table: one
+// row per wallet (the newest survives), the id becomes the wallet tag, and
+// the role/voice/personality/stake_scale columns are dropped.
 func migration(tx *sql.Tx, from, to int) (string, error) {
 	if from < 2 {
 		if _, err := tx.Exec(`ALTER TABLE identity ADD COLUMN block_size TEXT NOT NULL DEFAULT 'compact'`); err != nil {
@@ -291,14 +172,32 @@ func migration(tx *sql.Tx, from, to int) (string, error) {
 			}
 		}
 	}
+	if from < 4 {
+		if _, err := tx.Exec(`DELETE FROM identity WHERE rowid NOT IN (SELECT MAX(rowid) FROM identity GROUP BY wallet)`); err != nil {
+			return "", err
+		}
+		if _, err := tx.Exec(`UPDATE identity SET id = '@AP' || upper(substr(wallet, -4))`); err != nil {
+			return "", err
+		}
+		for _, stmt := range []string{
+			`ALTER TABLE identity DROP COLUMN role`,
+			`ALTER TABLE identity DROP COLUMN voice`,
+			`ALTER TABLE identity DROP COLUMN personality`,
+			`ALTER TABLE identity DROP COLUMN stake_scale`,
+		} {
+			if _, err := tx.Exec(stmt); err != nil {
+				return "", err
+			}
+		}
+	}
 	return "", nil
 }
 
-const columns = `id, name, wallet, bio, personality, role, voice, cadence, model, stall, budget, timeout, block_size, stake_scale, created_at`
+const columns = `id, name, wallet, bio, cadence, model, stall, budget, timeout, block_size, created_at`
 
 func scan(row *sql.Row) (Row, error) {
 	var r Row
-	err := row.Scan(&r.ID, &r.Name, &r.Wallet, &r.Bio, &r.Personality, &r.Role, &r.Voice, &r.Cadence, &r.Model, &r.Stall, &r.Budget, &r.Timeout, &r.BlockSize, &r.StakeScale, &r.CreatedAt)
+	err := row.Scan(&r.ID, &r.Name, &r.Wallet, &r.Bio, &r.Cadence, &r.Model, &r.Stall, &r.Budget, &r.Timeout, &r.BlockSize, &r.CreatedAt)
 	if err == sql.ErrNoRows {
 		return Row{}, fmt.Errorf("identity: no row (register first)")
 	}
@@ -341,7 +240,7 @@ func List(ctx context.Context, db store.DB) ([]Row, error) {
 	var out []Row
 	for rows.Next() {
 		var r Row
-		if err := rows.Scan(&r.ID, &r.Name, &r.Wallet, &r.Bio, &r.Personality, &r.Role, &r.Voice, &r.Cadence, &r.Model, &r.Stall, &r.Budget, &r.Timeout, &r.BlockSize, &r.StakeScale, &r.CreatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.Wallet, &r.Bio, &r.Cadence, &r.Model, &r.Stall, &r.Budget, &r.Timeout, &r.BlockSize, &r.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -349,25 +248,30 @@ func List(ctx context.Context, db store.DB) ([]Row, error) {
 	return out, rows.Err()
 }
 
-// Upsert writes the identity row. The id is the (wallet, role) key; a
-// different wallet for the same id is an error (never silently re-own).
+// Upsert writes the identity row. The id is the wallet tag (one row per
+// wallet, computed from the wallet — never a caller-supplied label), so a
+// wallet cannot register twice under different ids.
 func Upsert(ctx context.Context, db store.DB, r Row) error {
-	if r.ID == "" || r.Name == "" || r.Wallet == "" || r.Model == "" {
-		return fmt.Errorf("identity: id, name, wallet, and model are required")
+	if r.Name == "" || r.Wallet == "" || r.Model == "" {
+		return fmt.Errorf("identity: name, wallet, and model are required")
 	}
-	if _, err := DefaultsFor(Role(r.Role)); err != nil {
-		return err
-	}
+	r.ID = AgentID(r.Wallet)
 	if r.CreatedAt == "" {
 		r.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 	}
-	_, err := db.DB.ExecContext(ctx, `INSERT INTO identity (id, name, wallet, bio, personality, role, voice, cadence, model, stall, budget, timeout, block_size, stake_scale, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	var existing string
+	err := db.DB.QueryRowContext(ctx, `SELECT wallet FROM identity WHERE id = ?`, r.ID).Scan(&existing)
+	switch {
+	case err == nil && existing != r.Wallet:
+		return fmt.Errorf("identity: wallet tag %s already belongs to %s", r.ID, existing)
+	case err != nil && err != sql.ErrNoRows:
+		return err
+	}
+	_, err = db.DB.ExecContext(ctx, `INSERT INTO identity (id, name, wallet, bio, cadence, model, stall, budget, timeout, block_size, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET name=excluded.name, wallet=excluded.wallet, bio=excluded.bio,
-			personality=excluded.personality, role=excluded.role, voice=excluded.voice,
 			cadence=excluded.cadence, model=excluded.model, stall=excluded.stall,
-			budget=excluded.budget, timeout=excluded.timeout, block_size=excluded.block_size,
-			stake_scale=excluded.stake_scale`,
-		r.ID, r.Name, r.Wallet, r.Bio, r.Personality, r.Role, r.Voice, r.Cadence, r.Model, r.Stall, r.Budget, r.Timeout, r.BlockSize, r.StakeScale, r.CreatedAt)
+			budget=excluded.budget, timeout=excluded.timeout, block_size=excluded.block_size`,
+		r.ID, r.Name, r.Wallet, r.Bio, r.Cadence, r.Model, r.Stall, r.Budget, r.Timeout, r.BlockSize, r.CreatedAt)
 	return err
 }

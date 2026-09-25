@@ -19,7 +19,7 @@ import (
 )
 
 // SchemaVersion is the board cache's schema version.
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 // Project is one board's identity: the mint (the chain board's key) and
 // the display label (the project name, or the FID when only the chain
@@ -35,7 +35,6 @@ type Project struct {
 type Store struct {
 	Client *client.TorchClient
 	DB     store.DB
-	Role   string
 }
 
 // Statements is the board schema: the generated DDL plus the signature
@@ -44,9 +43,20 @@ func Statements() []string {
 	return append(ddl.Statements(), metadata.ExtraStatements()...)
 }
 
+// migration adds the task funder (v2) to caches created before the roles
+// landed; the cache is disposable, but the projection must keep its shape.
+func migration(tx *sql.Tx, from, to int) (string, error) {
+	if from < 2 {
+		if _, err := tx.Exec(`ALTER TABLE tasks ADD COLUMN funder TEXT NOT NULL DEFAULT ''`); err != nil {
+			return "", err
+		}
+	}
+	return "", nil
+}
+
 // Open opens (or creates) the board cache.
 func Open(path string) (store.DB, error) {
-	db, quarantined, report, err := store.Open(path, Statements(), SchemaVersion)
+	db, quarantined, report, err := store.Open(path, Statements(), SchemaVersion, migration)
 	if err != nil {
 		return store.DB{}, err
 	}
@@ -162,7 +172,7 @@ func rewrite(bound context.Context, mint string, tasks []Task) error {
 	for _, t := range tasks {
 		if _, err := td.InsertTask(bound, domain.Task{
 			Project: t.Project, Id: strconv.Itoa(t.ID), Title: t.Title, Brief: t.Brief,
-			Status: t.Status, Owner: t.Owner, ClaimedAt: t.ClaimedAt,
+			Status: t.Status, Funder: t.Funder, Owner: t.Owner, ClaimedAt: t.ClaimedAt,
 			CompletedAt: t.CompletedAt, AcceptedBy: t.AcceptedBy,
 			RejectedBy: t.RejectedBy, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
 		}); err != nil {
@@ -181,10 +191,9 @@ func rewrite(bound context.Context, mint string, tasks []Task) error {
 }
 
 // Act writes one board verb: the memo + a vault-routed micro buy, the
-// message cached (idempotent by signature), the projection rebuilt. The
-// role comes from the shape — the tool passes the identity row's role,
-// the swarm surface passes its own. The reply is the tx signature plus
-// the memo, then the affected board.
+// message cached (idempotent by signature), the projection rebuilt. Any
+// wallet may act — the fold decides ownership and stake. The reply is the
+// tx signature plus the memo, then the affected board.
 func (s *Store) Act(ctx context.Context, p Project, shape Shape) (string, error) {
 	memo, err := MemoFor(shape)
 	if err != nil {

@@ -70,10 +70,10 @@ func TestFireRebuildsBriefPerFire(t *testing.T) {
 
 	row := identity.Row{
 		ID: "@AP2B3A", Name: "Torch Agent", Wallet: "So11111111111111111111111111111111111111112",
-		Bio: "A torch market agent.", Personality: "mercenary",
+		Bio:     "A torch market agent.",
 		Cadence: "0 */8 * * *", Model: "dsv4", BlockSize: "compact",
 	}
-	stub := world.StubBlock(world.Identity{Name: row.Name, Bio: row.Bio, Personality: row.Personality})
+	stub := world.StubBlock(world.Identity{Name: row.Name, Bio: row.Bio})
 	if _, err := Register(context.Background(), db, ct, row, stub, "/x/orbit run-job", t.TempDir(), "sess-agent"); err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestFireRebuildsBriefPerFire(t *testing.T) {
 	// Two fixture snapshots with different values produce different briefs.
 	fixture := func(price float64) world.ReadState {
 		return world.ReadState{
-			Identity: world.Identity{Name: "@AP2B3A", Bio: "b", Personality: "mercenary"},
+			Identity: world.Identity{Name: "@AP2B3A", Bio: "b"},
 			PnL:      world.PnlSummary{TotalRealizedPnl: 2_500_000},
 			Markets: []world.MarketView{
 				{Mint: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", Name: "Torch Test", Symbol: "TST", Status: "BONDING", PriceSOL: price, MCAPSOL: price * 1e9, ValueSOL: price * 1e6},
@@ -159,7 +159,7 @@ func TestAgentJobFiresTheWorldBlock(t *testing.T) {
 
 	row := identity.Row{
 		ID: "@AP2B3A", Name: "Torch Agent", Wallet: "So11111111111111111111111111111111111111112",
-		Bio: "A torch market agent.", Personality: "mercenary",
+		Bio:     "A torch market agent.",
 		Cadence: "0 */8 * * *", Model: "dsv4", Stall: 45, Budget: 1.25, Timeout: 60,
 	}
 	const worldBlock = "LEGEND\n(&) $ \"*\" → BACK — buy a project\nONE ACTION PER FIRE.\n"
@@ -256,25 +256,17 @@ func TestAgentJobFiresTheWorldBlock(t *testing.T) {
 	_ = os.Getenv
 }
 
-func TestRoleDefaultsLandInJob(t *testing.T) {
+func TestDefaultsLandInJob(t *testing.T) {
 	home := t.TempDir()
 	db := openSched(t, home)
 	defer db.DB.Close()
 	ct := &fakeCrontab{text: "SHELL=/bin/bash\n"}
 
-	row, err := identity.NewRow("So11111111111111111111111111111111111111112", identity.Worker, identity.Overrides{Model: "dsv4"})
+	row, err := identity.NewRow("So11111111111111111111111111111111111111112", identity.Overrides{Model: "dsv4"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := identity.DefaultsFor(identity.Worker)
-	if err != nil {
-		t.Fatal(err)
-	}
-	stub := world.StubBlock(world.Identity{
-		Name: row.Name, Bio: row.Bio, Personality: row.Personality,
-		Role: row.Role, Directive: d.Directive, MemoShapes: d.MemoShapes,
-		Stake: identity.StakeLamports(row.StakeScale), Voice: row.Voice,
-	})
+	stub := world.StubBlock(world.Identity{Name: row.Name, Bio: row.Bio})
 	if _, err := Register(context.Background(), db, ct, row, stub, "/x/orbit run-job", t.TempDir(), "sess-agent"); err != nil {
 		t.Fatal(err)
 	}
@@ -306,37 +298,33 @@ func TestRoleDefaultsLandInJob(t *testing.T) {
 		t.Errorf("model %s", job.Model)
 	}
 	for _, want := range []string{
-		"ROLE: worker — claims and completes tasks",
-		"MEMO SHAPES: claim | note | complete",
-		"STAKE: 0.0025 SOL per action.",
+		"NAME: torch agent",
+		"BIO:",
 	} {
 		if !strings.Contains(job.Prompt, want) {
 			t.Errorf("job prompt lacks %q", want)
 		}
 	}
+	for _, gone := range []string{"ROLE:", "MEMO SHAPES:", "STAKE:", "VOICE:"} {
+		if strings.Contains(job.Prompt, gone) {
+			t.Errorf("job prompt still carries %q", gone)
+		}
+	}
 }
 
-func TestRoleOverridesWin(t *testing.T) {
+func TestOverridesWin(t *testing.T) {
 	home := t.TempDir()
 	db := openSched(t, home)
 	defer db.DB.Close()
 	ct := &fakeCrontab{text: "SHELL=/bin/bash\n"}
 
-	row, err := identity.NewRow("So11111111111111111111111111111111111111112", identity.Worker, identity.Overrides{
+	row, err := identity.NewRow("So11111111111111111111111111111111111111112", identity.Overrides{
 		Name: "Beta", Cadence: "0 1 * * *", Model: "qwen3.8-27b", Budget: 2.5, Full: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := identity.DefaultsFor(identity.Worker)
-	if err != nil {
-		t.Fatal(err)
-	}
-	stub := world.StubBlock(world.Identity{
-		Name: row.Name, Bio: row.Bio, Personality: row.Personality,
-		Role: row.Role, Directive: d.Directive, MemoShapes: d.MemoShapes,
-		Stake: identity.StakeLamports(row.StakeScale), Voice: row.Voice,
-	})
+	stub := world.StubBlock(world.Identity{Name: row.Name, Bio: row.Bio})
 	if _, err := Register(context.Background(), db, ct, row, stub, "/x/orbit run-job", t.TempDir(), "sess-agent"); err != nil {
 		t.Fatal(err)
 	}
@@ -362,7 +350,7 @@ func TestRoleOverridesWin(t *testing.T) {
 		t.Errorf("model %s, want the override", job.Model)
 	}
 	if job.Stall == nil || *job.Stall != 30 {
-		t.Errorf("stall %v, want the untouched role default 30", job.Stall)
+		t.Errorf("stall %v, want the untouched default 30", job.Stall)
 	}
 	if row.BlockSize != "full" {
 		t.Errorf("block size %s, want the full override", row.BlockSize)

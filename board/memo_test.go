@@ -13,24 +13,22 @@ import (
 
 func TestMemoShapesRoundTrip(t *testing.T) {
 	cases := []Shape{
-		{Role: "architect", Verb: "task", ID: 3, Text: "Measure the compact size"},
-		{Role: "architect", Verb: "brief", ID: 3, Text: "One paragraph of context"},
-		{Role: "worker", Verb: "claim", ID: 3},
-		{Role: "worker", Verb: "note", ID: 3, Text: "42 fires folded"},
-		{Role: "worker", Verb: "complete", ID: 3},
-		{Role: "reviewer", Verb: "accept", ID: 3},
-		{Role: "architect", Verb: "accept", ID: 3},
-		{Role: "reviewer", Verb: "reject", ID: 3, Text: "No proof in the memo"},
+		{Verb: "task", ID: 3, Text: "Measure the compact size"},
+		{Verb: "brief", ID: 3, Text: "One paragraph of context"},
+		{Verb: "claim", ID: 3},
+		{Verb: "note", ID: 3, Text: "42 fires folded"},
+		{Verb: "complete", ID: 3},
+		{Verb: "accept", ID: 3},
+		{Verb: "reject", ID: 3, Text: "No proof in the memo"},
 	}
 	want := []string{
-		"[architect] task 3: Measure the compact size",
-		"[architect] brief 3: One paragraph of context",
-		"[worker] claim 3",
-		"[worker] note 3: 42 fires folded",
-		"[worker] complete 3",
-		"[reviewer] accept 3",
-		"[architect] accept 3",
-		"[reviewer] reject 3: No proof in the memo",
+		"task 3: Measure the compact size",
+		"brief 3: One paragraph of context",
+		"claim 3",
+		"note 3: 42 fires folded",
+		"complete 3",
+		"accept 3",
+		"reject 3: No proof in the memo",
 	}
 	for i, c := range cases {
 		memo, err := MemoFor(c)
@@ -44,33 +42,38 @@ func TestMemoShapesRoundTrip(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s: parse failed", c.Verb)
 		}
-		if parsed.Role != c.Role || parsed.Verb != c.Verb || parsed.ID != c.ID || parsed.Text != c.Text {
+		if parsed.Verb != c.Verb || parsed.ID != c.ID || parsed.Text != c.Text {
 			t.Errorf("%s: parsed %+v, want %+v", c.Verb, parsed, c)
 		}
 	}
 }
 
-func TestMemoShapesRoleGate(t *testing.T) {
-	if _, err := MemoFor(Shape{Role: "worker", Verb: "task", ID: 1, Text: "x"}); err == nil {
-		t.Error("worker task accepted")
-	}
-	if _, err := MemoFor(Shape{Role: "architect", Verb: "claim", ID: 1}); err == nil {
-		t.Error("architect claim accepted")
-	}
-	if _, err := MemoFor(Shape{Role: "worker", Verb: "reject", ID: 1, Text: "x"}); err == nil {
-		t.Error("worker reject accepted")
+func TestMemoShapesCarryNoRoleTag(t *testing.T) {
+	for _, c := range []Shape{
+		{Verb: "task", ID: 3, Text: "x"},
+		{Verb: "claim", ID: 3},
+		{Verb: "reject", ID: 3, Text: "x"},
+	} {
+		memo, err := MemoFor(c)
+		if err != nil {
+			t.Fatalf("%s: %v", c.Verb, err)
+		}
+		if strings.HasPrefix(memo, "[") {
+			t.Errorf("%s memo still carries a tag: %q", c.Verb, memo)
+		}
 	}
 }
 
 func TestMemoShapesMalformedSkipped(t *testing.T) {
 	for _, bad := range []string{
-		"task 3: no tag",
 		"[worker] task 3: wrong role",
-		"[architect] task 0: zero id",
-		"[architect] task x: bad id",
-		"[worker] claim 3 extra",
-		"[architect] goal: not a board verb",
+		"[architect] claim 3",
+		"task 0: zero id",
+		"task x: bad id",
+		"claim 3 extra",
+		"goal: not a board verb",
 		"garbage",
+		"note: no id",
 	} {
 		if _, ok := ParseMemo(bad); ok {
 			t.Errorf("malformed memo parsed: %q", bad)
@@ -88,9 +91,9 @@ func TestMemoShapesAgainstIDL(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range []Shape{
-		{Role: "architect", Verb: "task", ID: 1, Text: "Context compaction"},
-		{Role: "worker", Verb: "claim", ID: 1},
-		{Role: "reviewer", Verb: "reject", ID: 1, Text: "No proof"},
+		{Verb: "task", ID: 1, Text: "Context compaction"},
+		{Verb: "claim", ID: 1},
+		{Verb: "reject", ID: 1, Text: "No proof"},
 	} {
 		memo, err := MemoFor(c)
 		if err != nil {
@@ -132,10 +135,10 @@ func TestMemoShapesAgainstIDL(t *testing.T) {
 
 func TestMemoCapRefusesOverlong(t *testing.T) {
 	long := strings.Repeat("x", MemoCap)
-	if _, err := MemoFor(Shape{Role: "architect", Verb: "task", ID: 1, Text: long}); err == nil {
+	if _, err := MemoFor(Shape{Verb: "task", ID: 1, Text: long}); err == nil {
 		t.Error("overlong memo accepted")
 	}
-	if _, err := MemoFor(Shape{Role: "architect", Verb: "task", ID: 1, Text: strings.Repeat("x", MemoCap-20)}); err != nil {
+	if _, err := MemoFor(Shape{Verb: "task", ID: 1, Text: strings.Repeat("x", MemoCap-20)}); err != nil {
 		t.Errorf("cap-bound memo refused: %v", err)
 	}
 }

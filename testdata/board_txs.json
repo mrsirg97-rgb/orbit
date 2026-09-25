@@ -17,7 +17,7 @@
           "accountKeys": ["9BsnjSj5gNrkKKpCmWqSAPrDKtnH3yEwzJf5YzCX7MDz", "curveA", "programA", "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"],
           "instructions": [
             {"programIdIndex": 2, "data": "LSDACB5ziSTZSH5etAJeo8axGgoEkjESb"},
-            {"programIdIndex": 3, "data": "CJ6JNq3efmNNMnJ9d3GavL"}
+            {"programIdIndex": 3, "data": "4mXYSh1iaL"}
           ]
         },
         "signatures": ["sigBoard1"]
@@ -36,7 +36,7 @@
         "message": {
           "accountKeys": ["ArbW1st9gKfMv2P4rTd6wJf5YzCX7MDz", "programA", "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"],
           "instructions": [
-            {"programIdIndex": 2, "data": "EX2ochFDXupppXiPQmG3wXTmEL2Ase6183BeaCo84Ur1kYX7chJV"}
+            {"programIdIndex": 2, "data": "4ZhG8v9S8tuZZEKcCHxRyEvUdTGrTRqu7PU9"}
           ]
         },
         "signatures": ["sigBoard2"]

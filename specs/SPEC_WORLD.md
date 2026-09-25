@@ -16,7 +16,7 @@ snapshot yields the same block, which is what makes the goldens meaningful.
 
 ```go
 type ReadState struct {
-    Identity   Identity        // name (@APxxxx), bio, personality, role + directive, memo shapes, stake, voice
+    Identity   Identity        // name (@APxxxx) and bio; position and history, not a role
     PnL        PnlSummary     // wallet read: realized + per-mint
     Holdings   []Holding      // mint, raw balance, value_sol
     Markets    []MarketView   // mint, name, symbol, status, price, mcap, progress
@@ -73,7 +73,28 @@ the wallet read supplying `total_realized_pnl` and per-mint cost basis
 instead of the vault's lifetime totals. `VALUE` is the holdings line and
 `UNREALIZED` is reported beside HLTH in the full size.
 
-### 4. Two sizes, one section set
+### 4. YOU ARE is the wallet, not a job title
+
+The YOU ARE section names the wallet and describes its position and
+history — never a role, never an archetype:
+
+```
+NAME: @AP2B3A
+BIO: A torch market agent...
+HLTH: +0.1609 SOL.
+BREAKEVEN. look for conviction plays.
+VAULT: 0.0100 SOL.
+PNL: +0.2500 SOL realized.
+POSITIONS: rNjTjmVx long at_risk 0.0050 SOL.
+```
+
+PNL is the wallet's realized history; POSITIONS are its open leverage
+positions; HLTH and VAULT are its current position; HOLDINGS (full size)
+are what it holds. The memo shapes, per-action stake, and voice lines are
+gone — the tools' memos carry no role tag and the wallet's stake is the
+proof.
+
+### 5. Two sizes, one section set
 
 Both sizes carry exactly: LEGEND / YOU ARE / INTEL / PROJECTS / ACTIONS /
 RULES / STRATEGIES (the compact set the user named). Differences are scope,
@@ -84,14 +105,14 @@ not structure:
 | PROJECTS rows | 8 (5 held first + 3 new) | 15 (10 held-first + 5 new) |
 | INTEL | 2 held mints, 1 line each | 4 held/watched, 3 lines each |
 | ACTIONS | back/cut/memo/skip | back/cut/memo/skip + ascend/tithe (read-only gate noted) |
-| STRATEGIES | 9 lines | 14 lines + VOICE paragraph |
+| STRATEGIES | 13 lines | 25 lines |
 | HLTH | one line + nudge | line + VALUE + UNREALIZED + nudge |
-| ROLE | role, memo shapes, stake, voice (both sizes) | same lines |
+| YOU ARE | name, bio, HLTH, nudge, vault, PNL, positions | same + HOLDINGS |
 
 The full size is the "everything the agent can see" block; the compact is
 the daily-fire block. One builder parameterizes both.
 
-### 5. Token count is the documented 4-chars-per-token heuristic
+### 6. Token count is the documented 4-chars-per-token heuristic
 
 `Tokens(s) = (len([]rune(s)) + 3) / 4`. Not a model tokenizer — it is a
 deterministic proxy the tests can assert against, and the spec records it
@@ -100,7 +121,7 @@ target: 850; the test band is [700, 1000]. Full must exceed compact and
 must exceed 1300. Goldens pin the exact bytes for both sizes from a fixed
 `ReadState` fixture.
 
-### 6. The block is per-fire, never per-register
+### 7. The block is per-fire, never per-register
 
 The prompt stored at register/refresh is a stub naming the identity
 (`world.StubBlock`): the live block is rebuilt at every fire. `run-job`
@@ -111,7 +132,7 @@ table it sees is the read side at fire time, and the tools re-read live
 anyway. A fire whose snapshot fails closes loudly (no brief, no worker).
 Two fires with different snapshots therefore produce different briefs.
 
-### 7. The block is the brief; the tools are the hands
+### 8. The block is the brief; the tools are the hands
 
 The ACTIONS section maps symbols to the three rig tools exactly:
 

@@ -12,14 +12,13 @@ import (
 	"unicode/utf8"
 
 	"github.com/mrsirg97-rgb/orbit/client"
-	"github.com/mrsirg97-rgb/orbit/identity"
 	"github.com/mrsirg97-rgb/orbit/sol"
 )
 
 const (
 	MaxNameLen = 32
 	MaxGoalLen = client.CurveMemoCap
-	GoalTag    = "[architect] goal:"
+	GoalTag    = "goal:"
 )
 
 // GoalMemo is the memo that carries the project's purpose on the first buy.
@@ -34,7 +33,7 @@ func GoalMemo(goal string) (string, error) {
 	if utf8.RuneCountInString(goal) > MaxGoalLen {
 		return "", fmt.Errorf("project: goal longer than %d chars", MaxGoalLen)
 	}
-	return identity.TagMemo(string(identity.Architect), "goal: "+goal), nil
+	return GoalTag + " " + goal, nil
 }
 
 // GoalFrom parses the goal back out of a board memo.
@@ -81,7 +80,7 @@ type Row struct {
 	Goal        string
 }
 
-// List reads the indexer: markets, the first [architect] goal: memo per
+// List reads the indexer: markets, the first goal: memo per
 // market, and the treasury float from the RPC seam. A market without a goal
 // memo keeps Goal empty; a market without a treasury account shows 0.
 func List(ctx context.Context, api client.API, rpc client.RPC, programID string, limit int) ([]Row, error) {

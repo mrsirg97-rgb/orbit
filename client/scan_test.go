@@ -76,7 +76,7 @@ func TestScanMessagesAgainstRecordedTransactions(t *testing.T) {
 		t.Fatalf("rows: %d, want 2 (the failed tx is skipped)", len(rows))
 	}
 	first := rows[0]
-	if first.MemoText != "[worker] claim 1" {
+	if first.MemoText != "claim 1" {
 		t.Errorf("memo: %q", first.MemoText)
 	}
 	if first.Sender != "9BsnjSj5gNrkKKpCmWqSAPrDKtnH3yEwzJf5YzCX7MDz" {
@@ -93,7 +93,7 @@ func TestScanMessagesAgainstRecordedTransactions(t *testing.T) {
 		t.Errorf("created_at: %s, want %s", first.CreatedAt, wantTime)
 	}
 	second := rows[1]
-	if second.MemoText != "[architect] task 1: Context compaction" {
+	if second.MemoText != "task 1: Context compaction" {
 		t.Errorf("memo: %q", second.MemoText)
 	}
 	if second.ActionKind == nil || *second.ActionKind != "sell" {

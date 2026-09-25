@@ -18,17 +18,12 @@ const (
 	Full
 )
 
-// Identity is the agent's row: name (@APxxxx), bio, personality, role (and
-// its directive, memo shapes, per-action stake, and voice archetype).
+// Identity is the agent's row: the wallet's name (@APxxxx) and bio. The
+// YOU ARE section describes the wallet's position and history — no role,
+// no archetype.
 type Identity struct {
-	Name        string
-	Bio         string
-	Personality string
-	Role        string
-	Directive   string
-	MemoShapes  string
-	Stake       uint64
-	Voice       string
+	Name string
+	Bio  string
 }
 
 // PnlSummary mirrors the wallet read (lamports).
@@ -127,28 +122,16 @@ $ is one FID from PROJECTS. One action per fire. Never invent a signature.
 
 func youAre(b *strings.Builder, read ReadState, size Size) {
 	id := read.Identity
-	voice := id.Voice
-	if voice == "" {
-		voice = id.Personality
-	}
 	b.WriteString("\nYOU ARE\n")
 	b.WriteString("NAME: " + id.Name + "\n")
 	b.WriteString("BIO: " + id.Bio + "\n")
-	b.WriteString("PERSONALITY: " + id.Personality + "\n")
-	if id.Role != "" {
-		b.WriteString("ROLE: " + id.Role + " — " + id.Directive + "\n")
-		b.WriteString("MEMO SHAPES: " + id.MemoShapes + "\n")
-		b.WriteString("STAKE: " + fmtSOL(float64(id.Stake)/1e9) + " SOL per action.\n")
-		b.WriteString("VOICE: " + voiceFor(voice) + "\n")
-	}
 	hlth, nudge := HealthLine(read)
 	b.WriteString("HLTH: " + hlth + ".\n")
 	b.WriteString(nudge + "\n")
 	b.WriteString("VAULT: " + solstr(read.VaultSOL) + " SOL.\n")
+	b.WriteString("PNL: " + fmtSOLSigned(lamportsToSOL(read.PnL.TotalRealizedPnl)) + " SOL realized.\n")
+	positions(b, read)
 	b.WriteString("You are one agent in a market of agents. Every write is on-chain proof.\n")
-	if size == Full && id.Role == "" {
-		b.WriteString("VOICE: " + voiceFor(voice) + "\n")
-	}
 	if size == Full {
 		b.WriteString("\nHOLDINGS\n")
 		if len(read.Holdings) == 0 {
@@ -157,6 +140,18 @@ func youAre(b *strings.Builder, read ReadState, size Size) {
 		for _, h := range read.Holdings {
 			b.WriteString(fmt.Sprintf("%s: %s SOL (%d raw)\n", fid(h.Mint), fmtSOL(h.ValueSOL), h.Raw))
 		}
+	}
+}
+
+// positions renders the wallet's open leverage positions: the position,
+// not a label.
+func positions(b *strings.Builder, read ReadState) {
+	if len(read.Positions) == 0 {
+		b.WriteString("POSITIONS: none.\n")
+		return
+	}
+	for _, p := range read.Positions {
+		b.WriteString(fmt.Sprintf("POSITIONS: %s %s %s %s SOL.\n", fid(p.Mint), p.Side, p.Health, fmtSOL(p.DebtSOL)))
 	}
 }
 
@@ -293,27 +288,9 @@ func strategies(b *strings.Builder, read ReadState, size Size) {
 		b.WriteString("A project at RD with a growing treasury is a launch candidate.\n")
 		b.WriteString("Watch the intel: three bearish memos on a held project is a CUT.\n")
 		b.WriteString("Reply with proof: every action ends with the tx signature and the memo.\n")
-		b.WriteString("Stay in character: your personality colors every memo and every choice.\n")
 		b.WriteString("Never trust a memo without a tx: proof is the signature and the memo.\n")
 		b.WriteString("When in doubt, read the treasury and the last five trades before acting.\n")
 		b.WriteString("The market rewards consistency: a steady agent is a credible agent.\n")
-	}
-}
-
-func voiceFor(personality string) string {
-	switch personality {
-	case "loyalist":
-		return "Ride or die. Trash talk rivals by address. Hype your crew loudly."
-	case "mercenary":
-		return "Lone wolf. Every angle is a trade; drop alpha only when it pays."
-	case "provocateur":
-		return "Chaos and hot takes. Call out the biggest holder. Make bets."
-	case "scout":
-		return "The intel operative. Share data that makes people nervous."
-	case "whale":
-		return "You move markets. Flex size. Back words with big moves."
-	default:
-		return "Short, punchy. One action per fire."
 	}
 }
 
@@ -496,17 +473,6 @@ func StubBlock(id Identity) string {
 	b.WriteString("\nYOU ARE\n")
 	b.WriteString("NAME: " + id.Name + "\n")
 	b.WriteString("BIO: " + id.Bio + "\n")
-	b.WriteString("PERSONALITY: " + id.Personality + "\n")
-	if id.Role != "" {
-		b.WriteString("ROLE: " + id.Role + " — " + id.Directive + "\n")
-		b.WriteString("MEMO SHAPES: " + id.MemoShapes + "\n")
-		b.WriteString("STAKE: " + fmtSOL(float64(id.Stake)/1e9) + " SOL per action.\n")
-		voice := id.Voice
-		if voice == "" {
-			voice = id.Personality
-		}
-		b.WriteString("VOICE: " + voiceFor(voice) + "\n")
-	}
 	b.WriteString("\nTHIS FIRE REBUILDS THE WORLD BLOCK: run-job snapshots the live read side\n")
 	b.WriteString("and replaces this stub with the current block (PROJECTS, INTEL, HLTH).\n")
 	b.WriteString("Read the live state with the market/intel/wallet tools.\n")

@@ -10,11 +10,12 @@ import (
 
 	"github.com/mrsirg97-rgb/orbit/board"
 	"github.com/mrsirg97-rgb/orbit/client"
-	"github.com/mrsirg97-rgb/orbit/identity"
 )
 
-// runBoard is `orbit board`: read a project's board, or act. The role comes
-// from the identity row (--role overrides); the indexer is optional — with
+// runBoard is `orbit board`: read a project's board, or act. A read is a
+// read — it loads config in read mode (ORBIT_RPC only, no vault creator,
+// no key), like project list and agent list. An act is a write: the agent
+// key and vault creator are required, and the indexer is optional — with
 // ORBIT_INDEXER unset the board reads the chain directly.
 //
 //	orbit board <mint> [read]
@@ -27,7 +28,6 @@ import (
 //	orbit board <mint> reject <id> <reason>
 func runBoard(args []string) int {
 	fs := flag.NewFlagSet("board", flag.ContinueOnError)
-	roleFlag := fs.String("role", "", "override the identity row's role (architect | worker | reviewer)")
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -38,6 +38,41 @@ func runBoard(args []string) int {
 		return 2
 	}
 	ctx := context.Background()
+	mint := rest[0]
+	project := board.Project{Mint: mint}
+	if len(rest) == 1 || rest[1] == "read" {
+		return boardRead(ctx, project)
+	}
+	return boardAct(ctx, project, rest[1], rest[2:])
+}
+
+// boardRead is the board's read mode: RPC only, no vault creator, no key.
+func boardRead(ctx context.Context, project board.Project) int {
+	cfg, err := client.LoadBoardReadConfig(os.Getenv)
+	if err != nil {
+		die("board: %v", err)
+	}
+	tc, err := client.NewRead(cfg)
+	if err != nil {
+		die("board: %v", err)
+	}
+	db, err := board.Open(board.StorePath(rigHome()))
+	if err != nil {
+		die("board: store: %v", err)
+	}
+	defer db.DB.Close()
+	st := &board.Store{Client: tc, DB: db}
+	reply, err := st.Board(ctx, project)
+	if err != nil {
+		die("board: read %s: %v", project.Mint, err)
+	}
+	fmt.Print(reply)
+	return 0
+}
+
+// boardAct is the board's write mode: the agent key and vault creator are
+// required, and any wallet may act — ownership and stake are the fold's.
+func boardAct(ctx context.Context, project board.Project, verb string, rest []string) int {
 	cfg, err := client.LoadBoardConfig(os.Getenv)
 	if err != nil {
 		die("board: %v", err)
@@ -46,33 +81,16 @@ func runBoard(args []string) int {
 	if err != nil {
 		die("board: %v", err)
 	}
-	role := *roleFlag
-	if role == "" {
-		role, _ = workerRole()
-	}
-	if _, err := identity.ParseRole(role); err != nil {
-		die("board: %v", err)
-	}
 	db, err := board.Open(board.StorePath(rigHome()))
 	if err != nil {
 		die("board: store: %v", err)
 	}
 	defer db.DB.Close()
-	st := &board.Store{Client: tc, DB: db, Role: role}
-	mint := rest[0]
-	project := board.Project{Mint: mint}
-	if len(rest) == 1 || rest[1] == "read" {
-		reply, err := st.Board(ctx, project)
-		if err != nil {
-			die("board: read %s: %v", mint, err)
-		}
-		fmt.Print(reply)
-		return 0
-	}
-	verb := rest[1]
+	st := &board.Store{Client: tc, DB: db}
+	var reply string
 	switch verb {
 	case "task":
-		text := strings.Join(rest[2:], " ")
+		text := strings.Join(rest, " ")
 		if text == "" {
 			die("board: task needs text")
 		}
@@ -80,59 +98,38 @@ func runBoard(args []string) int {
 		if err != nil {
 			die("board: task id: %v", err)
 		}
-		reply, err := st.Act(ctx, project, board.Shape{Role: role, Verb: "task", ID: next, Text: text})
+		reply, err = st.Act(ctx, project, board.Shape{Verb: "task", ID: next, Text: text})
 		if err != nil {
 			die("board: %v", err)
 		}
-		fmt.Println(reply)
 	case "brief", "note", "reject":
-		if len(rest) < 3 {
+		if len(rest) < 2 {
 			die("board: %s needs a task id and text", verb)
 		}
-		id, err := strconv.Atoi(rest[2])
+		id, err := strconv.Atoi(rest[0])
 		if err != nil {
-			die("board: bad task id %q", rest[2])
+			die("board: bad task id %q", rest[0])
 		}
-		text := strings.Join(rest[3:], " ")
-		reply, err := st.Act(ctx, project, board.Shape{Role: role, Verb: verb, ID: id, Text: text})
+		text := strings.Join(rest[1:], " ")
+		reply, err = st.Act(ctx, project, board.Shape{Verb: verb, ID: id, Text: text})
 		if err != nil {
 			die("board: %v", err)
 		}
-		fmt.Println(reply)
 	case "claim", "complete", "accept":
-		if len(rest) < 3 {
+		if len(rest) < 1 {
 			die("board: %s needs a task id", verb)
 		}
-		id, err := strconv.Atoi(rest[2])
+		id, err := strconv.Atoi(rest[0])
 		if err != nil {
-			die("board: bad task id %q", rest[2])
+			die("board: bad task id %q", rest[0])
 		}
-		reply, err := st.Act(ctx, project, board.Shape{Role: role, Verb: verb, ID: id})
+		reply, err = st.Act(ctx, project, board.Shape{Verb: verb, ID: id})
 		if err != nil {
 			die("board: %v", err)
 		}
-		fmt.Println(reply)
 	default:
 		die("board: unknown action %q (read|task|brief|claim|note|complete|accept|reject)", verb)
 	}
+	fmt.Println(reply)
 	return 0
-}
-
-func workerRole() (string, error) {
-	ctx := context.Background()
-	idb := identityStore()
-	defer idb.DB.Close()
-	id := os.Getenv("ORBIT_AGENT_ID")
-	if id != "" {
-		row, err := identity.GetByID(ctx, idb, id)
-		if err != nil {
-			return "", err
-		}
-		return row.Role, nil
-	}
-	row, err := identity.Get(ctx, idb)
-	if err != nil {
-		return "", err
-	}
-	return row.Role, nil
 }

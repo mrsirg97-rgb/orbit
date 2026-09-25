@@ -174,7 +174,7 @@ func Init(opts InitOpts) (InitResult, error) {
 			"orbit vault create     # the vault is created for your operator key",
 			"orbit vault link " + pub,
 			"orbit vault deposit 1",
-			"orbit agent register --role worker --model <fleet-model>",
+			"orbit agent register --model <fleet-model>",
 		},
 	}, nil
 }

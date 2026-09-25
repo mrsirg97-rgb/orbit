@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Board devnet smoke. The operator wallet (ORBIT_SMOKE_OPERATOR, default the
-# orbit home's key) is the vault creator and the architect; the worker and
-# reviewer are fresh wallets funded by the operator and linked to the same
-# vault. The smoke then drives the board twice — once through the indexer,
-# once RPC-only (ORBIT_INDEXER unset): each run the architect posts two
-# tasks, the worker on another wallet claims and completes one, the reviewer
-# accepts it. Every signature is printed; the smoke's proof is the printed
+# orbit home's key) is the vault creator and the task funder; the worker is
+# a fresh wallet funded by the operator and linked to the same vault. The
+# smoke then drives the board twice — once through the indexer, once
+# RPC-only (ORBIT_INDEXER unset): each run the funder posts two tasks, the
+# worker on another wallet claims and completes one, and the funder accepts
+# it (the wallet that posted and funded a task is the one whose accept
+# counts). Every signature is printed; the smoke's proof is the printed
 # set, never a fabricated one.
 set -euo pipefail
 
@@ -18,8 +19,7 @@ fi
 
 SMOKE="$(mktemp -d /tmp/orbit-board-smoke.XXXXXX)"
 WORK="$SMOKE/work"
-REV="$SMOKE/rev"
-mkdir -p "$WORK" "$REV"
+mkdir -p "$WORK"
 trap 'rm -rf "$SMOKE"' EXIT
 
 OP_KEY="${ORBIT_SMOKE_OPERATOR:-$HOME/.config/orbit/key}"
@@ -102,16 +102,14 @@ func main() {
 EOF
 
 echo "== wallets (devnet) =="
-echo "operator+architect  $ARCH_PUB"
+echo "operator+funder  $ARCH_PUB"
 WORK_PUB="$(init_agent "$WORK")"
-REV_PUB="$(init_agent "$REV")"
-echo "worker              $WORK_PUB"
-echo "reviewer            $REV_PUB"
+echo "worker           $WORK_PUB"
 
-echo "== fund the worker and reviewer from the operator =="
-go run "$SMOKE/fund.go" "$OP_KEY" "$WORK_PUB" "$REV_PUB"
+echo "== fund the worker from the operator =="
+go run "$SMOKE/fund.go" "$OP_KEY" "$WORK_PUB"
 
-echo "== vault (operator = architect) =="
+echo "== vault (operator = funder) =="
 export ORBIT_OPERATOR_KEY_PATH="$OP_KEY"
 export ORBIT_VAULT_CREATOR="$ARCH_PUB"
 if ORBIT_HOME="$WORK" ORBIT_ENVFILE="$SMOKE/none" "$BIN" vault show >/dev/null 2>&1; then
@@ -122,12 +120,11 @@ else
 	ORBIT_HOME="$WORK" ORBIT_ENVFILE="$SMOKE/none" "$BIN" vault deposit 2
 fi
 ORBIT_HOME="$WORK" ORBIT_ENVFILE="$SMOKE/none" "$BIN" vault link "$WORK_PUB"
-ORBIT_HOME="$WORK" ORBIT_ENVFILE="$SMOKE/none" "$BIN" vault link "$REV_PUB"
 
 echo "== project =="
 PROJECT_OUT="$(ORBIT_HOME="$WORK" ORBIT_ENVFILE="$SMOKE/none" "$BIN" project create \
 	--name "Board Smoke" \
-	--goal "A devnet smoke board for the shared-board fold: an architect posts tasks, a worker claims and completes one, a reviewer accepts it. The project funds the memo shapes and the lease/reap rules." \
+	--goal "A devnet smoke board for the shared-board fold: the funder posts tasks, a worker claims and completes one, and the funder accepts it. The project funds the memo shapes and the lease/reap rules." \
 	--treasury 0.1)"
 echo "$PROJECT_OUT"
 MINT="$(echo "$PROJECT_OUT" | grep '^MINT' | awk '{print $2}')"
@@ -150,16 +147,16 @@ EOF
 : >"$SMOKE/none"
 
 board_act() {
-	local home="$1" role="$2" keyfile="$3" rest="$4" rpconly="${5:-}"
+	local home="$1" keyfile="$2" rest="$3" rpconly="${4:-}"
 	export ORBIT_AGENT_KEY_FILE="$keyfile"
 	export ORBIT_VAULT_CREATOR="$ARCH_PUB"
 	export ORBIT_OPERATOR_KEY_PATH="$OP_KEY"
 	if [ -n "$rpconly" ]; then
 		ORBIT_HOME="$home" ORBIT_CONFIG="$RPCO" ORBIT_ENVFILE="$SMOKE/none" \
-			"$BIN" board --role "$role" "$MINT" $rest
+			"$BIN" board "$MINT" $rest
 	else
 		ORBIT_HOME="$home" ORBIT_ENVFILE="$SMOKE/none" \
-			"$BIN" board --role "$role" "$MINT" $rest
+			"$BIN" board "$MINT" $rest
 	fi
 }
 
@@ -167,14 +164,14 @@ run_smoke() {
 	local mode="$1" tag="$2" first="$3" rpconly="$4"
 	echo ""
 	echo "== board smoke $tag ($mode) =="
-	echo "-- architect posts two tasks --"
-	board_act "$WORK" architect "$OP_KEY" "task Prove the fold: task A of $tag" "$rpconly"
-	board_act "$WORK" architect "$OP_KEY" "task Prove the fold: task B of $tag" "$rpconly"
-	echo "-- worker claims and completes one --"
-	board_act "$WORK" worker "$WORK/key" "claim $first" "$rpconly"
-	board_act "$WORK" worker "$WORK/key" "complete $first" "$rpconly"
-	echo "-- reviewer accepts it --"
-	board_act "$WORK" reviewer "$REV/key" "accept $first" "$rpconly"
+	echo "-- the funder posts two tasks --"
+	board_act "$WORK" "$OP_KEY" "task Prove the fold: task A of $tag" "$rpconly"
+	board_act "$WORK" "$OP_KEY" "task Prove the fold: task B of $tag" "$rpconly"
+	echo "-- the worker claims and completes one --"
+	board_act "$WORK" "$WORK/key" "claim $first" "$rpconly"
+	board_act "$WORK" "$WORK/key" "complete $first" "$rpconly"
+	echo "-- the funder accepts it --"
+	board_act "$WORK" "$OP_KEY" "accept $first" "$rpconly"
 }
 
 echo ""
@@ -196,6 +193,5 @@ ORBIT_HOME="$WORK" ORBIT_ENVFILE="$SMOKE/none" "$BIN" board "$MINT" || true
 echo ""
 echo "== the proof (both runs) =="
 echo "mint        $MINT"
-echo "architect   $ARCH_PUB"
+echo "funder      $ARCH_PUB"
 echo "worker      $WORK_PUB"
-echo "reviewer    $REV_PUB"

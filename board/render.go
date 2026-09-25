@@ -35,7 +35,7 @@ func renderBoard(label string, tasks []domain.Task, goal string, now time.Time) 
 		b.WriteString(taskLine(t, now))
 	}
 	if len(tasks) == 0 {
-		b.WriteString("No tasks yet — the architect proposes with task.\n")
+		b.WriteString("No tasks yet — post and fund one with task.\n")
 	}
 	b.WriteString(summaryLine(label, len(tasks), done, next))
 	return b.String()
@@ -43,6 +43,9 @@ func renderBoard(label string, tasks []domain.Task, goal string, now time.Time) 
 
 func taskLine(t domain.Task, now time.Time) string {
 	line := fmt.Sprintf("t%s %-7s %s", t.Id, t.Status, t.Title)
+	if t.Funder != "" {
+		line += fmt.Sprintf(" · funded by %s", shortAddr(t.Funder))
+	}
 	switch t.Status {
 	case StatusActive:
 		line += fmt.Sprintf(" · claimed by %s · %s", shortAddr(t.Owner), age(now, t.ClaimedAt))

@@ -44,6 +44,7 @@ func Statements() []string {
   "claimed_at" TEXT NOT NULL,
   "completed_at" TEXT NOT NULL,
   "created_at" TEXT NOT NULL,
+  "funder" TEXT NOT NULL,
   "owner" TEXT NOT NULL,
   "rejected_by" TEXT NOT NULL,
   "status" TEXT NOT NULL,

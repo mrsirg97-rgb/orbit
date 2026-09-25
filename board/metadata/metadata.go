@@ -35,16 +35,19 @@ type Message struct {
 // table:"tasks"
 //
 // The fold projection, keyed by (project, id): id is the task number the
-// memo names. Status is pending | active | review | done; owner is the
-// claim's sender; the timestamps are the memo times. The reads are
-// primary-key-seek only — one task is GetTask(project, id), a project's
-// board is WindowTaskByProject — no index, no seek beyond the key.
+// memo names. Status is pending | active | review | done; funder is the
+// wallet that posted and funded the task (the one whose accept counts);
+// owner is the claim's sender; the timestamps are the memo times. The
+// reads are primary-key-seek only — one task is GetTask(project, id), a
+// project's board is WindowTaskByProject — no index, no seek beyond the
+// key.
 type Task struct {
 	Project     string `primary:"true" alias:"name=project,nullable=false"`
 	ID          string `primary:"true" alias:"name=id,nullable=false"`
 	Title       string `alias:"name=title,nullable=false"`
 	Brief       string `alias:"name=brief,nullable=false"`
 	Status      string `alias:"name=status,nullable=false"`
+	Funder      string `alias:"name=funder,nullable=false"`
 	Owner       string `alias:"name=owner,nullable=false"`
 	ClaimedAt   string `alias:"name=claimed_at,nullable=false"`
 	CompletedAt string `alias:"name=completed_at,nullable=false"`

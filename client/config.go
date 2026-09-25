@@ -124,11 +124,19 @@ func LoadReadConfig(getenv func(string) string) (Config, error) {
 	return loadConfig(getenv, requirements{indexer: true})
 }
 
-// LoadBoardConfig is the board's config: the agent key and vault creator
-// required, writes gated on the devnet program, the indexer optional — with
-// ORBIT_INDEXER unset the board reads the chain directly (the RPC scan).
+// LoadBoardConfig is the board's write config: the agent key and vault
+// creator required, writes gated on the devnet program, the indexer
+// optional — with ORBIT_INDEXER unset the board reads the chain directly
+// (the RPC scan).
 func LoadBoardConfig(getenv func(string) string) (Config, error) {
 	return loadConfig(getenv, requirements{agentKey: true, vaultCreator: true, writes: true})
+}
+
+// LoadBoardReadConfig is the board's read config: ORBIT_RPC only. No
+// indexer, no vault creator, no agent key — a stranger can read a board
+// with nothing but the RPC endpoint, like project list and agent list.
+func LoadBoardReadConfig(getenv func(string) string) (Config, error) {
+	return loadConfig(getenv, requirements{})
 }
 
 type requirements struct {
@@ -167,7 +175,7 @@ func loadConfig(getenv func(string) string, req requirements) (Config, error) {
 	if rpc == "" && indexer != "" {
 		rpc = strings.TrimSuffix(indexer, "/") + "/rpc"
 	}
-	if isHostOnly(rpc) {
+	if rpc != "" && isHostOnly(rpc) {
 		rpc = strings.TrimSuffix(rpc, "/") + "/rpc"
 	}
 	creator := value("ORBIT_VAULT_CREATOR")
