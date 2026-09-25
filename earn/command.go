@@ -152,7 +152,10 @@ func (c *Command) register(ctx context.Context, in args) (string, error) {
 		lines = append(lines, fmt.Sprintf("%s: %s", row.ID, reply))
 	}
 	roster := Roster(ctx, c.IdentityDB, c.SchedDB)
-	return "earn: registered\n" + strings.Join(steps, "\n") + strings.Join(lines, "\n") + "\n" + roster, nil
+	parts := append([]string{"earn: registered"}, steps...)
+	parts = append(parts, lines...)
+	parts = append(parts, roster)
+	return strings.Join(parts, "\n"), nil
 }
 
 // ensureSetup checks the hot key and the vault link and runs the missing
@@ -177,7 +180,7 @@ func (c *Command) ensureSetup(ctx context.Context, in args) (*client.TorchClient
 		if err != nil {
 			return nil, nil, fmt.Errorf("earn: init: %w", err)
 		}
-		steps = append(steps, fmt.Sprintf("init: agent wallet %s, balance %s SOL\n", res.Pubkey, client.FormatSOL(res.Balance)))
+		steps = append(steps, fmt.Sprintf("init: agent wallet %s, balance %s SOL", res.Pubkey, client.FormatSOL(res.Balance)))
 		cfgMap, err = onboard.Load(getenv)
 		if err != nil {
 			return nil, nil, fmt.Errorf("earn: config: %w", err)
@@ -188,7 +191,7 @@ func (c *Command) ensureSetup(ctx context.Context, in args) (*client.TorchClient
 		if err != nil {
 			return nil, nil, err
 		}
-		steps = append(steps, line+"\n")
+		steps = append(steps, line)
 		cfgMap, err = onboard.Load(getenv)
 		if err != nil {
 			return nil, nil, fmt.Errorf("earn: config: %w", err)
@@ -201,12 +204,12 @@ func (c *Command) ensureSetup(ctx context.Context, in args) (*client.TorchClient
 	if line, err := c.vaultLink(ctx, tc, in); err != nil {
 		return nil, nil, err
 	} else if line != "" {
-		steps = append(steps, line+"\n")
+		steps = append(steps, line)
 	}
 	if line, err := c.vaultDeposit(ctx, tc, in); err != nil {
 		return nil, nil, err
 	} else if line != "" {
-		steps = append(steps, line+"\n")
+		steps = append(steps, line)
 	}
 	return tc, steps, nil
 }
