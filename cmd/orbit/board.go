@@ -12,20 +12,6 @@ import (
 	"github.com/mrsirg97-rgb/orbit/client"
 )
 
-// runBoard is `orbit board`: read a project's board, or act. A read is a
-// read — it loads config in read mode (ORBIT_RPC only, no vault creator,
-// no key), like project list and agent list. An act is a write: the agent
-// key and vault creator are required, and the indexer is optional — with
-// ORBIT_INDEXER unset the board reads the chain directly.
-//
-//	orbit board <mint> [read]
-//	orbit board <mint> task <text>
-//	orbit board <mint> brief <id> <text>
-//	orbit board <mint> claim <id>
-//	orbit board <mint> note <id> <text>
-//	orbit board <mint> complete <id>
-//	orbit board <mint> accept <id>
-//	orbit board <mint> reject <id> <reason>
 func runBoard(args []string) int {
 	fs := flag.NewFlagSet("board", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -46,7 +32,6 @@ func runBoard(args []string) int {
 	return boardAct(ctx, project, rest[1], rest[2:])
 }
 
-// boardRead is the board's read mode: RPC only, no vault creator, no key.
 func boardRead(ctx context.Context, project board.Project) int {
 	cfg, err := client.LoadBoardReadConfig(os.Getenv)
 	if err != nil {
@@ -70,8 +55,6 @@ func boardRead(ctx context.Context, project board.Project) int {
 	return 0
 }
 
-// boardAct is the board's write mode: the agent key and vault creator are
-// required, and any wallet may act — ownership and stake are the fold's.
 func boardAct(ctx context.Context, project board.Project, verb string, rest []string) int {
 	cfg, err := client.LoadBoardConfig(os.Getenv)
 	if err != nil {

@@ -11,9 +11,6 @@ import (
 	"github.com/mrsirg97-rgb/orbit/sol"
 )
 
-// runVault is the operator's vault admin: create, deposit, withdraw, link,
-// unlink, show. The operator key comes from a flag or env per call (flag >
-// env), signs, and is never written to the orbit home.
 func runVault(args []string) int {
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "orbit: usage: vault create|deposit|withdraw|link|unlink|show [flags]")
@@ -28,7 +25,7 @@ func runVault(args []string) int {
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
-	// Positional arguments: link/unlink <hot pubkey>, deposit/withdraw <sol>.
+
 	positional := fs.Args()
 	if action == "show" {
 		return runVaultShow()
@@ -58,7 +55,7 @@ func runVault(args []string) int {
 		if err != nil {
 			die("vault: %v", err)
 		}
-		// The agent's config now points at the operator's vault (pubkey only).
+
 		cfgPath, err := onboard.ConfigPath(os.Getenv)
 		if err != nil {
 			die("vault: %v", err)
@@ -127,8 +124,6 @@ func runVault(args []string) int {
 	return 0
 }
 
-// runVaultShow is the read-only vault read: config (public creator) + chain,
-// no operator secret, no agent key.
 func runVaultShow() int {
 	cfg, err := client.LoadOperatorConfig(os.Getenv)
 	if err != nil {

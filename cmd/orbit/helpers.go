@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime/debug"
 	"strings"
 )
 
@@ -12,6 +13,17 @@ func walletSuffix(pubkey string) string {
 		s = s[len(s)-4:]
 	}
 	return strings.ToUpper(s)
+}
+
+func rigModuleVersion() string {
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		for _, m := range bi.Deps {
+			if m.Path == "github.com/mrsirg97-rgb/rig" && m.Version != "" {
+				return m.Version
+			}
+		}
+	}
+	return "unknown"
 }
 
 func die(format string, a ...any) {

@@ -11,9 +11,6 @@ import (
 	"github.com/mrsirg97-rgb/orbit/project"
 )
 
-// runProject is the operator's project surface: create a market with a goal
-// (create_token + first vault buy), list what the indexer knows. The operator
-// key comes from a flag or env per call and is never stored.
 func runProject(args []string) int {
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "orbit: usage: project create|list [flags]")

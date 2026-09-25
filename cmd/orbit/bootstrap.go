@@ -15,7 +15,6 @@ import (
 	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
 )
 
-// identityStore is the agent's identity row store.
 func identityStore() store.DB {
 	home, err := rigHome()
 	if err != nil {
@@ -32,7 +31,6 @@ func identityStore() store.DB {
 	return db
 }
 
-// schedStore is the scheduler's own store (the job rows live there).
 func schedStore() sched.DB {
 	home, err := rigHome()
 	if err != nil {
@@ -55,16 +53,12 @@ func schedStore() sched.DB {
 	return db
 }
 
-// UnsignedIx is one serialized instruction for the operator to sign with the
-// vault authority key. Data is base64 (discriminator + borsh args).
 type UnsignedIx struct {
 	ProgramID string            `json:"program_id"`
 	Accounts  []sol.AccountMeta `json:"accounts"`
 	Data      string            `json:"data"`
 }
 
-// bootstrapTx builds the unsigned vault-admin instruction. The operator's
-// key is never in the process; the JSON is the handoff.
 func bootstrapTx(tc *client.TorchClient, cfg client.Config, name string, args map[string]any) UnsignedIx {
 	disc, err := tc.IDL.Discriminator(name)
 	if err != nil {
@@ -88,7 +82,6 @@ func bootstrapTx(tc *client.TorchClient, cfg client.Config, name string, args ma
 			{Pubkey: client.VaultSolPDA(cfg.ProgramID, cfg.VaultCreator), IsWritable: true},
 			{Pubkey: client.VaultWalletLinkPDA(cfg.ProgramID, cfg.VaultCreator), IsWritable: true},
 			{Pubkey: client.SystemProgram},
-			{Pubkey: cfg.ProgramID},
 		}
 	case "link_wallet":
 		ix.Accounts = []sol.AccountMeta{
@@ -96,7 +89,7 @@ func bootstrapTx(tc *client.TorchClient, cfg client.Config, name string, args ma
 			{Pubkey: client.TorchVaultPDA(cfg.ProgramID, cfg.VaultCreator), IsWritable: true},
 			{Pubkey: tc.AgentPublic()},
 			{Pubkey: client.VaultWalletLinkPDA(cfg.ProgramID, tc.AgentPublic()), IsWritable: true},
-			{Pubkey: cfg.ProgramID},
+			{Pubkey: client.SystemProgram},
 		}
 	case "deposit_vault":
 		ix.Accounts = []sol.AccountMeta{
@@ -104,7 +97,6 @@ func bootstrapTx(tc *client.TorchClient, cfg client.Config, name string, args ma
 			{Pubkey: client.TorchVaultPDA(cfg.ProgramID, cfg.VaultCreator), IsWritable: true},
 			{Pubkey: client.VaultSolPDA(cfg.ProgramID, cfg.VaultCreator), IsWritable: true},
 			{Pubkey: client.SystemProgram},
-			{Pubkey: cfg.ProgramID},
 		}
 	default:
 		die("bootstrap: unknown instruction %q", name)

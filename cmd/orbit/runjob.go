@@ -20,8 +20,7 @@ func runJobFire(args []string) int {
 		fmt.Fprintln(os.Stderr, "orbit: usage: run-job <key>")
 		return 2
 	}
-	// The per-fire brief: the job's agent row -> live snapshot -> brief
-	// block. Fail closed: no identity, no read, no fire.
+
 	ctx := context.Background()
 	sdb := schedStore()
 	defer sdb.DB.Close()
@@ -50,16 +49,13 @@ func runJobFire(args []string) int {
 	if err != nil {
 		die("run-job: brief: %v", err)
 	}
-	// The footer snapshot: the wallet numbers the brief already read, the
-	// claims and the last memo from the local board cache. Best-effort —
-	// a failed snapshot write never kills the fire.
+
 	writeStatusSnapshot(ctx, tc, snap)
 	self, err := os.Executable()
 	if err != nil {
 		die("%v", err)
 	}
-	// The scheduler's home is ~/.rig/scheduler (DB, locks, run logs) — the
-	// same path rig's own run-job uses.
+
 	home := filepath.Join(mustRigHome(), "scheduler")
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		die("%v", err)
@@ -70,7 +66,7 @@ func runJobFire(args []string) int {
 	}
 	sandbox := os.Getenv("ORBIT_SANDBOX")
 	if sandbox == "" {
-		sandbox = "off" // the operator's choice; the agent runtime is unsandboxed by default
+		sandbox = "off"
 	}
 	run := func(ctx context.Context) error {
 		return sched.RunJob(args[0], sched.RunOpts{
@@ -109,5 +105,3 @@ func writeStatusSnapshot(ctx context.Context, tc *client.TorchClient, read brief
 		fmt.Fprintf(os.Stderr, "orbit: status snapshot: %v\n", err)
 	}
 }
-
-// ── agent: identity row → scheduled job ────────────────────────────────

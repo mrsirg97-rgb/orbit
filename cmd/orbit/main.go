@@ -134,10 +134,6 @@ type root struct {
 	earn   *earn.Command
 }
 
-// clientProvider is the orbit client's lazy seam: the first tool use loads
-// the agent config (and fails loudly, naming /earn, when it is missing); a
-// failed load is retried at the next use, so /earn's init can fix it in the
-// same session. The operator's vault authority key never enters the process.
 type clientProvider struct {
 	mu     sync.Mutex
 	getenv func(string) string
@@ -166,9 +162,7 @@ const defaultResultCap = 64 * 1024
 
 func wire(r *root) *rig.Kernel {
 	r.applyVision()
-	// approve rides the door: manual means "ask before mutating", and
-	// asking needs a door, so a doorless frontend runs auto — a TUI
-	// user's manual never binds the workers.
+
 	if r.askDoor == nil {
 		r.approve = approve.Auto
 		r.approveDefault = approve.Auto
@@ -309,9 +303,6 @@ func (r *root) buildProvider() core.Provider {
 	})
 }
 
-// applyVision is the whole of the vision gate: the tool exists when the
-// row has vision and does not when it has none, and the model switch
-// re-applies it so the next turn's table follows the row.
 func (r *root) applyVision() {
 	if r.row.Vision {
 		if r.tools == nil {
@@ -664,9 +655,6 @@ func effectiveNativeNames(workers *config.Workers) []string {
 	return out
 }
 
-// registeredNativeNames is the effective menu under the model row's gates:
-// the worker tools need a fleet and view needs vision, and what is not
-// offered is simply not in the table.
 func registeredNativeNames(workers *config.Workers, vision bool) []string {
 	names := effectiveNativeNames(workers)
 	if vision {
@@ -751,11 +739,6 @@ func (r *root) statusIn(ctx context.Context) tui.StatusIn {
 	return b
 }
 
-// earnRows is the /earn footer's rows: a local snapshot file, never the
-// chain. /earn status and each agent fire write it (command and fire time
-// are the only chain reads); the status callback just reads the file, so
-// every command — /help included — stays off the network. No snapshot
-// yet (the TUI starts before /earn): no rows, the footer stays quiet.
 func (r *root) earnRows(ctx context.Context) []string {
 	rows, ok, err := earn.Snapshot(r.earn.SnapshotPath)
 	if err != nil || !ok {
@@ -778,18 +761,6 @@ func sessionFor(resumeID string, resume func(id string) (*core.Session, error)) 
 	return s, nil
 }
 
-// reapClaims releases todo claims owned by sessions whose rows have
-// ended, so a dead session's in-progress tasks return to the shared
-// pool at the next open instead of blocking every live session that
-// reads the queue. The ended set comes from this cwd's session store
-// (a SIGKILL'd session leaves its row open; its claims age out through
-// Reap's staleness arm). The note names what was freed; an idle reap
-// returns "".
-// sessionQueue is the queue a session works in: the one it bound (a
-// resume from another directory keeps working in the same queue instead
-// of re-deriving one from where the process started), else the launch
-// directory's. A failed binding read falls back to the launch directory
-// and says so: the reap must still run.
 func sessionQueue(ctx context.Context, tdb store.DB, cwd, session string) (todostore.Project, error) {
 	b, ok, err := todostore.BindingOf(ctx, tdb, session)
 	if err != nil {
@@ -876,7 +847,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Printf("orbit %s (rig 1.5.5)\n", Version)
+		fmt.Printf("orbit %s (rig %s)\n", Version, rigModuleVersion())
 		return
 	}
 
@@ -1425,63 +1396,6 @@ func main() {
 		closeFrontend()
 		os.Exit(1)
 	}
-}
-
-func runJob(args []string) int {
-	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "rig: usage: run-job <key>")
-		return 2
-	}
-	cfgDir, err := rigHome()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "rig:", err)
-		return 1
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "rig:", err)
-		return 1
-	}
-	cfg, err := config.Load(cfgDir, cwd)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "rig:", err)
-		return 1
-	}
-	if cfg.Notice != "" {
-		fmt.Fprintln(os.Stderr, "rig:", cfg.Notice)
-	}
-	swapURL := cfg.Settings.SwapURL
-	if v := os.Getenv("RIG_SWAP_URL"); v != "" {
-		swapURL = v
-	}
-	self, err := os.Executable()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "rig:", err)
-		return 1
-	}
-	home := filepath.Join(cfgDir, "scheduler")
-	if err := os.MkdirAll(home, 0o755); err != nil {
-		fmt.Fprintln(os.Stderr, "rig:", err)
-		return 1
-	}
-	if err := sched.RunJob(args[0], sched.RunOpts{
-		Home:      home,
-		Crontab:   sched.RealCrontab(""),
-		Fetch:     sched.RealFetch(0),
-		Spawn:     sched.RealSpawn,
-		WorkerCmd: []string{self},
-		SwapURL:   swapURL,
-
-		Sandbox:      cfg.Settings.Sandbox,
-		SandboxBinds: cfg.Settings.SandboxBinds,
-		RigHome:      cfgDir,
-		StateDir:     filepath.Join(cfgDir, "sessions"),
-		Models:       func() models.Table { return cfg.Models },
-	}); err != nil {
-		fmt.Fprintln(os.Stderr, "rig:", err)
-		return 1
-	}
-	return 0
 }
 
 func execArgIndex(args []string) int {

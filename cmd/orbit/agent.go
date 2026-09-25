@@ -27,8 +27,7 @@ func runAgent(args []string) int {
 	timeout := fs.Int("timeout", 0, "timeout minutes")
 	full := fs.Bool("full", false, "register with the full brief")
 	fs.SetOutput(os.Stderr)
-	// The action is the first positional; flags follow it (flag.Parse stops at
-	// the first non-flag).
+
 	if len(args) > 0 {
 		*aaction = args[0]
 		args = args[1:]
@@ -120,8 +119,7 @@ func ensureJob(ctx context.Context, idb store.DB, row identity.Row) int {
 }
 
 func ensureJobAction(ctx context.Context, idb store.DB, row identity.Row, action string) int {
-	// The stored prompt is a stub naming the identity; the live brief
-	// is rebuilt per fire by run-job.
+
 	block := brief.StubBrief(brief.Identity{Name: row.Name, Bio: row.Bio, Goal: row.Goal})
 	self, err := os.Executable()
 	if err != nil {
