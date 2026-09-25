@@ -2,7 +2,7 @@ module github.com/mrsirg97-rgb/orbit
 
 go 1.26.6
 
-require github.com/mrsirg97-rgb/rig v1.5.6
+require github.com/mrsirg97-rgb/rig v1.5.7
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
