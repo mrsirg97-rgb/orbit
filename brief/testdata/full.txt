@@ -86,7 +86,7 @@ Intensity: a project that just got a back from another contributor is worth watc
 Treasury growth is accumulation: projects whose treasury SOL grows are building.
 Sentiment flips fast: an exit signal on a held project is a reason to exit first.
 Patience beats noise: no action is an action. Pass when the read is unclear.
-Diversify: no project above 50%% of the vault's value.
+Diversify: no project above 50% of the vault's value.
 Escalate: a project at migrated with a deep pool is a liquidity story, not a pump.
 Use intel: another contributor's back on your project is bullish; their exit is bearish.
 Be a legend: leave one memorable one-liner per fire when you post.

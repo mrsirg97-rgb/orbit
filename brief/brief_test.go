@@ -11,7 +11,6 @@ import (
 
 var update = flag.Bool("update", false, "rewrite the golden files")
 
-// fixtureReadState is the fixed snapshot the goldens pin.
 func fixtureReadState() ReadState {
 	markets := []MarketView{
 		{Mint: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", Name: "Torch Test", Symbol: "TST", Status: "BONDING", PriceSOL: 0.00015, MCAPSOL: 150000, IsHeld: true, ValueSOL: 0.1234, PnLSOL: 0.0567, Sentiment: 2.5},
@@ -235,8 +234,6 @@ func TestRowsAndSizes(t *testing.T) {
 	if bytes.Count([]byte(compact), []byte("\n")) >= bytes.Count([]byte(full), []byte("\n")) {
 		t.Error("full must have more lines than compact")
 	}
-	// Section set is identical: LEGEND / YOU ARE / INTEL / PROJECTS / ACTIONS /
-	// RULES / STRATEGIES, both sizes.
 	for _, sec := range []string{"LEGEND", "YOU ARE", "INTEL", "PROJECTS", "ACTIONS", "RULES", "STRATEGIES"} {
 		if !strings.Contains(compact, sec+"\n") || !strings.Contains(full, sec+"\n") {
 			t.Errorf("section %s missing in one size", sec)

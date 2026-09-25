@@ -1,9 +1,3 @@
-// Package brief builds the agent's brief: Pyre's compact prompt shape over
-// torch's read side, in torch's vocabulary. Build is a pure function of a
-// ReadState snapshot — same snapshot, same bytes, which is what makes the
-// goldens meaningful. The opcodes are back/exit/post/pass, the statuses are
-// bonding/ready/migrated/reclaimed, and the columns are HELD/FOUNDED/
-// SENTIMENT — no glyphs, no Pyre abbreviations.
 package brief
 
 import (
@@ -13,7 +7,6 @@ import (
 	"unicode/utf8"
 )
 
-// Size selects the brief.
 type Size int
 
 const (
@@ -21,22 +14,17 @@ const (
 	Full
 )
 
-// Identity is the agent's row: the wallet's name (@APxxxx), bio, and the
-// architect's goal. The YOU ARE section describes the wallet's position
-// and history — no role, no archetype.
 type Identity struct {
 	Name string
 	Bio  string
 	Goal string
 }
 
-// PnlSummary mirrors the wallet read (lamports).
 type PnlSummary struct {
 	TotalRealizedPnl int64
 	ByMint           []PnlByMint
 }
 
-// PnlByMint is per-mint FIFO accounting.
 type PnlByMint struct {
 	Mint               string
 	TokensRemaining    uint64
@@ -44,19 +32,17 @@ type PnlByMint struct {
 	RealizedPnl        int64
 }
 
-// Holding is one position value (raw balance + SOL value, 6 decimals).
 type Holding struct {
 	Mint     string
 	Raw      uint64
 	ValueSOL float64
 }
 
-// MarketView is one project row for the brief.
 type MarketView struct {
 	Mint      string
 	Name      string
 	Symbol    string
-	Status    string // BONDING | COMPLETE | MIGRATED | RECLAIMED
+	Status    string
 	PriceSOL  float64
 	MCAPSOL   float64
 	IsHeld    bool
@@ -67,14 +53,12 @@ type MarketView struct {
 	HasLoan   bool
 }
 
-// MessageView is one intel line.
 type MessageView struct {
 	Mint   string
 	Sender string
 	Text   string
 }
 
-// ReadState is the snapshot the tools produce.
 type ReadState struct {
 	Identity  Identity
 	PnL       PnlSummary
@@ -86,7 +70,6 @@ type ReadState struct {
 	VaultSOL  uint64
 }
 
-// PositionView is one open leverage position (shown, not lent).
 type PositionView struct {
 	Mint    string
 	Side    string
@@ -94,10 +77,8 @@ type PositionView struct {
 	DebtSOL float64
 }
 
-// Tokens is the documented 4-chars-per-token heuristic.
 func Tokens(s string) int { return (utf8.RuneCountInString(s) + 3) / 4 }
 
-// Build renders the brief. Compact ~750 tokens, full everything.
 func Build(read ReadState, size Size) (string, error) {
 	if read.Identity.Name == "" {
 		return "", fmt.Errorf("brief: identity name required")
@@ -152,8 +133,6 @@ func youAre(b *strings.Builder, read ReadState, size Size) {
 	}
 }
 
-// positions renders the wallet's open leverage positions: the position,
-// not a label.
 func positions(b *strings.Builder, read ReadState) {
 	if len(read.Positions) == 0 {
 		b.WriteString("POSITIONS: none.\n")
@@ -164,8 +143,6 @@ func positions(b *strings.Builder, read ReadState) {
 	}
 }
 
-// HealthLine is Pyre's rule: PnL + unrealized, then the nudge. The line is
-// PNL — the wallet's overall profit and loss, not a job title.
 func HealthLine(read ReadState) (string, string) {
 	pnl := read.PnL.TotalRealizedPnl
 	unrealized := int64(0)
@@ -288,7 +265,7 @@ func strategies(b *strings.Builder, size Size) {
 	b.WriteString("Sentiment flips fast: an exit signal on a held project is a reason to exit first.\n")
 	b.WriteString("Patience beats noise: no action is an action. Pass when the read is unclear.\n")
 	if size == Full {
-		b.WriteString("Diversify: no project above 50%% of the vault's value.\n")
+		b.WriteString("Diversify: no project above 50% of the vault's value.\n")
 		b.WriteString("Escalate: a project at migrated with a deep pool is a liquidity story, not a pump.\n")
 		b.WriteString("Use intel: another contributor's back on your project is bullish; their exit is bearish.\n")
 		b.WriteString("Be a legend: leave one memorable one-liner per fire when you post.\n")
@@ -354,14 +331,13 @@ func fid(mint string) string {
 }
 
 func short(s string, n int) string {
-	if len(s) <= n {
+	r := []rune(s)
+	if len(r) <= n {
 		return s
 	}
-	return s[:n]
+	return string(r[:n])
 }
 
-// statusWord is torch's status vocabulary: bonding, ready, migrated,
-// reclaimed. No Pyre abbreviations.
 func statusWord(status string) string {
 	switch status {
 	case "BONDING":
@@ -418,7 +394,6 @@ func lamportsOf(v float64) int64 {
 	return -int64(-v * 1e9)
 }
 
-// bullWords / bearWords are the deterministic sentiment lexicon.
 var bullWords = map[string]bool{
 	"back": true, "backed": true, "backing": true,
 	"buy": true, "buying": true, "bought": true,
@@ -433,9 +408,6 @@ var bearWords = map[string]bool{
 	"lose": true, "losing": true, "trash": true, "trashing": true,
 }
 
-// SentimentFrom scores a message board: +1 per bullish word, -1 per bearish
-// word, normalized by message count, clamped to [-10, 10]. Same messages,
-// same number — no LLM, no state.
 func SentimentFrom(msgs []MessageView) float64 {
 	if len(msgs) == 0 {
 		return 0
@@ -465,15 +437,10 @@ func solstr(lamports uint64) string {
 	return fmtSOL(float64(lamports) / 1e9)
 }
 
-// Bull reports whether the word is in the bullish lexicon (debug/testing).
 func Bull(w string) bool { return bullWords[w] }
 
-// Bear reports whether the word is in the bearish lexicon (debug/testing).
 func Bear(w string) bool { return bearWords[w] }
 
-// StubBrief is the prompt stored at register/refresh: the identity header
-// and the static rules, with a line telling the fire to rebuild the live
-// brief. The real brief is built per fire by run-job.
 func StubBrief(id Identity) string {
 	b := &strings.Builder{}
 	b.WriteString("LEGEND\nback $ \"*\" — buy a project. Vault-routed: the vault pays, the memo rides the tx.\n")
