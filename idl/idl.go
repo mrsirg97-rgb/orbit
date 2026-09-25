@@ -5,21 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 )
 
 //go:embed torch_market.json
 var idlJSON []byte
 
-// IDL is the parsed subset of torch_market.json the client builds from.
 type IDL struct {
 	Address      string
 	Instructions map[string]Instruction
 	Types        map[string][]Field
 }
 
-// Instruction is one Anchor instruction: 8-byte discriminator, account
-// list in order (with signer/writable flags), and args.
 type Instruction struct {
 	Name          string
 	Discriminator []byte
@@ -27,21 +23,18 @@ type Instruction struct {
 	Args          []Arg
 }
 
-// Account is one account reference with its wire flags.
 type Account struct {
 	Name     string
 	Writable bool
 	Signer   bool
 }
 
-// Arg is one instruction argument.
 type Arg struct {
 	Name    string
 	Type    string
 	Defined string
 }
 
-// Field is a borsh struct field.
 type Field struct {
 	Name string
 	Type string
@@ -71,8 +64,6 @@ type idlArg struct {
 	Type idlArgType `json:"type"`
 }
 
-// idlArgType is polymorphic in this IDL: `"type": "u64"` for flat args,
-// `"type": {"defined": {"name": "BuyArgs"}}` for struct args.
 type idlArgType struct {
 	Defined string
 }
@@ -122,9 +113,6 @@ type idlArray []json.RawMessage
 
 var parsedIDL *IDL
 
-// LoadIDL parses the embedded IDL once. It fails loudly on any structural
-// surprise — a builder for an instruction the IDL does not name is an init
-// error, never a runtime discovery.
 func LoadIDL() (*IDL, error) {
 	if parsedIDL != nil {
 		return parsedIDL, nil
@@ -188,8 +176,6 @@ func typeName(t idlFieldType) string {
 	}
 }
 
-// BorshArgs encodes named args per the IDL's defined type. Only the types
-// the client writes are supported: u64, bool, u32, i64, and structs of those.
 func (id *IDL) BorshArgs(insName string, args map[string]any) ([]byte, error) {
 	ins, ok := id.Instructions[insName]
 	if !ok {
@@ -199,7 +185,7 @@ func (id *IDL) BorshArgs(insName string, args map[string]any) ([]byte, error) {
 		return nil, fmt.Errorf("idl: %s: expected one args struct, got %d", insName, len(ins.Args))
 	}
 	structName := ins.Args[0].Type
-	// Flat args (deposit_vault: sol_amount u64) encode directly.
+
 	if isPrimitive(structName) {
 		if len(args) != 1 {
 			return nil, fmt.Errorf("idl: %s: flat arg needs one value", insName)
@@ -286,7 +272,6 @@ func LeU32(n uint32) []byte {
 	return b
 }
 
-// Discriminator returns the 8-byte instruction discriminator.
 func (id *IDL) Discriminator(name string) ([]byte, error) {
 	ins, ok := id.Instructions[name]
 	if !ok {
@@ -297,7 +282,6 @@ func (id *IDL) Discriminator(name string) ([]byte, error) {
 	return out, nil
 }
 
-// AccountNames returns the account names in order.
 func (id *IDL) AccountNames(name string) ([]string, error) {
 	ins, ok := id.Instructions[name]
 	if !ok {
@@ -310,8 +294,6 @@ func (id *IDL) AccountNames(name string) ([]string, error) {
 	return out, nil
 }
 
-// KnownInstructions returns the sorted instruction names (for tests and
-// bootstrap validation).
 func (id *IDL) KnownInstructions() []string {
 	out := make([]string, 0, len(id.Instructions))
 	for n := range id.Instructions {
@@ -321,16 +303,11 @@ func (id *IDL) KnownInstructions() []string {
 	return out
 }
 
-// Contains reports whether the IDL has the instruction.
 func (id *IDL) Contains(name string) bool {
 	_, ok := id.Instructions[name]
 	return ok
 }
 
-var _ = strings.TrimSpace
-
-// UnmarshalJSON accepts both `"u64"` and `{"defined": {"name": "..."}}`
-// field type shapes (this IDL uses both).
 func (t *idlFieldType) UnmarshalJSON(b []byte) error {
 	var s string
 	if err := json.Unmarshal(b, &s); err == nil {
