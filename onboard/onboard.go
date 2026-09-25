@@ -1,7 +1,3 @@
-// Package onboard is the one-minute onboarding path: generate the agent hot
-// wallet, write the orbit home config, fund it on devnet, and print the next
-// commands. The operator key never passes through here — it is resolved per
-// vault call (flag > env) and used only in the process.
 package onboard
 
 import (
@@ -17,7 +13,6 @@ import (
 	"github.com/mrsirg97-rgb/orbit/sol"
 )
 
-// Home is the orbit home (ORBIT_HOME, default ~/.config/orbit).
 func Home(getenv func(string) string) (string, error) {
 	if h := strings.TrimSpace(getenv("ORBIT_HOME")); h != "" {
 		return h, nil
@@ -29,8 +24,6 @@ func Home(getenv func(string) string) (string, error) {
 	return filepath.Join(home, ".config", "orbit"), nil
 }
 
-// ConfigPath is the config file the env loader reads as defaults (ORBIT_CONFIG
-// or the orbit home's config).
 func ConfigPath(getenv func(string) string) (string, error) {
 	if p := strings.TrimSpace(getenv("ORBIT_CONFIG")); p != "" {
 		return p, nil
@@ -42,13 +35,11 @@ func ConfigPath(getenv func(string) string) (string, error) {
 	return filepath.Join(h, "config"), nil
 }
 
-// Airdrop is the devnet faucet seam (client.RPC in production).
 type Airdrop interface {
 	RequestAirdrop(ctx context.Context, pubkey string, lamports uint64) (string, error)
 	GetBalance(ctx context.Context, pubkey string) (uint64, error)
 }
 
-// InitOpts are the injectable inputs (tests swap home/getenv/rpc/sleep).
 type InitOpts struct {
 	Home            string
 	ConfigPath      string
@@ -60,7 +51,6 @@ type InitOpts struct {
 	Force           bool
 }
 
-// InitResult is what init prints.
 type InitResult struct {
 	Pubkey      string
 	Balance     uint64
@@ -72,9 +62,6 @@ type InitResult struct {
 	Next        []string
 }
 
-// Init generates the hot wallet (0600), writes the config defaults, funds it
-// on devnet (with retries), and returns the summary. It refuses to overwrite
-// an existing key without Force.
 func Init(opts InitOpts) (InitResult, error) {
 	getenv := opts.Getenv
 	if getenv == nil {
@@ -103,7 +90,7 @@ func Init(opts InitOpts) (InitResult, error) {
 	reused := false
 	var kp sol.Keypair
 	if b, err := os.ReadFile(keyPath); err == nil && !opts.Force {
-		// Resumable: an existing key is reused; init never strands a stranger.
+
 		kp, err = sol.KeypairFromSecret(strings.TrimSpace(string(b)))
 		if err != nil {
 			return InitResult{}, fmt.Errorf("init: existing key %s: %w", keyPath, err)
@@ -119,8 +106,6 @@ func Init(opts InitOpts) (InitResult, error) {
 		}
 	}
 
-	// Config upsert: env > existing value > default. The operator's edits
-	// (e.g. ORBIT_VAULT_CREATOR written by `orbit vault create`) survive.
 	existing, err := readConfig(cfgPath)
 	if err != nil {
 		return InitResult{}, err
@@ -145,7 +130,7 @@ func Init(opts InitOpts) (InitResult, error) {
 
 	lamports := opts.AirdropLamports
 	if lamports == 0 {
-		lamports = 1_000_000_000 // 1 SOL
+		lamports = 1_000_000_000
 	}
 	sleep := opts.Sleep
 	if sleep == nil {
@@ -179,9 +164,6 @@ func Init(opts InitOpts) (InitResult, error) {
 	}, nil
 }
 
-// airdropBounded requests the devnet airdrop with jittered backoff for a
-// bounded time, then succeeds anyway: the caller gets the current balance and
-// a funding hint. Init never fails because the faucet is busy.
 func airdropBounded(ctx context.Context, rpc Airdrop, pubkey string, lamports uint64, sleep func(time.Duration), budget time.Duration) (uint64, bool) {
 	if rpc == nil {
 		return 0, false
@@ -204,21 +186,18 @@ func airdropBounded(ctx context.Context, rpc Airdrop, pubkey string, lamports ui
 				}
 				sleep(time.Second)
 			}
-			// The request landed but the balance has not; retry after a beat.
+
 		}
 		if time.Since(start) >= budget || attempt >= maxAttempts {
 			balance, _ := rpc.GetBalance(ctx, pubkey)
 			return balance, false
 		}
-		// Jittered backoff: 2..4s, growing with the attempt (bounded by the budget).
+
 		backoff := time.Duration(2+attempt%3) * time.Second
 		sleep(backoff)
 	}
 }
 
-// OperatorKey resolves the vault authority key per call: flag > env, never
-// written to the orbit home. The path may point at a keypair JSON (the
-// Solana secret file) or a raw base58 64-byte secret line.
 func OperatorKey(getenv func(string) string, flagKey, flagPath string) (sol.Keypair, error) {
 	if getenv == nil {
 		getenv = func(string) string { return "" }
@@ -255,13 +234,10 @@ func OperatorKey(getenv func(string) string, flagKey, flagPath string) (sol.Keyp
 	return kp, nil
 }
 
-// WriteConfigValue upserts a KEY=VALUE line in the config file (preserving
-// the rest). Only public values are ever written (a pubkey, never a key).
 func WriteConfigValue(path, key, value string) error {
 	return WriteConfigValues(path, map[string]string{key: value})
 }
 
-// WriteConfigValues upserts several keys at once.
 func WriteConfigValues(path string, values map[string]string) error {
 	b, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -293,7 +269,6 @@ func WriteConfigValues(path string, values map[string]string) error {
 	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600)
 }
 
-// readConfig parses the config file into a map (missing file = empty).
 func readConfig(path string) (map[string]string, error) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -313,7 +288,6 @@ func readConfig(path string) (map[string]string, error) {
 	return out, nil
 }
 
-// firstNonEmpty returns the first non-empty value.
 func firstNonEmpty(vs ...string) string {
 	for _, v := range vs {
 		if v = strings.TrimSpace(v); v != "" {
@@ -323,7 +297,6 @@ func firstNonEmpty(vs ...string) string {
 	return ""
 }
 
-// isHostOnlyURL reports an endpoint with no path (the site base).
 func isHostOnlyURL(endpoint string) bool {
 	slash := strings.Index(endpoint, "://")
 	rest := endpoint
@@ -333,9 +306,6 @@ func isHostOnlyURL(endpoint string) bool {
 	return !strings.Contains(rest, "/")
 }
 
-// Load returns the orbit home's config file as a map (missing file =
-// empty). Reads only — the /earn wizard checks the hot key and the vault
-// creator before it runs any step.
 func Load(getenv func(string) string) (map[string]string, error) {
 	path, err := ConfigPath(getenv)
 	if err != nil {

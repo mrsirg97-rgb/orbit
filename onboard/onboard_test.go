@@ -110,7 +110,7 @@ func TestInitTwiceReusesKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The operator's edit survives the second init.
+
 	if err := WriteConfigValue(cfgPath, "ORBIT_VAULT_CREATOR", "8GQ4XGM9p5DqKjw2JTrUAc42adwYWD5PK3P7eTobcYKy"); err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestInitTwiceReusesKey(t *testing.T) {
 	if !second.ReusedKey {
 		t.Error("second init must reuse the existing key")
 	}
-	// The airdrop/balance step runs every time.
+
 	if len(fake.requested) != 2 {
 		t.Errorf("airdrop runs every init: requested %d, want 2", len(fake.requested))
 	}
@@ -160,7 +160,7 @@ func TestInitForceRegeneratesKey(t *testing.T) {
 
 func TestInitAirdropRetries(t *testing.T) {
 	home := t.TempDir()
-	fake := &fakeAirdrop{fail: 2} // two failed requests, third succeeds
+	fake := &fakeAirdrop{fail: 2}
 	res, err := Init(InitOpts{
 		Home: home, ConfigPath: filepath.Join(home, "config"), Getenv: func(string) string { return "" },
 		RPC: fake, AirdropLamports: 500_000_000, Sleep: noSleep, AirdropBudget: time.Hour,
@@ -176,8 +176,6 @@ func TestInitAirdropRetries(t *testing.T) {
 	}
 }
 
-// TestInitAirdrop405And429: the faucet's 405/429 responses must not fail
-// init — bounded backoff, then succeed anyway with the funding hint.
 func TestInitAirdrop405And429(t *testing.T) {
 	for _, status := range []error{
 		errors.New("status 405: Bad method"),
