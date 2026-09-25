@@ -1,6 +1,3 @@
-// Package project is the operator's project surface: create a market with a
-// purpose (create_token + a first vault buy whose memo carries the goal) and
-// list the projects the indexer knows, goal and treasury included.
 package project
 
 import (
@@ -21,7 +18,6 @@ const (
 	GoalTag    = "goal:"
 )
 
-// GoalMemo is the memo that carries the project's purpose on the first buy.
 func GoalMemo(goal string) (string, error) {
 	goal = strings.TrimSpace(goal)
 	if goal == "" {
@@ -36,7 +32,6 @@ func GoalMemo(goal string) (string, error) {
 	return GoalTag + " " + goal, nil
 }
 
-// GoalFrom parses the goal back out of a board memo.
 func GoalFrom(memo string) (string, bool) {
 	memo = strings.TrimSpace(memo)
 	if !strings.HasPrefix(memo, GoalTag) {
@@ -46,8 +41,6 @@ func GoalFrom(memo string) (string, bool) {
 	return goal, goal != ""
 }
 
-// SymbolFor derives the ticker from the name: uppercase alphanumerics, the
-// first 6 runes, PROJ when the name has no letters.
 func SymbolFor(name string) string {
 	var b strings.Builder
 	for _, r := range name {
@@ -70,7 +63,6 @@ func SymbolFor(name string) string {
 	return b.String()
 }
 
-// Row is one project as the indexer knows it.
 type Row struct {
 	Mint        string
 	Name        string
@@ -80,9 +72,6 @@ type Row struct {
 	Goal        string
 }
 
-// List reads the indexer: markets, the first goal: memo per
-// market, and the treasury float from the RPC seam. A market without a goal
-// memo keeps Goal empty; a market without a treasury account shows 0.
 func List(ctx context.Context, api client.API, rpc client.RPC, programID string, limit int) ([]Row, error) {
 	markets, err := api.Markets(ctx, client.Q("limit", fmt.Sprint(limit)))
 	if err != nil {
@@ -117,7 +106,6 @@ func List(ctx context.Context, api client.API, rpc client.RPC, programID string,
 	return rows, nil
 }
 
-// CreateResult is the outcome of `project create`.
 type CreateResult struct {
 	Mint             string
 	Name             string
@@ -128,10 +116,6 @@ type CreateResult struct {
 	BuySignature     string
 }
 
-// Create runs the two-transaction create: create_token (operator + fresh mint
-// keypair), then the first buy from the operator's vault with the goal memo.
-// The operator's key must be the config's vault creator; nothing is retried
-// blindly and every failure names the step.
 func Create(ctx context.Context, tc *client.TorchClient, operator sol.Keypair, name, goal string, treasuryLamports uint64) (CreateResult, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
