@@ -1,0 +1,107 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The tag is asserted against the Version const before any asset is
+      # built: a tag that does not equal "v" + the version refuses to ship.
+      - name: assert the tag matches the Version const
+        id: assert
+        run: |
+          go build -o bin/orbit ./cmd/orbit
+          VERSION="$(./bin/orbit -version | awk '{print $2}')"
+          if [ "$GITHUB_REF_NAME" != "v$VERSION" ]; then
+            echo "release: tag ${GITHUB_REF_NAME} != v${VERSION} (the Version const in cmd/orbit); refusing to ship mismatched assets" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # modernc sqlite is pure Go: CGO_ENABLED=0 cross-builds the four with
+      # no cgo toolchains. Assets are orbit_<os>_<arch>, no extension, no
+      # version in the name; checksums.txt ties them to the tag.
+      - name: cross-build linux/darwin x amd64/arm64
+        run: |
+          set -eu
+          for spec in "linux amd64" "linux arm64" "darwin amd64" "darwin arm64"; do
+            os="${spec% *}"
+            arch="${spec#* }"
+            CGO_ENABLED=0 GOOS="${os}" GOARCH="${arch}" \
+              go build -trimpath -ldflags="-s -w" -o "dist/orbit_${os}_${arch}" ./cmd/orbit
+          done
+          cd dist
+          sha256sum orbit_* > checksums.txt
+
+      # The pinned static minisign binary comes from the project's GitHub
+      # release, not apt: ubuntu-latest's apt sources include the Chrome repo,
+      # whose flaky index (Hash Sum mismatch on dl.google.com) breaks
+      # apt-get update. The tarball is verified by checksum before use.
+      - name: fetch the pinned minisign binary
+        run: |
+          set -eu
+          curl -fsSL -o "$RUNNER_TEMP/minisign.tar.gz" \
+            https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-linux.tar.gz
+          cd "$RUNNER_TEMP"
+          echo '9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73  minisign.tar.gz' | sha256sum -c -
+          tar -xzf minisign.tar.gz
+          install -m 755 minisign-linux/x86_64/minisign minisign
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      # Each asset is signed with the operator's pinned minisign key; a
+      # missing secret refuses the release before any asset ships.
+      - name: sign the assets with the pinned minisign key
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: |
+          set -eu
+          if [ -z "${MINISIGN_SECRET_KEY:-}" ]; then
+            echo "release: MINISIGN_SECRET_KEY is not set (the base64 of minisign.key); refusing to ship unsigned assets" >&2
+            exit 1
+          fi
+          printf '%s' "$MINISIGN_SECRET_KEY" | base64 -d > "$RUNNER_TEMP/minisign.key"
+          for asset in dist/orbit_linux_amd64 dist/orbit_linux_arm64 dist/orbit_darwin_amd64 dist/orbit_darwin_arm64; do
+            minisign -S -x "$asset.minisig" -s "$RUNNER_TEMP/minisign.key" -m "$asset"
+          done
+
+      - name: attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/orbit_linux_amd64, dist/orbit_linux_arm64, dist/orbit_darwin_amd64, dist/orbit_darwin_arm64
+
+      # The release body comes from the matching CHANGELOG.md section; a
+      # missing section refuses an empty body.
+      - name: create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.assert.outputs.version }}"
+          awk -v v="$VERSION" '
+            index($0, "## [" v "]") == 1 { insec=1; next }
+            insec && /^## \[/ { exit }
+            insec { print }
+          ' CHANGELOG.md > release-body.md
+          if [ ! -s release-body.md ]; then
+            echo "release: no CHANGELOG.md section for ${VERSION}; refusing an empty release body" >&2
+            exit 1
+          fi
+          gh release create "v$VERSION" \
+            dist/orbit_linux_amd64 dist/orbit_linux_arm64 \
+            dist/orbit_darwin_amd64 dist/orbit_darwin_arm64 dist/checksums.txt \
+            dist/orbit_linux_amd64.minisig dist/orbit_linux_arm64.minisig \
+            dist/orbit_darwin_amd64.minisig dist/orbit_darwin_arm64.minisig \
+            --notes-file release-body.md
