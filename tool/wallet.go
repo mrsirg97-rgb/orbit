@@ -10,7 +10,6 @@ import (
 	"github.com/mrsirg97-rgb/orbit/client"
 )
 
-// Wallet is the wallet read: P&L, positions, health. Vault-attributed.
 type Wallet struct {
 	Client func() (*client.TorchClient, error)
 }
@@ -90,7 +89,7 @@ func (w *Wallet) Exec(ctx context.Context, args json.RawMessage) (string, error)
 			})
 		}
 		line, nudge := brief.HealthLine(read)
-		lines = append(lines, "PNL: "+line+"."+nudge)
+		lines = append(lines, "PNL: "+line+". "+nudge)
 		lines = append(lines, fmt.Sprintf("Vault SOL: %s (rent floor excluded)", sol(float64(wallet.VaultSOL)/1e9)))
 	}
 	return strings.Join(lines, "\n"), nil

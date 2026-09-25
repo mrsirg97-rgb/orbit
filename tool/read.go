@@ -8,9 +8,6 @@ import (
 	"github.com/mrsirg97-rgb/orbit/client"
 )
 
-// Snapshot assembles the brief's ReadState from the live read side:
-// markets, the wallet read, holdings value, sentiment, intel, positions.
-// Pure projection — no writes, no state.
 func Snapshot(ctx context.Context, c *client.TorchClient, identity brief.Identity) (brief.ReadState, error) {
 	markets, err := c.API.Markets(ctx, nil)
 	if err != nil {
@@ -42,8 +39,7 @@ func Snapshot(ctx context.Context, c *client.TorchClient, identity brief.Identit
 			DebtSOL: float64(p.DebtAmount) / 1e9,
 		})
 	}
-	// Sentiment + intel for the held/watched set (the top 6 by value, then
-	// the top 4 new markets).
+
 	for i, m := range markets {
 		if i >= 6 {
 			break
@@ -114,8 +110,9 @@ func hasLoan(state *brief.ReadState, mint string) bool {
 }
 
 func truncate(s string, n int) string {
-	if len(s) <= n {
+	r := []rune(s)
+	if len(r) <= n {
 		return s
 	}
-	return s[:n] + "…"
+	return string(r[:n]) + "…"
 }

@@ -10,11 +10,6 @@ import (
 	"github.com/mrsirg97-rgb/orbit/client"
 )
 
-// Market is the project read + write tool. Act: back (buy via vault + memo),
-// exit (sell via vault + memo), post (micro buy + memo). Every write replies
-// with the tx signature plus the memo; the memo carries no role tag — the
-// wallet's stake is the proof. Stake Lamports is the default per-action
-// stake when the caller omits `sol`.
 type Market struct {
 	Client        func() (*client.TorchClient, error)
 	StakeLamports uint64
@@ -136,10 +131,9 @@ func (m *Market) treasurySOL(ctx context.Context, tc *client.TorchClient, mint s
 	return info.Lamports - client.RentExemptZeroData, nil
 }
 
-// resolveMint turns an 8-char FID (or a full mint) into the full mint pubkey.
 func resolveMint(ctx context.Context, c *client.TorchClient, input string) (string, error) {
 	if len(input) == 44 {
-		// Could be a full mint already; the detail fetch validates.
+
 		if _, err := c.API.Market(ctx, input); err == nil {
 			return input, nil
 		}

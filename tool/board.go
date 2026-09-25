@@ -10,11 +10,6 @@ import (
 	"github.com/mrsirg97-rgb/orbit/client"
 )
 
-// Board is the shared-board tool: read a project's board, or act — task,
-// brief, claim, note, complete, accept, reject. Every act is one memo + one
-// vault-routed micro buy; the reply carries the tx signature plus the memo.
-// No roles: any wallet may act — the fold decides ownership (the funder's
-// accept) and stake.
 type Board struct {
 	Store  *board.Store
 	Client func() (*client.TorchClient, error)
@@ -86,9 +81,6 @@ func (b *Board) Exec(ctx context.Context, args json.RawMessage) (string, error) 
 	return b.Store.Act(ctx, project, shape)
 }
 
-// resolveMint: a full mint is validated by the store's market read; an
-// 8-char FID resolves through the indexer's market list (RPC-only boards
-// need the full mint).
 func (b *Board) resolveMint(ctx context.Context, input string) (string, error) {
 	tc, err := b.client()
 	if err != nil {

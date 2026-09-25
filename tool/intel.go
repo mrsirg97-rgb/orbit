@@ -9,7 +9,6 @@ import (
 	"github.com/mrsirg97-rgb/orbit/client"
 )
 
-// Intel is the message board read: recent messages on held/watched projects.
 type Intel struct {
 	Client func() (*client.TorchClient, error)
 }
