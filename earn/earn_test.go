@@ -12,6 +12,7 @@ import (
 	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
 
 	"github.com/mrsirg97-rgb/orbit/board"
+	"github.com/mrsirg97-rgb/orbit/brief"
 	"github.com/mrsirg97-rgb/orbit/client"
 	"github.com/mrsirg97-rgb/orbit/identity"
 	"github.com/mrsirg97-rgb/orbit/onboard"
@@ -21,6 +22,7 @@ import (
 type fakeRPC struct {
 	accounts map[string]client.AccountInfo
 	balance  uint64
+	calls    int
 }
 
 func (f *fakeRPC) GetLatestBlockhash(ctx context.Context) (string, error) {
@@ -30,9 +32,11 @@ func (f *fakeRPC) SendTransaction(ctx context.Context, signed []byte) (string, e
 	return "sigEARN1234567890", nil
 }
 func (f *fakeRPC) GetAccountInfo(ctx context.Context, pubkey string) (client.AccountInfo, error) {
+	f.calls++
 	return f.accounts[pubkey], nil
 }
 func (f *fakeRPC) GetTokenAccountsByOwner(ctx context.Context, owner, programID string) ([]client.TokenAccount, error) {
+	f.calls++
 	return nil, nil
 }
 func (f *fakeRPC) GetBalance(ctx context.Context, pubkey string) (uint64, error) {
@@ -300,5 +304,57 @@ func TestStatusRows(t *testing.T) {
 	}
 	if !strings.HasPrefix(lines[0], "projects held:") || !strings.HasPrefix(lines[3], "PnL since start: +0.0025 SOL") {
 		t.Errorf("status rows:\n%s", out)
+	}
+}
+
+func TestSnapshotLocalRead(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "status.json")
+	if _, ok, err := Snapshot(path); err != nil || ok {
+		t.Fatalf("missing snapshot: ok=%v err=%v", ok, err)
+	}
+	want := Rows{Held: 3, OpenClaims: 1, LastMemo: "just now · \"backed\"", PnLSOL: 2.5}
+	if err := WriteSnapshot(path, want); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := Snapshot(path)
+	if err != nil || !ok {
+		t.Fatalf("snapshot read: ok=%v err=%v", ok, err)
+	}
+	if got != want {
+		t.Errorf("snapshot rows: %+v, want %+v", got, want)
+	}
+}
+
+func TestRowsFromBriefNoChainCalls(t *testing.T) {
+	dir := t.TempDir()
+	rpc := &fakeRPC{}
+	tc := testClient(t, rpc)
+	rpc.accounts = map[string]client.AccountInfo{
+		client.TorchVaultPDA(tc.ProgramID, tc.VaultCreator):       {Exists: true, Lamports: 1_000_000_000},
+		client.VaultWalletLinkPDA(tc.ProgramID, tc.AgentPublic()): {Exists: true, Lamports: 1_000_000_000},
+		client.VaultSolPDA(tc.ProgramID, tc.VaultCreator):         {Exists: true, Lamports: 2_000_000_000 + client.RentExemptZeroData},
+	}
+	bs, err := board.Open(filepath.Join(dir, "board.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bs.DB.Close()
+	st := &board.Store{Client: func() (*client.TorchClient, error) { return tc, nil }, DB: bs}
+	read := brief.ReadState{
+		PnL: brief.PnlSummary{TotalRealizedPnl: 5_000_000},
+		Holdings: []brief.Holding{
+			{Mint: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", Raw: 123},
+			{Mint: "6wDUn9V7fuP1Ujn6o3xk4yFh4EE3F65LpgQsrNjTjmVx", Raw: 456},
+		},
+	}
+	rows, err := RowsFromBrief(context.Background(), read, tc, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows.Held != 2 || rows.PnLSOL != 0.005 {
+		t.Errorf("rows: %+v", rows)
+	}
+	if rpc.calls != 0 {
+		t.Errorf("RowsFromBrief hit the RPC %d times", rpc.calls)
 	}
 }

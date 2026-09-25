@@ -56,12 +56,18 @@ archetypes, no voice, no stake scale — the memo grammar stays role-free
 (SPEC_BOARD: the verb says what happened; the sender is the only identity
 the fold trusts).
 
-### 4. The footer rows are one pure read
+### 4. The footer rows are a local snapshot, never the chain
 
-`earn.StatusRows(ctx, tc, boardStore)` reads the wallet (held projects,
-PnL since start) and the board cache (the wallet's open claims, its last
-memo). The TUI's status function calls it through a short-lived cache;
-`/earn status` calls it directly. Same rows, same bytes.
+`earn.Status` reads the wallet (held projects, PnL since start) and the
+board cache (the wallet's open claims, its last memo) — command time
+only. `/earn status` and each agent fire write the rows to the local
+snapshot (`<rig home>/orbit/status.json`, atomic temp + rename), and the
+TUI's status callback reads only that file. Every command recaptures the
+status in rig, so a callback that touched the chain would put `/help` on
+the network; the snapshot keeps the footer local. The rows are as fresh
+as the last `/earn status` or fire — a mid-turn tool effect shows stale
+until the next command, and the brief's own numbers (the fire's read)
+carry the same staleness.
 
 ### 5. The wizard asks with the answers at the call
 
@@ -83,7 +89,9 @@ new bytes.
 
 - `earn/command.go` — the /earn command: register wizard, status, stop,
   start
-- `earn/status.go` — the footer rows (held, claims, last memo, PnL)
+- `earn/status.go` — the footer rows (held, claims, last memo, PnL) and the
+  local snapshot (write at `/earn status` and per fire, read at status
+  callback)
 - `earn/earn_test.go` — wizard, status, stop against fakes
 - `cmd/orbit/main.go` — rig's main with orbit tools, /earn, and the title
 - `cmd/orbit/*.go` — the subcommands (init, vault, project, board,

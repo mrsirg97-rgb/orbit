@@ -16,7 +16,6 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/mrsirg97-rgb/rig"
 	"github.com/mrsirg97-rgb/rig/command"
@@ -752,32 +751,17 @@ func (r *root) statusIn(ctx context.Context) tui.StatusIn {
 	return b
 }
 
-var earnRowsCache struct {
-	mu   sync.Mutex
-	at   time.Time
-	rows []string
-}
-
-// earnRows is the /earn footer's rows, cached for 30s: projects held,
-// open claims, last memo, PnL since start. No rows when the orbit config
-// is missing (the TUI starts before /earn) — the status line stays quiet.
+// earnRows is the /earn footer's rows: a local snapshot file, never the
+// chain. /earn status and each agent fire write it (command and fire time
+// are the only chain reads); the status callback just reads the file, so
+// every command — /help included — stays off the network. No snapshot
+// yet (the TUI starts before /earn): no rows, the footer stays quiet.
 func (r *root) earnRows(ctx context.Context) []string {
-	earnRowsCache.mu.Lock()
-	defer earnRowsCache.mu.Unlock()
-	if time.Since(earnRowsCache.at) < 30*time.Second {
-		return earnRowsCache.rows
-	}
-	tc, err := r.client.Torch()
-	if err != nil {
+	rows, ok, err := earn.Snapshot(r.earn.SnapshotPath)
+	if err != nil || !ok {
 		return nil
 	}
-	rows, err := earn.Status(ctx, tc, r.board)
-	if err != nil {
-		return nil
-	}
-	earnRowsCache.at = time.Now()
-	earnRowsCache.rows = rows.Lines()
-	return earnRowsCache.rows
+	return rows.Lines()
 }
 
 func sessionFor(resumeID string, resume func(id string) (*core.Session, error)) (*core.Session, error) {
@@ -1252,14 +1236,15 @@ func main() {
 		Operator: func(flagKey, flagPath string) (sol.Keypair, error) {
 			return onboard.OperatorKey(os.Getenv, flagKey, flagPath)
 		},
-		IdentityDB: idb,
-		SchedDB:    scdb,
-		Crontab:    sched.RealCrontab(""),
-		Board:      r.board,
-		Self:       self,
-		Cwd:        cwd,
-		Session:    "orbit-earn",
-		Model:      func() string { return r.activeID },
+		IdentityDB:   idb,
+		SchedDB:      scdb,
+		Crontab:      sched.RealCrontab(""),
+		Board:        r.board,
+		Self:         self,
+		Cwd:          cwd,
+		Session:      "orbit-earn",
+		Model:        func() string { return r.activeID },
+		SnapshotPath: filepath.Join(orbitHome, "status.json"),
 	}
 
 	workersEnv := command.Workers{File: filepath.Join(cfgDir, "workers.json")}

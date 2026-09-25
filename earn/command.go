@@ -34,10 +34,11 @@ type Command struct {
 	Crontab    sched.Crontab
 	Board      *board.Store
 
-	Self    string
-	Cwd     string
-	Session string
-	Model   func() string
+	Self         string
+	Cwd          string
+	Session      string
+	Model        func() string
+	SnapshotPath string
 }
 
 func (c *Command) Name() string { return "earn" }
@@ -71,6 +72,11 @@ func (c *Command) status(ctx context.Context) (string, error) {
 	rows, err := Status(ctx, tc, c.Board)
 	if err != nil {
 		return "", err
+	}
+	if c.SnapshotPath != "" {
+		if err := WriteSnapshot(c.SnapshotPath, rows); err != nil {
+			return "", err
+		}
 	}
 	return strings.Join(rows.Lines(), "\n"), nil
 }
@@ -155,6 +161,13 @@ func (c *Command) register(ctx context.Context, in args) (string, error) {
 	parts := append([]string{"earn: registered"}, steps...)
 	parts = append(parts, lines...)
 	parts = append(parts, roster)
+	if c.SnapshotPath != "" {
+		if rows, err := Status(ctx, tc, c.Board); err == nil {
+			if err := WriteSnapshot(c.SnapshotPath, rows); err != nil {
+				return "", err
+			}
+		}
+	}
 	return strings.Join(parts, "\n"), nil
 }
 

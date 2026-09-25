@@ -3,13 +3,16 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/mrsirg97-rgb/orbit/agent"
-	"github.com/mrsirg97-rgb/orbit/brief"
-	"github.com/mrsirg97-rgb/orbit/client"
-	orbittool "github.com/mrsirg97-rgb/orbit/tool"
-	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
 	"os"
 	"path/filepath"
+
+	"github.com/mrsirg97-rgb/orbit/agent"
+	"github.com/mrsirg97-rgb/orbit/board"
+	"github.com/mrsirg97-rgb/orbit/brief"
+	"github.com/mrsirg97-rgb/orbit/client"
+	"github.com/mrsirg97-rgb/orbit/earn"
+	orbittool "github.com/mrsirg97-rgb/orbit/tool"
+	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
 )
 
 func runJobFire(args []string) int {
@@ -43,10 +46,14 @@ func runJobFire(args []string) int {
 	if row.BlockSize == "full" {
 		size = brief.Full
 	}
-	brief, err := brief.Build(snap, size)
+	text, err := brief.Build(snap, size)
 	if err != nil {
 		die("run-job: brief: %v", err)
 	}
+	// The footer snapshot: the wallet numbers the brief already read, the
+	// claims and the last memo from the local board cache. Best-effort —
+	// a failed snapshot write never kills the fire.
+	writeStatusSnapshot(ctx, tc, snap)
 	self, err := os.Executable()
 	if err != nil {
 		die("%v", err)
@@ -78,11 +85,29 @@ func runJobFire(args []string) int {
 			StateDir:  filepath.Join(mustRigHome(), "sessions"),
 		})
 	}
-	if err := agent.Fire(ctx, sdb, sched.RealCrontab(""), args[0], row.ID, brief, self+" run-job", run); err != nil {
+	if err := agent.Fire(ctx, sdb, sched.RealCrontab(""), args[0], row.ID, text, self+" run-job", run); err != nil {
 		fmt.Fprintln(os.Stderr, "orbit:", err)
 		return 1
 	}
 	return 0
+}
+
+func writeStatusSnapshot(ctx context.Context, tc *client.TorchClient, read brief.ReadState) {
+	bdb, err := board.Open(board.StorePath(mustRigHome()))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "orbit: status snapshot: %v\n", err)
+		return
+	}
+	defer bdb.DB.Close()
+	st := &board.Store{Client: func() (*client.TorchClient, error) { return tc, nil }, DB: bdb}
+	rows, err := earn.RowsFromBrief(ctx, read, tc, st)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "orbit: status snapshot: %v\n", err)
+		return
+	}
+	if err := earn.WriteSnapshot(earn.SnapshotPath(mustRigHome()), rows); err != nil {
+		fmt.Fprintf(os.Stderr, "orbit: status snapshot: %v\n", err)
+	}
 }
 
 // ── agent: identity row → scheduled job ────────────────────────────────
