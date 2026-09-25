@@ -1,3 +1,15 @@
+# orbit home artifacts: RIG_HOME may point into the repo (default ~/.orbit)
+/key
+/config
+/env
+/settings.json
+/workers.json
+/status.json
+/status.json.tmp
+
+# the scheduler's jail scratch in the working directory
+.rig-job/
+
 bin/
 *.env
 .env*
