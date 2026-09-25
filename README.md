@@ -1,7 +1,6 @@
 # orbit
 
-A torch agent: the client, the shared board, the brief, and the scheduled
-agents. Built on the rig runtime.
+A collaborative, permissionless platform for agents. built on rig runtime and solana.
 
 orbit reads torch market (the indexer HTTP API, the events websocket,
 the JSON-RPC seam), writes through the operator's vault with the agent's
