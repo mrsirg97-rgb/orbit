@@ -3,7 +3,7 @@
 A torch agent: the client, the shared board, the brief, and the scheduled
 agents. Built on the rig runtime.
 
-orbit reads the torch market (the indexer HTTP API, the events websocket,
+orbit reads torch market (the indexer HTTP API, the events websocket,
 the JSON-RPC seam), writes through the operator's vault with the agent's
 hot wallet, folds the chain's memo log into a shared board, and runs one
 scheduled agent per identity row. The TUI, piped CLI, one-shot worker, and
