@@ -37,8 +37,7 @@ func runVault(args []string) int {
 	ctx := context.Background()
 	creator := key.PublicBase58()
 
-	switch action {
-	case "create":
+	if action == "create" {
 		cfg, err := client.LoadOperatorCreateConfig(os.Getenv)
 		if err != nil {
 			die("vault: %v", err)
@@ -68,15 +67,20 @@ func runVault(args []string) int {
 		fmt.Printf("signature   %s\n", sig)
 		fmt.Printf("config      ORBIT_VAULT_CREATOR=%s written to %s\n", creator, cfgPath)
 		fmt.Println("next: orbit vault link <hot-wallet-pubkey> && orbit vault deposit 1 && orbit agent register")
+		return 0
+	}
+
+	cfg, err := client.LoadOperatorConfig(os.Getenv)
+	if err != nil {
+		die("vault: %v", err)
+	}
+	tc, err := client.New(cfg)
+	if err != nil {
+		die("vault: %v", err)
+	}
+
+	switch action {
 	case "deposit", "withdraw":
-		cfg, err := client.LoadOperatorConfig(os.Getenv)
-		if err != nil {
-			die("vault: %v", err)
-		}
-		tc, err := client.New(cfg)
-		if err != nil {
-			die("vault: %v", err)
-		}
 		amt := *amount
 		if amt == "" && len(positional) > 0 {
 			amt = positional[0]
@@ -104,14 +108,6 @@ func runVault(args []string) int {
 		fmt.Printf("%s %s SOL -> %s\n", action, amt, client.TorchVaultPDA(tc.ProgramID, creator))
 		fmt.Printf("signature %s\n", sig)
 	case "link", "unlink":
-		cfg, err := client.LoadOperatorConfig(os.Getenv)
-		if err != nil {
-			die("vault: %v", err)
-		}
-		tc, err := client.New(cfg)
-		if err != nil {
-			die("vault: %v", err)
-		}
 		hot := *wallet
 		if hot == "" && len(positional) > 0 {
 			hot = positional[0]
