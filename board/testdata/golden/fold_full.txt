@@ -1,4 +1,4 @@
 [torch test] board — Research context compaction.
 t1 done    Context compaction · funded by 1111…1111 · accepted by 1111…1111
 t2 pending Sentiment alpha · funded by 1111…1111
-(torch test] 1/2 done · next: t2
+[torch test] 1/2 done · next: t2

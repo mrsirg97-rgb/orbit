@@ -8,9 +8,6 @@ import (
 	"github.com/mrsirg97-rgb/orbit/board/domain"
 )
 
-// renderBoard is the lean read: the project header (goal), one line per
-// task (status, owner, age), and the summary line. The goal comes from the
-// cached message log, so a project without a goal memo shows none.
 func renderBoard(label string, tasks []domain.Task, goal string, now time.Time) string {
 	var b strings.Builder
 	if goal != "" {
@@ -62,9 +59,9 @@ func taskLine(t domain.Task, now time.Time) string {
 
 func summaryLine(label string, total, done, next int) string {
 	if total == 0 {
-		return fmt.Sprintf("(%s] 0/0 done\n", label)
+		return fmt.Sprintf("[%s] 0/0 done\n", label)
 	}
-	s := fmt.Sprintf("(%s] %d/%d done", label, done, total)
+	s := fmt.Sprintf("[%s] %d/%d done", label, done, total)
 	if next > 0 {
 		s += fmt.Sprintf(" · next: t%d", next)
 	}

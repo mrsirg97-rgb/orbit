@@ -9,17 +9,7 @@ import (
 	"github.com/mrsirg97-rgb/orbit/board/domain"
 )
 
-// The swarm surface: rig's board seam, chain-backed. The vocabulary is the
-// todo store's swarm surface verbatim — claim / note / complete / accept /
-// reject / reap — so a drain worker works on a chain board with no change
-// to rig: claim is the memo, the lease is the fold's expiry, and reap
-// returns expired claims to pending. The surface has no roles: any wallet
-// may claim, note, complete, and reject; accept is honoured only from the
-// task's funder (the fold decides).
-
-// Claim takes the first pending task on the live board and writes the
-// claim memo + micro buy. Nothing to do when no task is pending.
-func (s *Store) Claim(ctx context.Context, p Project, session string) (string, error) {
+func (s *Store) Claim(ctx context.Context, p Project) (string, error) {
 	if err := s.Sync(ctx, p, 100); err != nil {
 		return "", err
 	}
@@ -33,9 +23,7 @@ func (s *Store) Claim(ctx context.Context, p Project, session string) (string, e
 	return s.Act(ctx, p, Shape{Verb: "claim", ID: id})
 }
 
-// Note appends a contributor's finding to a task: notes are how agents
-// talk about shared work, so no hold is needed.
-func (s *Store) Note(ctx context.Context, p Project, id, text, session string) (string, error) {
+func (s *Store) Note(ctx context.Context, p Project, id, text string) (string, error) {
 	taskID, ok := parseMemoID(id)
 	if !ok {
 		return "", fmt.Errorf("board note: bad task id %q", id)
@@ -43,11 +31,7 @@ func (s *Store) Note(ctx context.Context, p Project, id, text, session string) (
 	return s.Act(ctx, p, Shape{Verb: "note", ID: taskID, Text: text})
 }
 
-// Complete submits a claimed task for review. A drain completes with
-// worker=true; the interactive path lands done directly (the accept memo
-// follows the complete, so the log stays uniform) — the fold honours the
-// accept only when the caller is the task's funder.
-func (s *Store) Complete(ctx context.Context, p Project, id, session string, worker bool) (string, error) {
+func (s *Store) Complete(ctx context.Context, p Project, id string, worker bool) (string, error) {
 	taskID, ok := parseMemoID(id)
 	if !ok {
 		return "", fmt.Errorf("board complete: bad task id %q", id)
@@ -66,9 +50,7 @@ func (s *Store) Complete(ctx context.Context, p Project, id, session string, wor
 	return reply, nil
 }
 
-// Accept writes the accept memo. The fold honours it only from the task's
-// funder — a non-funder's accept is a memo that does not move the state.
-func (s *Store) Accept(ctx context.Context, p Project, id, session string) (string, error) {
+func (s *Store) Accept(ctx context.Context, p Project, id string) (string, error) {
 	taskID, ok := parseMemoID(id)
 	if !ok {
 		return "", fmt.Errorf("board accept: bad task id %q", id)
@@ -76,9 +58,7 @@ func (s *Store) Accept(ctx context.Context, p Project, id, session string) (stri
 	return s.Act(ctx, p, Shape{Verb: "accept", ID: taskID})
 }
 
-// Reject writes the dissent memo; the reason rides the reject memo and
-// lands in the task's notes. The fold honours it from anyone.
-func (s *Store) Reject(ctx context.Context, p Project, id, reason, session string) (string, error) {
+func (s *Store) Reject(ctx context.Context, p Project, id, reason string) (string, error) {
 	taskID, ok := parseMemoID(id)
 	if !ok {
 		return "", fmt.Errorf("board reject: bad task id %q", id)
@@ -86,13 +66,7 @@ func (s *Store) Reject(ctx context.Context, p Project, id, reason, session strin
 	return s.Act(ctx, p, Shape{Verb: "reject", ID: taskID, Text: reason})
 }
 
-// Reap returns expired claims to pending. The lease is the fold's expiry:
-// the projection already folds an expired claim as pending, and the door
-// reports the claims the log shows as expired (a claim older than the
-// lease whose task is pending — the expiry materialized). The ended-session
-// arm is the todo store's, not the chain's: the chain has no sessions, only
-// leases.
-func (s *Store) Reap(ctx context.Context, p Project, ended []string, funder string) (string, error) {
+func (s *Store) Reap(ctx context.Context, p Project) (string, error) {
 	if err := s.Sync(ctx, p, 100); err != nil {
 		return "", err
 	}

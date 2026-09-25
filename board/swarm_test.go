@@ -33,7 +33,7 @@ func (f *boardFakeRPC) GetLatestBlockhash(context.Context) (string, error) {
 func (f *boardFakeRPC) SendTransaction(ctx context.Context, signed []byte) (string, error) {
 	f.sig++
 	f.sent = append(f.sent, sol.EncodeTx(signed))
-	return "sigBoard" + strings.Repeat("0", 0) + itoa(f.sig), nil
+	return "sigBoard" + itoa(f.sig), nil
 }
 func (f *boardFakeRPC) GetAccountInfo(ctx context.Context, pubkey string) (client.AccountInfo, error) {
 	return f.accounts[pubkey], nil
@@ -55,9 +55,6 @@ func (f *boardFakeRPC) GetTransaction(context.Context, string) (*client.Transact
 	return nil, nil
 }
 
-// boardTestClient builds the RPC-only TorchClient: the curve, treasury, and
-// global config accounts are served from the fake, so the write path quotes
-// and routes like the real chain.
 func boardTestClient(t *testing.T, mint string) (*client.TorchClient, *boardFakeRPC) {
 	t.Helper()
 	rpc := &boardFakeRPC{accounts: map[string]client.AccountInfo{}}
@@ -179,21 +176,21 @@ func TestSwarmDrainAgainstRecordedLog(t *testing.T) {
 	seedRecordedLog(t, db, testMint, rows)
 	project := Project{Mint: testMint, Label: "torch test"}
 
-	claim, err := st.Claim(context.Background(), project, "w1")
+	claim, err := st.Claim(context.Background(), project)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(claim, "claim 1") || !strings.HasPrefix(claim, "sigBoard") {
 		t.Errorf("claim reply: %s", claim)
 	}
-	complete, err := st.Complete(context.Background(), project, "1", "w1", true)
+	complete, err := st.Complete(context.Background(), project, "1", true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(complete, "complete 1") {
 		t.Errorf("complete reply: %s", complete)
 	}
-	accept, err := st.Accept(context.Background(), project, "1", "r1")
+	accept, err := st.Accept(context.Background(), project, "1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,14 +230,14 @@ func TestSwarmReapExpiredClaim(t *testing.T) {
 			MemoText: "claim 3", Slot: 2, Signature: "sigC3", CreatedAt: old},
 	})
 	project := Project{Mint: testMint, Label: "torch test"}
-	reap, err := st.Reap(context.Background(), project, nil, "arch")
+	reap, err := st.Reap(context.Background(), project)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(reap, "1 expired claim") {
 		t.Errorf("reap reply: %s", reap)
 	}
-	claim, err := st.Claim(context.Background(), project, "w2")
+	claim, err := st.Claim(context.Background(), project)
 	if err != nil {
 		t.Fatal(err)
 	}

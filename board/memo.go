@@ -1,7 +1,3 @@
-// Package board is the shared board: the project's memo log on torch's
-// chain folded into a task board. The memo shapes, the fold, the local
-// cache, and the swarm surface (claim/note/complete/accept/reject/reap)
-// live here. SPEC_BOARD governs.
 package board
 
 import (
@@ -13,15 +9,10 @@ import (
 	"github.com/mrsirg97-rgb/orbit/client"
 )
 
-// MemoCap is the curve path's memo bound (the IDL-validated cap).
 const MemoCap = client.CurveMemoCap
 
-// Verbs is the board verb set, one memo per verb. The verb says what
-// happened — no role tag rides the memo.
 var Verbs = []string{"task", "brief", "claim", "note", "complete", "accept", "reject"}
 
-// Memo is one parsed board memo: the verb, the task id (0 when the verb
-// names none), and the text. The sender is filled by the store's sync.
 type Memo struct {
 	Verb   string
 	ID     int
@@ -30,16 +21,12 @@ type Memo struct {
 	At     string
 }
 
-// Shape is one memo's format: the exact bytes the act writes.
 type Shape struct {
 	Verb string
 	ID   int
 	Text string
 }
 
-// MemoFor formats one board memo, capped at the curve memo bound. The verb
-// must be in Verbs. Anyone may write any verb — ownership and stake are
-// the fold's rules, not the grammar's.
 func MemoFor(s Shape) (string, error) {
 	if !validVerb(s.Verb) {
 		return "", fmt.Errorf("memo: unknown verb %q (%s)", s.Verb, strings.Join(Verbs, ", "))
@@ -75,9 +62,6 @@ func validVerb(v string) bool {
 	return false
 }
 
-// ParseMemo parses one memo into its shape. A memo outside the grammar
-// returns (Memo{}, false): the fold skips it, never throws. The verb is
-// the memo's first word; market memos (no board verb) are not board rows.
 func ParseMemo(memo string) (Memo, bool) {
 	rest := strings.TrimSpace(memo)
 	verb, tail, ok := strings.Cut(rest, " ")
@@ -118,7 +102,7 @@ func cutID(s string) (int, string, bool) {
 	if !ok {
 		return 0, "", false
 	}
-	return id, strings.TrimSpace(strings.TrimPrefix(tail, " ")), true
+	return id, strings.TrimSpace(tail), true
 }
 
 func parseMemoID(s string) (int, bool) {

@@ -18,27 +18,18 @@ import (
 	"github.com/mrsirg97-rgb/orbit/client"
 )
 
-// SchemaVersion is the board cache's schema version.
 const SchemaVersion = 2
 
-// Project is one board's identity: the mint (the chain board's key) and
-// the display label (the project name, or the FID when only the chain
-// knows it).
 type Project struct {
 	Mint  string
 	Label string
 }
 
-// Store is the board: the local SQLite cache (the chain's message log plus
-// the fold projection) and the chain write path. The store file never is
-// the record — the chain memo log is.
 type Store struct {
 	Client func() (*client.TorchClient, error)
 	DB     store.DB
 }
 
-// client resolves the read/write client (the tool's lazy provider) and
-// fails loudly when the orbit config is missing.
 func (s *Store) client() (*client.TorchClient, error) {
 	if s.Client == nil {
 		return nil, fmt.Errorf("board: no orbit config (run /earn)")
@@ -46,14 +37,10 @@ func (s *Store) client() (*client.TorchClient, error) {
 	return s.Client()
 }
 
-// Statements is the board schema: the generated DDL plus the signature
-// idempotency index.
 func Statements() []string {
 	return append(ddl.Statements(), metadata.ExtraStatements()...)
 }
 
-// migration adds the task funder (v2) to caches created before the roles
-// landed; the cache is disposable, but the projection must keep its shape.
 func migration(tx *sql.Tx, from, to int) (string, error) {
 	if from < 2 {
 		if _, err := tx.Exec(`ALTER TABLE tasks ADD COLUMN funder TEXT NOT NULL DEFAULT ''`); err != nil {
@@ -63,7 +50,6 @@ func migration(tx *sql.Tx, from, to int) (string, error) {
 	return "", nil
 }
 
-// Open opens (or creates) the board cache.
 func Open(path string) (store.DB, error) {
 	db, quarantined, report, err := store.Open(path, Statements(), SchemaVersion, migration)
 	if err != nil {
@@ -78,18 +64,10 @@ func Open(path string) (store.DB, error) {
 	return db, nil
 }
 
-// StorePath is the board cache file: <home>/orbit/board.sqlite.
 func StorePath(home string) string {
 	return filepath.Join(home, "orbit", "board.sqlite")
 }
 
-// Sync folds the chain's message log into the cache. The indexer is the
-// fast path; with ORBIT_INDEXER unset the RPC scan reads the chain
-// directly. Rows insert idempotently by signature (the chain's slot and
-// timestamp replace the local approximation), and the projection is
-// rebuilt inside the same transaction, so the cache is always coherent.
-// The cache is the board's window: each sync adds the newest messages and
-// the fold covers what the cache holds.
 func (s *Store) Sync(ctx context.Context, p Project, limit int) error {
 	tc, err := s.client()
 	if err != nil {
@@ -145,8 +123,6 @@ func (s *Store) Sync(ctx context.Context, p Project, limit int) error {
 	return tx.Commit()
 }
 
-// project rebuilds the fold projection (tasks + notes) from the cached
-// message log inside the bound transaction.
 func (s *Store) project(bound context.Context, mint string, now time.Time) error {
 	rows, err := domain.NewMessageDomain().WindowMessageByMint(bound, mint, 0, math.MaxInt64, 1<<30).Rows()
 	if err != nil {
@@ -203,10 +179,6 @@ func rewrite(bound context.Context, mint string, tasks []Task) error {
 	return nil
 }
 
-// Act writes one board verb: the memo + a vault-routed micro buy, the
-// message cached (idempotent by signature), the projection rebuilt. Any
-// wallet may act — the fold decides ownership and stake. The reply is the
-// tx signature plus the memo, then the affected board.
 func (s *Store) Act(ctx context.Context, p Project, shape Shape) (string, error) {
 	tc, err := s.client()
 	if err != nil {
@@ -285,7 +257,6 @@ func (s *Store) Market(ctx context.Context, mint string) (client.MarketRow, erro
 	return client.MarketFromRPC(ctx, tc.RPC, tc.ProgramID, mint)
 }
 
-// Board is the live read: sync the chain into the cache, fold, render.
 func (s *Store) Board(ctx context.Context, p Project) (string, error) {
 	if err := s.Sync(ctx, p, 100); err != nil {
 		return "", err
@@ -293,8 +264,6 @@ func (s *Store) Board(ctx context.Context, p Project) (string, error) {
 	return s.BoardFromCache(ctx, p)
 }
 
-// BoardFromCache renders the folded board without touching the chain (the
-// act's reply path). The goal comes from the cached message log.
 func (s *Store) BoardFromCache(ctx context.Context, p Project) (string, error) {
 	bound, tx, err := s.DB.TxReadOnly(ctx)
 	if err != nil {
@@ -325,8 +294,6 @@ func (s *Store) goalOf(bound context.Context, mint string) (string, error) {
 	return "", nil
 }
 
-// Task returns one task's brief (title, brief, notes) — the swarm worker's
-// prompt source, never a parsed render.
 func (s *Store) Task(ctx context.Context, p Project, id string) (TaskInfo, error) {
 	bound, tx, err := s.DB.TxReadOnly(ctx)
 	if err != nil {
@@ -351,7 +318,6 @@ func (s *Store) Task(ctx context.Context, p Project, id string) (TaskInfo, error
 	return info, nil
 }
 
-// TaskInfo is one task's brief.
 type TaskInfo struct {
 	ID     string
 	Title  string
@@ -361,9 +327,6 @@ type TaskInfo struct {
 	Notes  []Note
 }
 
-// nextPending returns the first pending task id on the live board. The
-// claim's lease is the fold's expiry: an expired claim folds as pending,
-// so a re-claim works with no separate door.
 func (s *Store) nextPending(ctx context.Context, p Project) (int, error) {
 	bound, tx, err := s.DB.TxReadOnly(ctx)
 	if err != nil {
@@ -390,7 +353,6 @@ func (s *Store) nextPending(ctx context.Context, p Project) (int, error) {
 	return next, nil
 }
 
-// NextID is the fold's id mint for a project: the next task number.
 func (s *Store) NextID(ctx context.Context, p Project) (int, error) {
 	bound, tx, err := s.DB.TxReadOnly(ctx)
 	if err != nil {
@@ -435,9 +397,6 @@ func shortAddr(s string) string {
 	return s[:4] + "…" + s[len(s)-4:]
 }
 
-// Claims counts the wallet's open claims on a project's cached board: tasks
-// the wallet claimed that have not completed. The read is the project's
-// primary-key window, never a scan.
 func (s *Store) Claims(ctx context.Context, p Project, owner string) (int, error) {
 	bound, tx, err := s.DB.TxReadOnly(ctx)
 	if err != nil {
@@ -457,9 +416,6 @@ func (s *Store) Claims(ctx context.Context, p Project, owner string) (int, error
 	return n, nil
 }
 
-// LastMemo returns the wallet's newest memo on a project's cached log
-// (the memo text and the message time), or zero values when the wallet has
-// posted nothing there.
 func (s *Store) LastMemo(ctx context.Context, p Project, sender string) (Memo, bool, error) {
 	bound, tx, err := s.DB.TxReadOnly(ctx)
 	if err != nil {
