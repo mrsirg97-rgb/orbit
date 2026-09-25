@@ -119,7 +119,6 @@ func TestMemoShapesAgainstIDL(t *testing.T) {
 		if got := binary.LittleEndian.Uint64(data[16:24]); got != 9_900_000 {
 			t.Errorf("min_tokens_out: %d", got)
 		}
-		// The memo rides the same tx, co-resident with the torch instruction.
 		memoIx, err := client.BuildMemo("signer", memo)
 		if err != nil {
 			t.Fatal(err)

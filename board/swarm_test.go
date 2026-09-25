@@ -207,7 +207,6 @@ func TestSwarmDrainAgainstRecordedLog(t *testing.T) {
 	if !strings.Contains(board, "1/2 done") {
 		t.Errorf("summary:\n%s", board)
 	}
-	// The memos rode the txs: the recorded signatures carry the memo bytes.
 	if len(dbFakeSent(st)) != 3 {
 		t.Errorf("sent txs: %d, want 3", len(dbFakeSent(st)))
 	}

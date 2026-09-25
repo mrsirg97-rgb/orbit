@@ -150,8 +150,8 @@ func TestProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"krZBG", // the 8-char FID of the fixture mint
-		"jmVx",  // the second mint's FID
+		"krZBG",
+		"jmVx",
 		"bonding", "migrated", "ready",
 		"T", "F",
 	} {
