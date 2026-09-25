@@ -1,6 +1,3 @@
-// Package earn is the one-minute join path as a slash command: the /earn
-// wizard (init, vault steps, roles, jobs) and the status rows the TUI's
-// footer renders. The operator key is named at the call and never stored.
 package earn
 
 import (
@@ -17,9 +14,6 @@ import (
 	"github.com/mrsirg97-rgb/orbit/client"
 )
 
-// Rows is the /earn footer: projects held, open claims, last memo, PnL
-// since start. The TUI renders the same rows under the footer and /earn
-// status prints them.
 type Rows struct {
 	Held       int
 	OpenClaims int
@@ -27,7 +21,6 @@ type Rows struct {
 	PnLSOL     float64
 }
 
-// Lines is the footer's four rows.
 func (r Rows) Lines() []string {
 	return []string{
 		fmt.Sprintf("projects held: %d", r.Held),
@@ -37,11 +30,6 @@ func (r Rows) Lines() []string {
 	}
 }
 
-// Status reads the earn footer from the chain: the wallet (held projects,
-// lifetime PnL) plus the board cache (the wallet's open claims and last
-// memo across the held projects). The board cache is the window — a
-// project the cache has never synced contributes nothing. Command-time
-// only: the TUI footer reads the local snapshot, never the chain.
 func Status(ctx context.Context, tc *client.TorchClient, st *board.Store) (Rows, error) {
 	if tc == nil {
 		return Rows{}, fmt.Errorf("earn: no orbit config (run /earn)")
@@ -53,10 +41,6 @@ func Status(ctx context.Context, tc *client.TorchClient, st *board.Store) (Rows,
 	return rowsFrom(ctx, tc, st, wallet.Holdings, wallet.Pnl.TotalRealizedPnl)
 }
 
-// RowsFromBrief computes the same rows from a fire's read state: the
-// wallet numbers the brief already holds (no extra chain reads), the
-// claims and the last memo from the local board cache. The fire writes
-// the result to the snapshot, so the footer follows each fire.
 func RowsFromBrief(ctx context.Context, read brief.ReadState, tc *client.TorchClient, st *board.Store) (Rows, error) {
 	holdings := make(map[string]uint64, len(read.Holdings))
 	for _, h := range read.Holdings {
@@ -98,14 +82,10 @@ func rowsFrom(ctx context.Context, tc *client.TorchClient, st *board.Store, hold
 	return rows, nil
 }
 
-// SnapshotPath is the local status snapshot: <rig home>/orbit/status.json.
 func SnapshotPath(home string) string {
 	return filepath.Join(home, "orbit", "status.json")
 }
 
-// Snapshot reads the last written rows. Local only — the TUI status
-// callback reads this, never the chain, so every command (including
-// /help) stays off the network.
 func Snapshot(path string) (Rows, bool, error) {
 	b, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -121,8 +101,6 @@ func Snapshot(path string) (Rows, bool, error) {
 	return snap.Rows, true, nil
 }
 
-// WriteSnapshot persists the rows atomically (temp + rename), so a
-// concurrent fire never leaves a torn file.
 func WriteSnapshot(path string, rows Rows) error {
 	snap := snapshot{At: time.Now().UTC().Format(time.RFC3339), Rows: rows}
 	b, err := json.MarshalIndent(snap, "", "  ")
@@ -172,8 +150,6 @@ func signedSOL(v float64) string {
 	return fmt.Sprintf("-%.4f", -v)
 }
 
-// briefText keeps the memo row one line: the memo's first line, cut at 40
-// runes.
 func briefText(s string) string {
 	s = strings.TrimSpace(s)
 	if i := strings.IndexByte(s, '\n'); i >= 0 {

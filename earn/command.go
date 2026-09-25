@@ -19,10 +19,6 @@ import (
 	"github.com/mrsirg97-rgb/orbit/sol"
 )
 
-// Command is the /earn slash command: the register wizard (init, vault
-// steps, roles, scheduled jobs) and status/stop/start. The operator key is
-// named at the call — --operator-key, --operator-key-path, or
-// ORBIT_OPERATOR_KEY(_PATH) — and is never written to the orbit home.
 type Command struct {
 	Getenv   func(string) string
 	Client   func() (*client.TorchClient, error)
@@ -47,7 +43,6 @@ func (c *Command) Description() string {
 	return "join: check the hot key and the vault link, run init and the vault steps when missing, register roles (architect, worker, reviewer) and start the jobs; status, stop, start"
 }
 
-// Run dispatches the subcommands and the register wizard.
 func (c *Command) Run(ctx context.Context, args string, env any) (string, error) {
 	in, err := parseArgs(args)
 	if err != nil {
@@ -114,11 +109,6 @@ func (c *Command) stop(ctx context.Context, resume bool) (string, error) {
 	return "earn: " + verb + "\n" + strings.Join(lines, "\n"), nil
 }
 
-// register is the wizard: checks the hot key and the vault link, runs init
-// and the vault steps when missing, registers one identity row per role,
-// starts the scheduled jobs, and prints the roster. The questions are asked
-// with the answers at the call — the role set and the architect's goal are
-// arguments, so a missing answer refuses naming the exact follow-up.
 func (c *Command) register(ctx context.Context, in args) (string, error) {
 	if len(in.roles) == 0 {
 		return "", fmt.Errorf("earn: which roles? architect, worker, reviewer (any mix) — e.g. /earn architect worker --operator-key-path /path")
@@ -171,9 +161,6 @@ func (c *Command) register(ctx context.Context, in args) (string, error) {
 	return strings.Join(parts, "\n"), nil
 }
 
-// ensureSetup checks the hot key and the vault link and runs the missing
-// steps: init when there is no hot key, then the vault steps (create, link,
-// deposit) with the operator key named at the call. Every step is idempotent.
 func (c *Command) ensureSetup(ctx context.Context, in args) (*client.TorchClient, []string, error) {
 	getenv := c.Getenv
 	if getenv == nil {
@@ -354,7 +341,6 @@ func fileExists(path string) bool {
 	return err == nil && !st.IsDir()
 }
 
-// args is the parsed /earn line.
 type args struct {
 	action          string
 	roles           []identity.Role
@@ -364,9 +350,6 @@ type args struct {
 	model           string
 }
 
-// parseArgs accepts: status | stop | start; then role words and the flags
-// --goal, --operator-key, --operator-key-path, --model (values may be
-// quoted). A quoted role is refused; the role set must name the three.
 func parseArgs(s string) (args, error) {
 	tokens, err := tokenize(s)
 	if err != nil {
@@ -433,8 +416,6 @@ func valueAt(tokens []string, i int) (string, bool) {
 	return tokens[i], true
 }
 
-// tokenize splits on whitespace, honoring double quotes (a quoted value may
-// contain spaces). No escapes — the goal is one paragraph.
 func tokenize(s string) ([]string, error) {
 	var out []string
 	var cur strings.Builder
@@ -466,7 +447,6 @@ func tokenize(s string) ([]string, error) {
 	return out, nil
 }
 
-// Roster prints one line per identity row with its scheduled job's state.
 func Roster(ctx context.Context, db store.DB, sdb sched.DB) string {
 	rows, err := identity.List(ctx, db)
 	if err != nil || len(rows) == 0 {
