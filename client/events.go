@@ -19,25 +19,19 @@ import (
 	"time"
 )
 
-// Frame is one /events message, decoded by kind.
 type Frame struct {
 	Kind string
 	Raw  json.RawMessage
 }
 
-// ErrResync is returned when the server says the subscription lagged: the
-// consumer must re-read state, never treat the gap as data.
 var ErrResync = errors.New("events: resync — re-read state")
 
-// Events is the /events firehose client. Rooms: "all" or "market:<mint>".
 type Events struct {
 	conn net.Conn
 	br   *bufio.Reader
 	mu   sync.Mutex
 }
 
-// DialEvents upgrades to the indexer's /events websocket (wss:// when the
-// base is https://).
 func DialEvents(ctx context.Context, base string) (*Events, error) {
 	u, err := url.Parse(strings.TrimSuffix(base, "/") + "/events")
 	if err != nil {
@@ -95,14 +89,12 @@ func acceptKey(key string) string {
 	return base64.StdEncoding.EncodeToString(h[:])
 }
 
-// Subscribe sends the room subscription. ≤ 8 rooms per connection (the
-// server cap).
 func (e *Events) Subscribe(rooms []string) error {
-	if len(rooms) > 8 {
-		return fmt.Errorf("events: %d rooms, cap 8", len(rooms))
+	if len(rooms) > 1 {
+		return fmt.Errorf("events: one room per connection (all or market:<mint>), got %d", len(rooms))
 	}
 	var payload string
-	if len(rooms) == 0 || (len(rooms) == 1 && rooms[0] == "all") {
+	if len(rooms) == 0 || rooms[0] == "all" {
 		payload = `{"subscribe":"all"}`
 	} else {
 		b, err := json.Marshal(map[string]any{"subscribe": map[string]string{"market": rooms[0]}})
@@ -114,8 +106,6 @@ func (e *Events) Subscribe(rooms []string) error {
 	return e.writeText(payload)
 }
 
-// Next returns the next decoded frame. A resync frame surfaces as
-// ErrResync.
 func (e *Events) Next(ctx context.Context) (Frame, error) {
 	if err := e.conn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
 		return Frame{}, err
@@ -124,10 +114,10 @@ func (e *Events) Next(ctx context.Context) (Frame, error) {
 	if err != nil {
 		return Frame{}, err
 	}
-	if op == 0x8 { // close
+	if op == 0x8 {
 		return Frame{}, io.EOF
 	}
-	if op != 0x1 { // text only
+	if op != 0x1 {
 		return Frame{}, fmt.Errorf("events: unexpected opcode 0x%x", op)
 	}
 	var f Frame
@@ -143,7 +133,6 @@ func (e *Events) Next(ctx context.Context) (Frame, error) {
 	return f, nil
 }
 
-// Close closes the websocket.
 func (e *Events) Close() error { return e.conn.Close() }
 
 func (e *Events) writeText(s string) error {
@@ -211,7 +200,6 @@ func (e *Events) readFrame() (byte, []byte, error) {
 	return op, payload, nil
 }
 
-// DecodeFrame unmarshals a frame's payload into the row type by kind.
 func DecodeFrame(f Frame, out any) error {
 	if f.Raw == nil {
 		return errors.New("events: empty frame payload")

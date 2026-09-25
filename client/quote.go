@@ -6,7 +6,6 @@ import (
 	"math/big"
 )
 
-// Fee constants (programs/torch_market/src/constants.rs + deep_pool math.rs).
 const (
 	ProtocolFeeBPS        uint64 = 50
 	DevWalletShareBPS     uint64 = 9000
@@ -21,10 +20,9 @@ const (
 	TransferFeeCap        uint64 = 4_000_000_000
 	DefaultSlippageBPS    uint64 = 100
 	TokenDecimals         uint64 = 6
-	TotalSupply           uint64 = 1_000_000_000 // 1B tokens @ 6 decimals
+	TotalSupply           uint64 = 1_000_000_000
 )
 
-// BuySplit is the 5-way SOL split for a curve buy (market.rs compute_buy_split).
 type BuySplit struct {
 	ProtocolFee      uint64
 	DevWalletShare   uint64
@@ -34,8 +32,6 @@ type BuySplit struct {
 	TotalToTreasury  uint64
 }
 
-// QuoteBuy computes tokens out + the slippage floor for a curve buy.
-// `isCommunityToken` zeroes the creator split (market.rs compute_buy_split).
 func QuoteBuy(solAmount, virtualSol, virtualToken, realSol, bondingTarget uint64, isCommunityToken bool, slippageBPS uint64) (tokensOut, minTokensOut uint64, split BuySplit, err error) {
 	if solAmount == 0 {
 		return 0, 0, split, errors.New("quote: sol amount must be > 0")
@@ -82,7 +78,6 @@ func QuoteBuy(solAmount, virtualSol, virtualToken, realSol, bondingTarget uint64
 	return tokensOut, minTokensOut, split, nil
 }
 
-// QuoteSell computes SOL out + the slippage floor for a curve sell.
 func QuoteSell(tokenAmount, virtualSol, virtualToken, virtualTokenReserves uint64, slippageBPS uint64) (solOut, minSolOut uint64, err error) {
 	if tokenAmount == 0 {
 		return 0, 0, errors.New("quote: token amount must be > 0")
@@ -98,8 +93,6 @@ func QuoteSell(tokenAmount, virtualSol, virtualToken, virtualTokenReserves uint6
 	return solOut, minSolOut, nil
 }
 
-// QuoteSwapBuy is the DeepPool buy output (fee on gross SOL in, then the
-// constant-product formula). minimum_out is the slippage floor.
 func QuoteSwapBuy(amountIn, solReserve, tokenReserve uint64, slippageBPS uint64) (tokensOut, minimumOut uint64, err error) {
 	if amountIn == 0 || solReserve == 0 || tokenReserve == 0 {
 		return 0, 0, errors.New("quote: swap needs amount, and non-empty reserves")
@@ -117,13 +110,11 @@ func QuoteSwapBuy(amountIn, solReserve, tokenReserve uint64, slippageBPS uint64)
 	return tokensOut, minimumOut, nil
 }
 
-// QuoteSwapSell is the DeepPool sell output. The gross token amount loses the
-// Token-2022 transfer fee (ceil), then the pool fee, then the constant product.
 func QuoteSwapSell(amountIn, solReserve, tokenReserve uint64, slippageBPS uint64) (solOut, minimumOut uint64, err error) {
 	if amountIn == 0 || solReserve == 0 || tokenReserve == 0 {
 		return 0, 0, errors.New("quote: swap needs amount, and non-empty reserves")
 	}
-	// net received = amountIn - transferFee(amountIn)
+
 	tf := calcTransferFee(amountIn)
 	if tf >= amountIn {
 		return 0, 0, errors.New("quote: amount below transfer fee")
@@ -142,15 +133,12 @@ func QuoteSwapSell(amountIn, solReserve, tokenReserve uint64, slippageBPS uint64
 	return solOut, minimumOut, nil
 }
 
-// calcTokensOut is the constant-product formula: vt * sol / (vs + sol).
-// The product is computed in u128 (math/big), exactly like the program.
 func calcTokensOut(vt, vs, solIn uint64) uint64 {
 	num := new(big.Int).Mul(big.NewInt(int64(vt)), big.NewInt(int64(solIn)))
 	den := new(big.Int).Add(big.NewInt(int64(vs)), big.NewInt(int64(solIn)))
 	return bigQuotient(num, den)
 }
 
-// calcSolOut is the inverse: vs * tokens / (vt + tokens).
 func calcSolOut(vs, vt, tokens uint64) uint64 {
 	num := new(big.Int).Mul(big.NewInt(int64(vs)), big.NewInt(int64(tokens)))
 	den := new(big.Int).Add(big.NewInt(int64(vt)), big.NewInt(int64(tokens)))
@@ -165,7 +153,6 @@ func bigQuotient(num, den *big.Int) uint64 {
 	return q.Uint64()
 }
 
-// u128Mul multiplies two u64s in big.Int (values fit u128 by construction).
 func u128Mul(a, b uint64) uint64 {
 	num := new(big.Int).Mul(big.NewInt(int64(a)), big.NewInt(int64(b)))
 	if !num.IsUint64() {
@@ -176,13 +163,10 @@ func u128Mul(a, b uint64) uint64 {
 
 func calcFee(amount, bps uint64) uint64 { return amount * bps / 10000 }
 
-// applyBPS floors: value * bps / 10000 (the program's apply_bps).
 func applyBPS(value, bps uint64) uint64 { return value * bps / 10000 }
 
-// applyBPSFloor is the SDK's slippage floor: value * (10000 - slippage) / 10000.
 func applyBPSFloor(value, slippage uint64) uint64 { return value * (10000 - slippage) / 10000 }
 
-// treasuryRateBPS decays 1750 → 250 by real_sol / target (math.rs).
 func treasuryRateBPS(realSol, target uint64) uint64 {
 	if target == 0 {
 		target = BondingTargetLamports
@@ -196,7 +180,6 @@ func treasuryRateBPS(realSol, target uint64) uint64 {
 	return rate
 }
 
-// creatorRateBPS grows 20 → 100 by real_sol / target (math.rs).
 func creatorRateBPS(realSol, target uint64) uint64 {
 	if target == 0 {
 		target = BondingTargetLamports
@@ -210,7 +193,6 @@ func creatorRateBPS(realSol, target uint64) uint64 {
 	return rate
 }
 
-// calcTransferFee is the ceil-rounded Token-2022 fee (7 bps), capped.
 func calcTransferFee(amount uint64) uint64 {
 	num := u128Mul(amount, TokenTransferFeeBPS)
 	fee := (num + 9999) / 10000
@@ -220,17 +202,6 @@ func calcTransferFee(amount uint64) uint64 {
 	return fee
 }
 
-// grossUpForTransferFee returns the gross input for a desired net (unused by
-// the vault swap path, kept for parity with the program's formula).
-func grossUpForTransferFee(net uint64) uint64 {
-	num := u128Mul(net, 10000)
-	return (num + 10000 - TokenTransferFeeBPS - 1) / (10000 - TokenTransferFeeBPS)
-}
-
-// PriceSOL returns the market price in SOL (6 decimals fixed-point).
-// PriceSOL is the token price in SOL: the bonding curve's virtual reserves
-// pre-migration, the DeepPool reserves post-migration (pass the detail's
-// reserves; the list rows carry none).
 func PriceSOL(m MarketRow, reserves ...*ReservesRow) float64 {
 	if m.Status == StatusMigrated {
 		if len(reserves) > 0 && reserves[0] != nil && reserves[0].SolReserve > 0 && reserves[0].TokenReserve > 0 {

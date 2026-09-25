@@ -10,7 +10,6 @@ import (
 	"github.com/mrsirg97-rgb/orbit/sol"
 )
 
-// fakeRPC records the signed transaction and answers canned reads.
 type fakeRPC struct {
 	sent      string
 	blockhash string
@@ -53,8 +52,6 @@ func (f *fakeRPC) GetTransaction(ctx context.Context, signature string) (*Transa
 	return nil, nil
 }
 
-// txParts decodes a signed legacy transaction: signature, header, keys,
-// blockhash, instructions.
 type txParts struct {
 	Sig  []byte
 	Keys []string
@@ -73,8 +70,7 @@ func parseTx(t *testing.T, signed string) txParts {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The client sends the v0 versioned wire:
-	// [0x01 count][64-byte sig][0x80][legacy message][0x00].
+
 	parts := txParts{Sig: raw[1:65]}
 	b := raw[65:]
 	if b[0] == 0x80 {
@@ -87,7 +83,7 @@ func parseTx(t *testing.T, signed string) txParts {
 		parts.Keys = append(parts.Keys, sol.Encode(b[:32]))
 		b = b[32:]
 	}
-	b = b[32:] // blockhash
+	b = b[32:]
 	nIxs, b := readCompact(t, b)
 	for i := 0; i < nIxs; i++ {
 		prog := int(b[0])
@@ -185,14 +181,13 @@ func (s *stubAPI) Swaps(ctx context.Context, q url.Values) ([]SwapRow, error) { 
 func globalConfigAccount(t *testing.T) AccountInfo {
 	t.Helper()
 	data := make([]byte, 8+32+32+32+2+8+8+1)
-	// authority (32 zero bytes), treasury (32 zero bytes), dev_wallet (WSOL),
-	// protocol_fee_bps 50, total_tokens_launched, total_volume, bump.
+
 	dev, err := sol.Decode("So11111111111111111111111111111111111111112")
 	if err != nil {
 		t.Fatal(err)
 	}
 	copy(data[8+64:8+64+32], dev)
-	data[8+96] = 50 // protocol_fee_bps (u16 LE)
+	data[8+96] = 50
 	data[8+97] = 0
 	return AccountInfo{Exists: true, Data: data}
 }
@@ -212,11 +207,11 @@ func TestWriteBackSignsAndMemos(t *testing.T) {
 		t.Errorf("memo: %s", res.Memo)
 	}
 	parts := parseTx(t, rpc.sent)
-	// The payer is the agent hot wallet.
+
 	if parts.Keys[0] != tc.AgentPublic() {
 		t.Errorf("payer: %s", parts.Keys[0])
 	}
-	// The torch buy instruction carries the IDL discriminator + borsh args.
+
 	var buyIx *parsedIx
 	var memoIx *parsedIx
 	for i := range parts.Ixs {
@@ -245,7 +240,7 @@ func TestWriteBackSignsAndMemos(t *testing.T) {
 	if string(memoIx.Data) != "backed up strong" {
 		t.Errorf("memo data: %q", string(memoIx.Data))
 	}
-	// The memo signer account is the hot wallet.
+
 	if parts.Keys[memoIx.Accounts[0]] != tc.AgentPublic() {
 		t.Errorf("memo signer: %s", parts.Keys[memoIx.Accounts[0]])
 	}

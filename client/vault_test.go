@@ -68,8 +68,6 @@ func TestVaultBuildersAgainstIDL(t *testing.T) {
 	}, []bool{true, false, false, false, false}, []bool{true, true, false, true, false})
 }
 
-// assertIx checks the discriminator, the borsh arg payload, and the exact
-// account order/flags against the IDL (positional anchor contexts).
 func assertIx(t *testing.T, ix sol.Instruction, name string, disc []byte, arg any, keys []string, signers, writable []bool) {
 	t.Helper()
 	if got := ix.Data[:len(disc)]; string(got) != string(disc) {

@@ -12,7 +12,6 @@ import (
 
 var _ = strings.TrimSpace
 
-// serveFixtures hosts the recorded testdata under the indexer routes.
 func serveFixtures(t *testing.T) (*httptest.Server, API) {
 	t.Helper()
 	dir := filepath.Join("..", "testdata")
@@ -168,7 +167,7 @@ func TestFramesDecode(t *testing.T) {
 }
 
 func TestEventsResyncSentinel(t *testing.T) {
-	// The server's resync frame surfaces as ErrResync at the consumer loop.
+
 	if !strings.Contains(ErrResync.Error(), "re-read state") {
 		t.Errorf("sentinel text: %s", ErrResync)
 	}

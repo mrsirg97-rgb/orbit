@@ -106,11 +106,14 @@ slippage `100` bps (1%), the SDK's single knob (prompt-008 F-3).
 ```go
 type RPC interface {
     GetLatestBlockhash(ctx) (string, error)
-    SendTransaction(ctx, base58 string) (string, error)
+    SendTransaction(ctx, signedRaw []byte) (string, error)
     GetAccountInfo(ctx, pubkey string) (AccountInfo, error)
     GetTokenAccountsByOwner(ctx, owner, programID string) ([]TokenAccount, error)
     GetBalance(ctx, pubkey string) (uint64, error)
     GetSignatureStatus(ctx, sig string) (SignatureStatus, error)
+    RequestAirdrop(ctx, pubkey string, lamports uint64) (string, error)
+    GetSignaturesForAddress(ctx, address string, limit int) ([]SignatureInfo, error)
+    GetTransaction(ctx, signature string) (*Transaction, error)
 }
 ```
 
@@ -142,9 +145,10 @@ the client never retries blindly.
 
 ### 8. The websocket is a typed stream, resync is a sentinel
 
-`Events` connects to `/events`, subscribes to `all` and/or `market:<mint>`
-rooms (≤ 8, the server cap), and decodes frames by `kind` into the same
-row types as the HTTP reads. A `resync` frame or a lagged room surfaces as
+`Events` connects to `/events`, subscribes to one room per connection
+(`all` or `market:<mint>`; a second room refuses by name rather than being
+dropped), and decodes frames by `kind` into the same row types as the HTTP
+reads. A `resync` frame or a lagged room surfaces as
 `ErrResync` — the consumer re-reads state rather than treating the gap as
 data. Reconnect is the caller's loop; the client fails loudly on a bad
 frame instead of skipping it.

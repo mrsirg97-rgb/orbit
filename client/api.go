@@ -11,7 +11,6 @@ import (
 	"time"
 )
 
-// MarketStatus mirrors indexer-core contracts.rs.
 type MarketStatus string
 
 const (
@@ -21,7 +20,6 @@ const (
 	StatusReclaimed MarketStatus = "RECLAIMED"
 )
 
-// PositionSide / PositionHealth mirror the indexer enums.
 type (
 	PositionSide   string
 	PositionHealth string
@@ -37,7 +35,6 @@ const (
 	HealthNone         PositionHealth = "none"
 )
 
-// MarketRow is one project (contracts.rs MarketRow).
 type MarketRow struct {
 	Mint              string       `json:"mint"`
 	Name              string       `json:"name"`
@@ -63,13 +60,11 @@ type MarketRow struct {
 	UpdatedAt         string       `json:"updated_at"`
 }
 
-// MarketDetail is GET /api/markets/:mint.
 type MarketDetail struct {
 	Market   MarketRow    `json:"market"`
 	Reserves *ReservesRow `json:"reserves"`
 }
 
-// TradeRow is one curve trade.
 type TradeRow struct {
 	TradeID       int32   `json:"trade_id"`
 	Mint          string  `json:"mint"`
@@ -87,8 +82,6 @@ type TradeRow struct {
 	Signature     string  `json:"signature"`
 }
 
-// MessageRow is one memo on a project's board (the indexer's message
-// schema: contracts.rs MessageRow).
 type MessageRow struct {
 	MessageID  int32   `json:"message_id"`
 	Mint       string  `json:"mint"`
@@ -101,7 +94,6 @@ type MessageRow struct {
 	CreatedAt  string  `json:"created_at"`
 }
 
-// PositionRow is one open/closed leverage position.
 type PositionRow struct {
 	Mint                  string         `json:"mint"`
 	Owner                 string         `json:"owner"`
@@ -120,7 +112,6 @@ type PositionRow struct {
 	UpdatedAt             string         `json:"updated_at"`
 }
 
-// PositionEventRow is the append-only leverage log.
 type PositionEventRow struct {
 	EventID       int64        `json:"event_id"`
 	Mint          string       `json:"mint"`
@@ -147,7 +138,6 @@ type PositionEventRow struct {
 	CreatedAt     string       `json:"created_at"`
 }
 
-// MigrationRow is one migration event.
 type MigrationRow struct {
 	Mint           string `json:"mint"`
 	DeepPoolPubkey string `json:"deep_pool_pubkey"`
@@ -159,7 +149,6 @@ type MigrationRow struct {
 	CreatedAt      string `json:"created_at"`
 }
 
-// ReservesRow is the latest pool reserves snapshot.
 type ReservesRow struct {
 	ReserveID    int32  `json:"reserve_id"`
 	PoolID       int32  `json:"pool_id"`
@@ -171,7 +160,6 @@ type ReservesRow struct {
 	CreatedAt    string `json:"created_at"`
 }
 
-// SwapRow is a DeepPool swap.
 type SwapRow struct {
 	SwapID            int32  `json:"swap_id"`
 	PoolID            int32  `json:"pool_id"`
@@ -190,7 +178,6 @@ type SwapRow struct {
 	CreatedAt         string `json:"created_at"`
 }
 
-// PnlByMint is per-mint FIFO accounting from the wallet read.
 type PnlByMint struct {
 	Mint               string `json:"mint"`
 	TokensRemaining    int64  `json:"tokens_remaining"`
@@ -203,7 +190,6 @@ type PnlByMint struct {
 	PositionCount      int64  `json:"position_count"`
 }
 
-// PnlSummary is GET /api/user-pnl/:wallet.
 type PnlSummary struct {
 	Wallet           string      `json:"wallet"`
 	ByMint           []PnlByMint `json:"by_mint"`
@@ -212,7 +198,6 @@ type PnlSummary struct {
 	TotalTradeCount  int64       `json:"total_trade_count"`
 }
 
-// API is the indexer HTTP read seam.
 type API interface {
 	Markets(ctx context.Context, q url.Values) ([]MarketRow, error)
 	Market(ctx context.Context, mint string) (MarketDetail, error)
@@ -230,7 +215,6 @@ type httpAPI struct {
 	cli  *http.Client
 }
 
-// NewAPI returns an API backed by the indexer base URL.
 func NewAPI(base string) API {
 	return &httpAPI{base: base, cli: &http.Client{Timeout: 30 * time.Second}}
 }

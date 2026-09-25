@@ -15,11 +15,8 @@ import (
 	"github.com/mrsirg97-rgb/orbit/sol"
 )
 
-// RentExemptZeroData is minimum_balance(0) — the lamport floor for the
-// System-owned 0-data PDAs (vault_sol, treasury_sol_vault, bonding_curve_sol).
 const RentExemptZeroData uint64 = 890880
 
-// AccountInfo is one getAccountInfo result.
 type AccountInfo struct {
 	Lamports uint64
 	Owner    string
@@ -27,7 +24,6 @@ type AccountInfo struct {
 	Exists   bool
 }
 
-// TokenAccount is one parsed token account from getTokenAccountsByOwner.
 type TokenAccount struct {
 	Pubkey   string
 	Mint     string
@@ -36,7 +32,6 @@ type TokenAccount struct {
 	IsNative bool
 }
 
-// SignatureStatus is one getSignatureStatus result.
 type SignatureStatus struct {
 	Exists        bool
 	Confirmed     bool
@@ -44,23 +39,17 @@ type SignatureStatus struct {
 	Confirmations *uint64
 }
 
-// SignatureInfo is one getSignaturesForAddress result.
 type SignatureInfo struct {
 	Signature string
 	BlockTime *int64
 	Err       string
 }
 
-// TxInstruction is one decoded instruction of a transaction (program id +
-// the raw data bytes; the account list is not needed by the scan).
 type TxInstruction struct {
 	ProgramID string
 	Data      []byte
 }
 
-// Transaction is the decoded getTransaction (JSON encoding) result: the
-// account-key list, top-level and inner instructions, the slot, the block
-// time, and whether the transaction failed.
 type Transaction struct {
 	Slot      int64
 	BlockTime *int64
@@ -70,7 +59,6 @@ type Transaction struct {
 	Err       bool
 }
 
-// RPC is the single seam to the chain. The fake is the test double.
 type RPC interface {
 	GetLatestBlockhash(ctx context.Context) (string, error)
 	SendTransaction(ctx context.Context, signedRaw []byte) (string, error)
@@ -78,26 +66,20 @@ type RPC interface {
 	GetTokenAccountsByOwner(ctx context.Context, owner, programID string) ([]TokenAccount, error)
 	GetBalance(ctx context.Context, pubkey string) (uint64, error)
 	GetSignatureStatus(ctx context.Context, signature string) (SignatureStatus, error)
-	// RequestAirdrop funds a wallet on devnet (the proxy forwards it).
+
 	RequestAirdrop(ctx context.Context, pubkey string, lamports uint64) (string, error)
-	// GetSignaturesForAddress is the RPC-only board read: the signatures of
-	// every transaction touching an account (the project's curve/pool).
+
 	GetSignaturesForAddress(ctx context.Context, address string, limit int) ([]SignatureInfo, error)
-	// GetTransaction decodes one transaction (JSON encoding, v0 supported).
+
 	GetTransaction(ctx context.Context, signature string) (*Transaction, error)
 }
 
-// JSONRPC implements RPC over POST {base}/rpc (the indexer's passthrough or
-// a direct node).
 type JSONRPC struct {
 	base string
 	cli  *http.Client
 	id   atomic.Int64
 }
 
-// NewJSONRPC returns an RPC backed by a full JSON-RPC endpoint (the proxy's
-// {indexer}/rpc, or a direct node's root). No path is appended — the caller
-// names the endpoint.
 func NewJSONRPC(base string) *JSONRPC {
 	return &JSONRPC{base: strings.TrimSuffix(base, "/"), cli: &http.Client{Timeout: 30 * time.Second}}
 }
@@ -155,7 +137,7 @@ func (r *JSONRPC) GetLatestBlockhash(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// The node returns {"value": {"blockhash": ...}}; tolerate the flat form.
+
 	var out struct {
 		Value struct {
 			Blockhash string `json:"blockhash"`
@@ -235,8 +217,7 @@ func (r *JSONRPC) GetTokenAccountsByOwner(ctx context.Context, owner, programID 
 						Info struct {
 							Mint  string `json:"mint"`
 							Owner string `json:"owner"`
-							// IsNative is false for tokens and an object for native
-							// SOL; a raw field accepts both.
+
 							IsNative    json.RawMessage `json:"isNative"`
 							TokenAmount struct {
 								Amount string `json:"amount"`
@@ -424,8 +405,6 @@ func (r *JSONRPC) GetTransaction(ctx context.Context, signature string) (*Transa
 	return tx, nil
 }
 
-// jsonIx is the JSON-encoding instruction shape: program id by index into
-// accountKeys, data as base58.
 type jsonIx struct {
 	ProgramIDIndex int    `json:"programIdIndex"`
 	Data           string `json:"data"`

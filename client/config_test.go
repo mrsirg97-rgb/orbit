@@ -9,8 +9,6 @@ import (
 	"github.com/mrsirg97-rgb/orbit/sol"
 )
 
-// TestConfigPrecedence: the config file provides defaults, env overrides,
-// and the key file path resolves the agent key.
 func TestConfigPrecedence(t *testing.T) {
 	home := t.TempDir()
 	cfgPath := filepath.Join(home, "config")
@@ -44,7 +42,7 @@ func TestConfigPrecedence(t *testing.T) {
 	if cfg.AgentKey.PublicBase58() != kp.PublicBase58() {
 		t.Errorf("key file not resolved: %s", cfg.AgentKey.PublicBase58())
 	}
-	// Env overrides the file.
+
 	env["ORBIT_INDEXER"] = "https://env.indexer"
 	env["ORBIT_VAULT_CREATOR"] = "8GQ4XGM9p5DqKjw2JTrUAc42adwYWD5PK3P7eTobcYKy"
 	cfg, err = LoadConfig(func(k string) string { return env[k] })
@@ -57,7 +55,7 @@ func TestConfigPrecedence(t *testing.T) {
 	if cfg.VaultCreator != "8GQ4XGM9p5DqKjw2JTrUAc42adwYWD5PK3P7eTobcYKy" {
 		t.Errorf("vault creator from env: %s", cfg.VaultCreator)
 	}
-	// The inline env key beats the file path.
+
 	env["ORBIT_AGENT_KEY"] = sol.Encode(kp.Secret)
 	env["ORBIT_AGENT_KEY_FILE"] = "/nonexistent"
 	cfg, err = LoadConfig(func(k string) string { return env[k] })
@@ -69,8 +67,6 @@ func TestConfigPrecedence(t *testing.T) {
 	}
 }
 
-// TestConfigRefusesNonDevnet: the gate stays — a non-devnet program refuses
-// every load (the write gate is structural, not per-call).
 func TestConfigRefusesNonDevnet(t *testing.T) {
 	env := map[string]string{
 		"ORBIT_INDEXER":       "https://x",
@@ -100,8 +96,6 @@ func mustKeypairSecret(t *testing.T) []byte {
 	return kp.Secret
 }
 
-// TestDefaultRPCFromIndexer: ORBIT_RPC unset derives {indexer}/rpc; a set
-// ORBIT_RPC (full endpoint or host-only) is normalized.
 func TestDefaultRPCFromIndexer(t *testing.T) {
 	kp, err := sol.GenerateKeypair()
 	if err != nil {
@@ -120,7 +114,6 @@ func TestDefaultRPCFromIndexer(t *testing.T) {
 		t.Errorf("derived RPC %q, want {indexer}/rpc", cfg.RPC)
 	}
 
-	// A set ORBIT_RPC wins, and a host-only value gets /rpc appended.
 	env := map[string]string{
 		"ORBIT_INDEXER":       "https://api.torchmarket.dev",
 		"ORBIT_RPC":           "https://other.node",
@@ -144,9 +137,6 @@ func TestDefaultRPCFromIndexer(t *testing.T) {
 	}
 }
 
-// TestLoadReadConfigNeedsNoSigningKey: a read (project list) loads with only
-// the indexer and rpc; a present-but-bad key still fails closed, and the
-// write gate stays off.
 func TestLoadReadConfigNeedsNoSigningKey(t *testing.T) {
 	env := map[string]string{
 		"ORBIT_CONFIG":  filepath.Join(t.TempDir(), "config"),
@@ -178,8 +168,6 @@ func TestLoadReadConfigNeedsNoSigningKey(t *testing.T) {
 	}
 }
 
-// TestLoadOperatorConfigNeedsNoAgentKey: the operator's write path (vault,
-// project create) needs the public creator but not the agent's signing key.
 func TestLoadOperatorConfigNeedsNoAgentKey(t *testing.T) {
 	env := map[string]string{
 		"ORBIT_CONFIG":        filepath.Join(t.TempDir(), "config"),
@@ -203,8 +191,6 @@ func TestLoadOperatorConfigNeedsNoAgentKey(t *testing.T) {
 	}
 }
 
-// TestLoadBoardReadConfigNeedsOnlyRPC: a board read works with ORBIT_RPC
-// set and nothing else — no indexer, no vault creator, no agent key.
 func TestLoadBoardReadConfigNeedsOnlyRPC(t *testing.T) {
 	env := map[string]string{
 		"ORBIT_CONFIG": filepath.Join(t.TempDir(), "config"),

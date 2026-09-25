@@ -2,8 +2,6 @@ package client
 
 import "testing"
 
-// The program's own closed forms: every value below is the Rust math.rs /
-// market.rs result for the fixture inputs (computed from the formulas).
 func TestQuoteBuy(t *testing.T) {
 	tokens, minOut, split, err := QuoteBuy(
 		10_000_000, 150_000_000_000, 1_000_000_000_000_000, 50_000_000_000,

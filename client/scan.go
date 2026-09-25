@@ -11,13 +11,6 @@ import (
 	"github.com/mrsirg97-rgb/orbit/sol"
 )
 
-// ScanMessages is the RPC-only board read: getSignaturesForAddress on the
-// project's bonding curve, then getTransaction per signature; the memo
-// instruction is decoded, the sender is the tx's first account key, the
-// action kind is the torch trade instruction co-resident in the same tx,
-// and the timestamp is the block time. Failed transactions are skipped
-// (the indexer's gating), messages dedupe by signature, and the rows come
-// back in chain order.
 func ScanMessages(ctx context.Context, rpc RPC, programID, mint string, limit int) ([]MessageRow, error) {
 	if limit <= 0 {
 		limit = 50
@@ -107,8 +100,6 @@ func actionKindOf(tx *Transaction) *string {
 	return &kind
 }
 
-// actionKindFor maps a torch trade instruction's discriminator to the
-// indexer's action kind vocabulary ("buy" | "sell").
 func actionKindFor(ix TxInstruction) (string, bool) {
 	if len(ix.Data) < 8 {
 		return "", false
@@ -125,7 +116,7 @@ func actionKindFor(ix TxInstruction) (string, bool) {
 	case bytesEqual(disc, sellDisc), bytesEqual(disc, sellVaultDisc):
 		return "sell", true
 	case bytesEqual(disc, swapDisc):
-		// vault_swap args: amount_in u64, minimum_amount_out u64, is_buy bool.
+
 		if len(ix.Data) >= 25 {
 			if ix.Data[24] != 0 {
 				return "buy", true
@@ -149,8 +140,6 @@ func bytesEqual(a, b []byte) bool {
 	return true
 }
 
-// BondingCurveState is the on-chain curve account (programs/torch_market
-// src/state.rs BondingCurve), decoded from RPC for the indexer-less board.
 type BondingCurveState struct {
 	Mint                string
 	Creator             string
@@ -166,10 +155,6 @@ type BondingCurveState struct {
 	BondingTarget       uint64
 }
 
-// DecodeBondingCurve decodes the borsh BondingCurve account: discriminator
-// (8) + mint (32) + creator (32) + four reserve u64s + bonding_complete (1)
-// + bonding_complete_slot (8) + migrated (1) + last_activity_slot (8) +
-// reclaimed (1) + bump (1) + treasury_bump (1) + bonding_target (8).
 func DecodeBondingCurve(data []byte) (BondingCurveState, error) {
 	if len(data) < 8+32+32+8+8+8+8+1+8+1+8+1+1+1+8 {
 		return BondingCurveState{}, errors.New("bonding curve: account data too short")
@@ -192,16 +177,12 @@ func DecodeBondingCurve(data []byte) (BondingCurveState, error) {
 	s.Migrated = adv(1)[0] != 0
 	s.LastActivitySlot = binary.LittleEndian.Uint64(adv(8))
 	s.Reclaimed = adv(1)[0] != 0
-	adv(1) // bump
-	adv(1) // treasury_bump
+	adv(1)
+	adv(1)
 	s.BondingTarget = binary.LittleEndian.Uint64(adv(8))
 	return s, nil
 }
 
-// MarketFromRPC builds the market row the board's writes need from the
-// chain alone: the curve account, the treasury's community flag, and the
-// global config's dev wallet. The name and symbol stay empty (only the
-// indexer resolves metadata); the board labels a project by its FID.
 func MarketFromRPC(ctx context.Context, rpc RPC, programID, mint string) (MarketRow, error) {
 	info, err := rpc.GetAccountInfo(ctx, BondingCurvePDA(programID, mint))
 	if err != nil {

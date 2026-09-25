@@ -12,9 +12,6 @@ import (
 	"time"
 )
 
-// serveRecordedTxs hosts the recorded transaction fixture as the JSON-RPC
-// seam: getSignaturesForAddress + getTransaction, exactly as a node (or the
-// indexer's /rpc proxy) answers.
 func serveRecordedTxs(t *testing.T) *JSONRPC {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", "testdata", "board_txs.json"))

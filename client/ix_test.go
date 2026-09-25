@@ -22,7 +22,7 @@ func TestBuyViaVaultGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantDisc := "d52ef036cd132719" // IDL 21.0.0
+	wantDisc := "d52ef036cd132719"
 	if hex.EncodeToString(disc) != wantDisc {
 		t.Fatalf("discriminator %x, want %s", disc, wantDisc)
 	}
@@ -74,7 +74,7 @@ func TestVaultSwapGolden(t *testing.T) {
 	if hex.EncodeToString(disc) != wantDisc {
 		t.Fatalf("discriminator %x, want %s", disc, wantDisc)
 	}
-	// amount_in 10_000_000, minimum 9_000_000, is_buy true.
+
 	data := append(append([]byte{}, disc...), leU64(10_000_000)...)
 	data = append(data, leU64(9_000_000)...)
 	data = append(data, 1)
@@ -100,7 +100,7 @@ func TestBuyAccountOrderAndPDAs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ixs) != 2 { // ATA create + buy
+	if len(ixs) != 2 {
 		t.Fatalf("got %d instructions, want 2", len(ixs))
 	}
 	buy := ixs[1]
@@ -124,7 +124,7 @@ func TestBuyAccountOrderAndPDAs(t *testing.T) {
 	if !buy.Accounts[0].IsSigner || !buy.Accounts[0].IsWritable {
 		t.Error("buyer must be signer + writable")
 	}
-	// PDA spot checks against the SDK-verified values.
+
 	bc := BondingCurvePDA(DevnetProgramID, mint)
 	if bc != "6wDUn9V7fuP1Ujn6o3xk4yFh4EE3F65LpgQsrNjTjmVx" {
 		t.Errorf("bonding curve PDA: %s", bc)
@@ -149,7 +149,7 @@ func TestBuyAccountOrderAndPDAs(t *testing.T) {
 	if buy.Accounts[17].Pubkey != vaultATA {
 		t.Errorf("vault_token_account: %s", buy.Accounts[17].Pubkey)
 	}
-	// The ATA-create instruction precedes the buy and is idempotent ([1]).
+
 	if ixs[0].ProgramID != ATProgram {
 		t.Errorf("ATA program: %s", ixs[0].ProgramID)
 	}
@@ -173,7 +173,7 @@ func TestVaultSwapAccountOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ixs) != 3 { // ATA create + swap + memo
+	if len(ixs) != 3 {
 		t.Fatalf("got %d instructions, want 3", len(ixs))
 	}
 	swap := ixs[1]
@@ -212,7 +212,7 @@ func TestCreateTokenGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantDisc := "5434cce4188cea4b" // IDL 21.0.0
+	wantDisc := "5434cce4188cea4b"
 	if hex.EncodeToString(disc) != wantDisc {
 		t.Fatalf("discriminator %x, want %s", disc, wantDisc)
 	}
@@ -294,7 +294,7 @@ func TestCreateTokenAccountOrderAndPDAs(t *testing.T) {
 		!ix.Accounts[9].IsWritable {
 		t.Error("curve/treasury accounts must be writable")
 	}
-	// SDK-verified PDAs (sol/sol_test.go pins the derivation algorithm).
+
 	if bc != "6wDUn9V7fuP1Ujn6o3xk4yFh4EE3F65LpgQsrNjTjmVx" {
 		t.Errorf("bonding curve PDA: %s", bc)
 	}
