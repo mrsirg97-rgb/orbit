@@ -22,6 +22,7 @@ import (
 	scheddomain "github.com/mrsirg97-rgb/rig/store/scheduler/domain"
 
 	"github.com/mrsirg97-rgb/orbit/agent"
+	"github.com/mrsirg97-rgb/orbit/board"
 	"github.com/mrsirg97-rgb/orbit/client"
 	"github.com/mrsirg97-rgb/orbit/identity"
 	"github.com/mrsirg97-rgb/orbit/tool"
@@ -47,6 +48,8 @@ func main() {
 			os.Exit(runVault(args[1:]))
 		case "project":
 			os.Exit(runProject(args[1:]))
+		case "board":
+			os.Exit(runBoard(args[1:]))
 		}
 	}
 	os.Exit(runWorker(args))
@@ -90,10 +93,16 @@ func runWorker(args []string) int {
 		die("%v", err)
 	}
 	role, stake := workerIdentity()
+	bs, err := board.Open(board.StorePath(rigHome()))
+	if err != nil {
+		die("board store: %v", err)
+	}
+	defer bs.DB.Close()
 	tools := []core.Tool{
 		&tool.Market{Client: tc, Role: role, StakeLamports: stake},
 		&tool.Intel{Client: tc},
 		&tool.Wallet{Client: tc},
+		&tool.Board{Store: &board.Store{Client: tc, DB: bs, Role: role}, Client: tc, Role: role},
 	}
 	if *allow != "" {
 		allowed := map[string]bool{}

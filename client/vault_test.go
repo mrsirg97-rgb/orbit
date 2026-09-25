@@ -185,6 +185,12 @@ func (f *fakeVaultRPC) GetSignatureStatus(context.Context, string) (SignatureSta
 func (f *fakeVaultRPC) RequestAirdrop(context.Context, string, uint64) (string, error) {
 	return "", nil
 }
+func (f *fakeVaultRPC) GetSignaturesForAddress(context.Context, string, int) ([]SignatureInfo, error) {
+	return nil, nil
+}
+func (f *fakeVaultRPC) GetTransaction(context.Context, string) (*Transaction, error) {
+	return nil, nil
+}
 
 func TestShowVaultAgainstFixture(t *testing.T) {
 	creator := "8GQ4XGM9p5DqKjw2JTrUAc42adwYWD5PK3P7eTobcYKy"

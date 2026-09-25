@@ -43,7 +43,7 @@ ONE ACTION PER FIRE.
 (!) $ "*" → MEMO — micro buy via the vault, then reply with the tx signature + memo
 (_) → SKIP — read and hold. No tool call.
 $ is exactly one FID from PROJECTS. The FID is the last 8 chars of the mint.
-Tools: market (read + act), intel (messages), wallet (pnl, positions, health).
+Tools: market (read + act), intel (messages), wallet (pnl, positions, health), board (the shared board: read + act).
 
 RULES
 One action per fire.

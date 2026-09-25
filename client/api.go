@@ -87,7 +87,8 @@ type TradeRow struct {
 	Signature     string  `json:"signature"`
 }
 
-// MessageRow is one memo on a project's board.
+// MessageRow is one memo on a project's board (the indexer's message
+// schema: contracts.rs MessageRow).
 type MessageRow struct {
 	MessageID  int32   `json:"message_id"`
 	Mint       string  `json:"mint"`
@@ -96,6 +97,7 @@ type MessageRow struct {
 	ActionKind *string `json:"action_kind"`
 	Slot       int64   `json:"slot"`
 	Signature  string  `json:"signature"`
+	InnerIxIdx int32   `json:"inner_ix_idx"`
 	CreatedAt  string  `json:"created_at"`
 }
 

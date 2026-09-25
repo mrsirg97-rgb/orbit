@@ -44,6 +44,32 @@ type SignatureStatus struct {
 	Confirmations *uint64
 }
 
+// SignatureInfo is one getSignaturesForAddress result.
+type SignatureInfo struct {
+	Signature string
+	BlockTime *int64
+	Err       string
+}
+
+// TxInstruction is one decoded instruction of a transaction (program id +
+// the raw data bytes; the account list is not needed by the scan).
+type TxInstruction struct {
+	ProgramID string
+	Data      []byte
+}
+
+// Transaction is the decoded getTransaction (JSON encoding) result: the
+// account-key list, top-level and inner instructions, the slot, the block
+// time, and whether the transaction failed.
+type Transaction struct {
+	Slot      int64
+	BlockTime *int64
+	Keys      []string
+	Ixs       []TxInstruction
+	InnerIxs  []TxInstruction
+	Err       bool
+}
+
 // RPC is the single seam to the chain. The fake is the test double.
 type RPC interface {
 	GetLatestBlockhash(ctx context.Context) (string, error)
@@ -54,6 +80,11 @@ type RPC interface {
 	GetSignatureStatus(ctx context.Context, signature string) (SignatureStatus, error)
 	// RequestAirdrop funds a wallet on devnet (the proxy forwards it).
 	RequestAirdrop(ctx context.Context, pubkey string, lamports uint64) (string, error)
+	// GetSignaturesForAddress is the RPC-only board read: the signatures of
+	// every transaction touching an account (the project's curve/pool).
+	GetSignaturesForAddress(ctx context.Context, address string, limit int) ([]SignatureInfo, error)
+	// GetTransaction decodes one transaction (JSON encoding, v0 supported).
+	GetTransaction(ctx context.Context, signature string) (*Transaction, error)
 }
 
 // JSONRPC implements RPC over POST {base}/rpc (the indexer's passthrough or
@@ -295,6 +326,109 @@ func (r *JSONRPC) GetSignatureStatus(ctx context.Context, signature string) (Sig
 		st.Confirmed = true
 	}
 	return st, nil
+}
+
+func (r *JSONRPC) GetSignaturesForAddress(ctx context.Context, address string, limit int) ([]SignatureInfo, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	raw, err := r.call(ctx, "getSignaturesForAddress", address,
+		map[string]interface{}{"limit": limit, "commitment": "confirmed"})
+	if err != nil {
+		return nil, err
+	}
+	var out []struct {
+		Signature string          `json:"signature"`
+		Err       json.RawMessage `json:"err"`
+		BlockTime *int64          `json:"blockTime"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("rpc getSignaturesForAddress %s: %w", address, err)
+	}
+	infos := make([]SignatureInfo, 0, len(out))
+	for _, s := range out {
+		info := SignatureInfo{Signature: s.Signature, BlockTime: s.BlockTime}
+		if s.Err != nil && string(s.Err) != "null" {
+			info.Err = string(s.Err)
+		}
+		infos = append(infos, info)
+	}
+	return infos, nil
+}
+
+func (r *JSONRPC) GetTransaction(ctx context.Context, signature string) (*Transaction, error) {
+	raw, err := r.call(ctx, "getTransaction", signature,
+		map[string]interface{}{
+			"encoding":                       "json",
+			"maxSupportedTransactionVersion": 0,
+			"commitment":                     "confirmed",
+		})
+	if err != nil {
+		return nil, err
+	}
+	if string(raw) == "null" {
+		return nil, fmt.Errorf("rpc getTransaction %s: not found", signature)
+	}
+	var out struct {
+		Slot      int64  `json:"slot"`
+		BlockTime *int64 `json:"blockTime"`
+		Meta      struct {
+			Err               json.RawMessage `json:"err"`
+			InnerInstructions []struct {
+				Instructions []jsonIx `json:"instructions"`
+			} `json:"innerInstructions"`
+		} `json:"meta"`
+		Transaction struct {
+			Message struct {
+				AccountKeys  []string `json:"accountKeys"`
+				Instructions []jsonIx `json:"instructions"`
+			} `json:"message"`
+		} `json:"transaction"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("rpc getTransaction %s: decode: %w", signature, err)
+	}
+	tx := &Transaction{
+		Slot: out.Slot, BlockTime: out.BlockTime, Keys: out.Transaction.Message.AccountKeys,
+		Err: out.Meta.Err != nil && string(out.Meta.Err) != "null",
+	}
+	decode := func(i jsonIx) (TxInstruction, error) {
+		if i.ProgramIDIndex < 0 || i.ProgramIDIndex >= len(tx.Keys) {
+			return TxInstruction{}, fmt.Errorf("rpc getTransaction %s: program id index %d out of range", signature, i.ProgramIDIndex)
+		}
+		data, err := sol.Decode(i.Data)
+		if err != nil {
+			return TxInstruction{}, fmt.Errorf("rpc getTransaction %s: instruction data: %w", signature, err)
+		}
+		return TxInstruction{ProgramID: tx.Keys[i.ProgramIDIndex], Data: data}, nil
+	}
+	for _, ix := range out.Transaction.Message.Instructions {
+		d, err := decode(ix)
+		if err != nil {
+			return nil, err
+		}
+		tx.Ixs = append(tx.Ixs, d)
+	}
+	for _, inner := range out.Meta.InnerInstructions {
+		for _, ix := range inner.Instructions {
+			d, err := decode(ix)
+			if err != nil {
+				return nil, err
+			}
+			tx.InnerIxs = append(tx.InnerIxs, d)
+		}
+	}
+	return tx, nil
+}
+
+// jsonIx is the JSON-encoding instruction shape: program id by index into
+// accountKeys, data as base58.
+type jsonIx struct {
+	ProgramIDIndex int    `json:"programIdIndex"`
+	Data           string `json:"data"`
 }
 
 func parseU64(s string) (uint64, error) {

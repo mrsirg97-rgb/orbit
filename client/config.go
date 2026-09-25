@@ -108,26 +108,34 @@ func loadEnvFile(getenv func(string) string) error {
 // environment carries no secrets, so the operator keeps them in that file
 // (chmod 600; gitignored). The file is KEY=VALUE lines, '#' comments.
 func LoadConfig(getenv func(string) string) (Config, error) {
-	return loadConfig(getenv, requirements{agentKey: true, vaultCreator: true, writes: true})
+	return loadConfig(getenv, requirements{agentKey: true, vaultCreator: true, writes: true, indexer: true})
 }
 
 // LoadOperatorConfig is the operator's write config: no agent key, the vault
 // creator required, writes gated on the devnet program.
 func LoadOperatorConfig(getenv func(string) string) (Config, error) {
-	return loadConfig(getenv, requirements{vaultCreator: true, writes: true})
+	return loadConfig(getenv, requirements{vaultCreator: true, writes: true, indexer: true})
 }
 
 // LoadReadConfig is the read-only config: indexer + rpc only, writes off. An
 // agent key or vault creator in the environment is still validated when
 // present, never required.
 func LoadReadConfig(getenv func(string) string) (Config, error) {
-	return loadConfig(getenv, requirements{})
+	return loadConfig(getenv, requirements{indexer: true})
+}
+
+// LoadBoardConfig is the board's config: the agent key and vault creator
+// required, writes gated on the devnet program, the indexer optional — with
+// ORBIT_INDEXER unset the board reads the chain directly (the RPC scan).
+func LoadBoardConfig(getenv func(string) string) (Config, error) {
+	return loadConfig(getenv, requirements{agentKey: true, vaultCreator: true, writes: true})
 }
 
 type requirements struct {
 	agentKey     bool
 	vaultCreator bool
 	writes       bool
+	indexer      bool
 }
 
 func loadConfig(getenv func(string) string, req requirements) (Config, error) {
@@ -156,7 +164,7 @@ func loadConfig(getenv func(string) string, req requirements) (Config, error) {
 	}
 	indexer := value("ORBIT_INDEXER")
 	rpc := value("ORBIT_RPC")
-	if rpc == "" {
+	if rpc == "" && indexer != "" {
 		rpc = strings.TrimSuffix(indexer, "/") + "/rpc"
 	}
 	if isHostOnly(rpc) {
@@ -187,7 +195,7 @@ func loadConfig(getenv func(string) string, req requirements) (Config, error) {
 	}
 
 	var missing []string
-	if indexer == "" {
+	if req.indexer && indexer == "" {
 		missing = append(missing, "ORBIT_INDEXER")
 	}
 	if rpc == "" {
@@ -232,10 +240,12 @@ func isHostOnly(endpoint string) bool {
 	return !strings.Contains(rest, "/")
 }
 
-// Validate refuses a config that would write to a non-devnet cluster.
+// Validate refuses a config that would write to a non-devnet cluster. The
+// indexer is optional (the board reads the chain directly when it is unset);
+// the loader decides whether the caller needs it.
 func (c Config) Validate() error {
-	if c.Indexer == "" || c.RPC == "" || c.VaultCreator == "" {
-		return errors.New("config: indexer, rpc, and vault creator are required")
+	if c.RPC == "" || c.VaultCreator == "" {
+		return errors.New("config: rpc and vault creator are required")
 	}
 	if c.ProgramID != DevnetProgramID {
 		return fmt.Errorf("config: program %s is not the devnet program %s (devnet only)", c.ProgramID, DevnetProgramID)

@@ -1,0 +1,10 @@
+{
+  "name": "/home/ng/Projects/orbit/board",
+  "module": "github.com/mrsirg97-rgb/orbit",
+  "runtime": "github.com/mrsirg97-rgb/rig/store",
+  "packages": [
+    { "name": "domain", "template": "templates/domain.template", "packageType": "flat", "fileType": "go" },
+    { "name": "ddl", "template": "templates/ddl.template", "packageType": "graph", "fileType": "go" }
+  ],
+  "debug": false
+}

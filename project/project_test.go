@@ -92,6 +92,12 @@ func (f *fixtureRPC) GetSignatureStatus(ctx context.Context, signature string) (
 func (f *fixtureRPC) RequestAirdrop(ctx context.Context, pubkey string, lamports uint64) (string, error) {
 	return "airdrop", nil
 }
+func (f *fixtureRPC) GetSignaturesForAddress(ctx context.Context, address string, limit int) ([]client.SignatureInfo, error) {
+	return nil, nil
+}
+func (f *fixtureRPC) GetTransaction(ctx context.Context, signature string) (*client.Transaction, error) {
+	return nil, nil
+}
 
 func serveProjectsFixture(t *testing.T) (client.API, client.RPC) {
 	t.Helper()
