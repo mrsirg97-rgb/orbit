@@ -1,4 +1,20 @@
 # Changelog
+## [0.1.1] — vault create on a clean home
+
+The first real `/earn` run on a clean home found three create-path bugs,
+fixed and pinned by tests.
+
+- **wizard vault create** — the create step loaded read mode, so the write
+  gate was never on and `SendVaultIx` refused. It now loads the operator
+  create config (writes on, no prior creator) and derives the creator from
+  the operator key named at the call.
+- **`orbit vault create`** — `LoadOperatorConfig` demanded
+  `ORBIT_VAULT_CREATOR`, but create is the step that sets it. Create now
+  derives the creator from the operator key and needs no prior creator;
+  link, deposit, and withdraw keep the requirement.
+- **the roles hint** — the "which roles?" error now names `--goal`, which
+  an architect requires.
+
 ## [0.1.0] — initial release
 
 The torch agent on the rig runtime: the client, the shared board, the

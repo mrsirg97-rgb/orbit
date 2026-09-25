@@ -23,12 +23,14 @@ type fakeRPC struct {
 	accounts map[string]client.AccountInfo
 	balance  uint64
 	calls    int
+	sends    int
 }
 
 func (f *fakeRPC) GetLatestBlockhash(ctx context.Context) (string, error) {
 	return "11111111111111111111111111111111", nil
 }
 func (f *fakeRPC) SendTransaction(ctx context.Context, signed []byte) (string, error) {
+	f.sends++
 	return "sigEARN1234567890", nil
 }
 func (f *fakeRPC) GetAccountInfo(ctx context.Context, pubkey string) (client.AccountInfo, error) {
@@ -120,6 +122,7 @@ type earnHarness struct {
 	cmd *Command
 	idb store.DB
 	sdb sched.DB
+	rpc *fakeRPC
 }
 
 func newHarness(t *testing.T, getenv func(string) string) *earnHarness {
@@ -171,7 +174,15 @@ func newHarness(t *testing.T, getenv func(string) string) *earnHarness {
 		Init: func() (onboard.InitResult, error) {
 			return onboard.InitResult{Pubkey: tc.AgentPublic(), Balance: 1_000_000_000}, nil
 		},
-		Operator:   func(flagKey, flagPath string) (sol.Keypair, error) { return sol.GenerateKeypair() },
+		Operator: func(flagKey, flagPath string) (sol.Keypair, error) { return sol.GenerateKeypair() },
+		NewClient: func(cfg client.Config) (*client.TorchClient, error) {
+			tc, err := client.New(cfg)
+			if err != nil {
+				return nil, err
+			}
+			tc.RPC = rpc
+			return tc, nil
+		},
 		IdentityDB: idb,
 		SchedDB:    sdb,
 		Crontab:    &fakeCrontab{text: "SHELL=/bin/bash\n"},
@@ -181,7 +192,7 @@ func newHarness(t *testing.T, getenv func(string) string) *earnHarness {
 		Session:    "earn-test",
 		Model:      func() string { return "dsv4" },
 	}
-	return &earnHarness{cmd: cmd, idb: idb, sdb: sdb}
+	return &earnHarness{cmd: cmd, idb: idb, sdb: sdb, rpc: rpc}
 }
 
 func TestParseArgs(t *testing.T) {
@@ -210,8 +221,8 @@ func TestRegisterAsksForRolesAndGoal(t *testing.T) {
 	h := newHarness(t, nil)
 	defer h.idb.DB.Close()
 	defer h.sdb.DB.Close()
-	if _, err := h.cmd.Run(context.Background(), "", nil); err == nil || !strings.Contains(err.Error(), "which roles") {
-		t.Errorf("missing roles: %v", err)
+	if _, err := h.cmd.Run(context.Background(), "", nil); err == nil || !strings.Contains(err.Error(), "which roles") || !strings.Contains(err.Error(), "--goal") {
+		t.Errorf("missing roles hint: %v", err)
 	}
 	if _, err := h.cmd.Run(context.Background(), "architect", nil); err == nil || !strings.Contains(err.Error(), "goal") {
 		t.Errorf("architect without goal: %v", err)
@@ -264,6 +275,56 @@ func TestRegisterWizardRunsInitWhenKeyMissing(t *testing.T) {
 	}
 	if !initCalled {
 		t.Error("init was not called for a missing hot key")
+	}
+}
+
+func TestRegisterWizardCreatesVaultWhenCreatorMissing(t *testing.T) {
+	dir := t.TempDir()
+	keyFile := filepath.Join(dir, "key")
+	agent, err := sol.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyFile, []byte(sol.Encode(agent.Secret)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfgFile := filepath.Join(dir, "config")
+	cfg := "ORBIT_INDEXER=https://indexer.example\n" +
+		"ORBIT_RPC=https://rpc.example\n" +
+		"ORBIT_PROGRAM_ID=" + client.DevnetProgramID + "\n" +
+		"ORBIT_AGENT_KEY_FILE=" + keyFile + "\n"
+	if err := os.WriteFile(cfgFile, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, func(k string) string {
+		if k == "ORBIT_CONFIG" {
+			return cfgFile
+		}
+		return ""
+	})
+	defer h.idb.DB.Close()
+	defer h.sdb.DB.Close()
+	var operator sol.Keypair
+	h.cmd.Operator = func(flagKey, flagPath string) (sol.Keypair, error) {
+		operator, err = sol.GenerateKeypair()
+		return operator, err
+	}
+	out, err := h.cmd.Run(context.Background(), "worker", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "vault: created") {
+		t.Errorf("wizard output missing the vault step:\n%s", out)
+	}
+	if h.rpc.sends != 1 {
+		t.Errorf("sendTransaction calls: %d, want 1 (create_vault must reach the send)", h.rpc.sends)
+	}
+	b, err := os.ReadFile(cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "ORBIT_VAULT_CREATOR="+operator.PublicBase58()) {
+		t.Errorf("config missing the derived creator:\n%s", b)
 	}
 }
 

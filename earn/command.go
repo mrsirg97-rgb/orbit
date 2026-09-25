@@ -20,10 +20,11 @@ import (
 )
 
 type Command struct {
-	Getenv   func(string) string
-	Client   func() (*client.TorchClient, error)
-	Init     func() (onboard.InitResult, error)
-	Operator func(flagKey, flagPath string) (sol.Keypair, error)
+	Getenv    func(string) string
+	Client    func() (*client.TorchClient, error)
+	Init      func() (onboard.InitResult, error)
+	Operator  func(flagKey, flagPath string) (sol.Keypair, error)
+	NewClient func(client.Config) (*client.TorchClient, error)
 
 	IdentityDB store.DB
 	SchedDB    sched.DB
@@ -111,7 +112,7 @@ func (c *Command) stop(ctx context.Context, resume bool) (string, error) {
 
 func (c *Command) register(ctx context.Context, in args) (string, error) {
 	if len(in.roles) == 0 {
-		return "", fmt.Errorf("earn: which roles? architect, worker, reviewer (any mix) — e.g. /earn architect worker --operator-key-path /path")
+		return "", fmt.Errorf("earn: which roles? architect, worker, reviewer (any mix) — e.g. /earn architect worker --goal \"<one paragraph>\" --operator-key-path /path")
 	}
 	for _, role := range in.roles {
 		if role == identity.Architect && strings.TrimSpace(in.goal) == "" {
@@ -223,15 +224,20 @@ func (c *Command) vaultCreate(ctx context.Context, in args) (string, error) {
 	if getenv == nil {
 		getenv = func(string) string { return "" }
 	}
-	cfg, err := client.LoadReadConfig(getenv)
-	if err != nil {
-		return "", fmt.Errorf("earn: vault create: %w", err)
-	}
-	tc, err := client.NewRead(cfg)
+	cfg, err := client.LoadOperatorCreateConfig(getenv)
 	if err != nil {
 		return "", fmt.Errorf("earn: vault create: %w", err)
 	}
 	creator := key.PublicBase58()
+	cfg.VaultCreator = creator
+	clientNew := c.NewClient
+	if clientNew == nil {
+		clientNew = client.New
+	}
+	tc, err := clientNew(cfg)
+	if err != nil {
+		return "", fmt.Errorf("earn: vault create: %w", err)
+	}
 	ix, err := client.VaultCreateIx(tc.ProgramID, creator, tc.IDL)
 	if err != nil {
 		return "", fmt.Errorf("earn: vault create: %w", err)

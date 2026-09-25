@@ -191,6 +191,36 @@ func TestLoadOperatorConfigNeedsNoAgentKey(t *testing.T) {
 	}
 }
 
+func TestLoadOperatorCreateConfigNeedsNoCreator(t *testing.T) {
+	env := map[string]string{
+		"ORBIT_CONFIG":  filepath.Join(t.TempDir(), "config"),
+		"ORBIT_INDEXER": "https://x",
+		"ORBIT_RPC":     "https://x",
+	}
+	cfg, err := LoadOperatorCreateConfig(func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.AllowWrite {
+		t.Error("operator create config on devnet must keep the write gate on")
+	}
+	if cfg.VaultCreator != "" {
+		t.Errorf("vault create must not require a prior creator, got %q", cfg.VaultCreator)
+	}
+	env["ORBIT_VAULT_CREATOR"] = "11111111111111111111111111111111"
+	cfg, err = LoadOperatorCreateConfig(func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.VaultCreator != "11111111111111111111111111111111" {
+		t.Errorf("a present creator should still load: %q", cfg.VaultCreator)
+	}
+	delete(env, "ORBIT_INDEXER")
+	if _, err := LoadOperatorCreateConfig(func(k string) string { return env[k] }); err == nil {
+		t.Error("operator create config without the indexer accepted")
+	}
+}
+
 func TestLoadBoardReadConfigNeedsOnlyRPC(t *testing.T) {
 	env := map[string]string{
 		"ORBIT_CONFIG": filepath.Join(t.TempDir(), "config"),
