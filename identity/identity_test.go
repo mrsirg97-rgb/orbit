@@ -307,8 +307,7 @@ func TestUpsertRefusesWalletTagCollision(t *testing.T) {
 	if err := Upsert(ctx, db, Row{Name: "A", Wallet: "So11111111111111111111111111111111111111112", Role: "worker", Model: "dsv4"}); err != nil {
 		t.Fatal(err)
 	}
-	// A different wallet whose last 4 chars collide with the first must
-	// never silently re-own the row.
+
 	other := "9" + strings.Repeat("9", 39) + "1112"
 	if other == "So11111111111111111111111111111111111111112" {
 		t.Fatal("test wallet construction collides")

@@ -1,10 +1,3 @@
-// Package identity is the agent's local identity row: name, wallet, role,
-// bio, goal, cadence, model, and the job's stall/budget/timeout. One row
-// per (wallet, role) — the role suffix is the agent id, so one wallet can
-// host an architect, a worker, and a reviewer side by side. Roles are
-// local: they own the defaults (cadence, brief size, budget, stall,
-// timeout) and never ride a memo — the board's fold trusts the sender, not
-// a label. No archetypes, no voice.
 package identity
 
 import (
@@ -17,8 +10,6 @@ import (
 	"github.com/mrsirg97-rgb/rig/store"
 )
 
-// Role is the identity's role: architect, worker, or reviewer. The role
-// owns the register defaults; it never rides the memo grammar.
 type Role string
 
 const (
@@ -31,11 +22,8 @@ func (r Role) Valid() bool {
 	return r == Architect || r == Worker || r == Reviewer
 }
 
-// Roles is the register set, in roster order.
 func Roles() []Role { return []Role{Architect, Worker, Reviewer} }
 
-// ParseRole accepts exactly one of the three roles; anything else refuses
-// naming the three.
 func ParseRole(s string) (Role, error) {
 	r := Role(strings.TrimSpace(s))
 	if r.Valid() {
@@ -47,9 +35,6 @@ func ParseRole(s string) (Role, error) {
 	return "", fmt.Errorf("identity: unknown role %q (architect, worker, reviewer)", s)
 }
 
-// RoleDefaults is one row of the role table: how the role's agent is
-// configured. No stake scale, no voice — the stake is one constant and the
-// memo tone is the agent's, never a label.
 type RoleDefaults struct {
 	DefaultName string
 	DefaultBio  string
@@ -90,8 +75,6 @@ var roleDefaults = map[Role]RoleDefaults{
 	},
 }
 
-// DefaultsFor returns the role's row; an unknown role refuses naming the
-// three.
 func DefaultsFor(role Role) (RoleDefaults, error) {
 	if d, ok := roleDefaults[role]; ok {
 		return d, nil
@@ -102,12 +85,8 @@ func DefaultsFor(role Role) (RoleDefaults, error) {
 	return RoleDefaults{}, fmt.Errorf("identity: unknown role %q (architect, worker, reviewer)", role)
 }
 
-// BaseStakeLamports is the default per-action stake (0.01 SOL) for market
-// writes; the board's memo buy is separate (client.MemoBuyLamports). One
-// stake for every role — the memo buy is the proof, never a scale.
 const BaseStakeLamports uint64 = 10_000_000
 
-// AgentID is the identity row's key: the wallet's short tag plus the role.
 func AgentID(wallet string, role Role) string {
 	s := wallet
 	if len(s) > 4 {
@@ -116,7 +95,6 @@ func AgentID(wallet string, role Role) string {
 	return "@AP" + strings.ToUpper(s) + "-" + string(role)
 }
 
-// Overrides are the register flags that beat the role defaults.
 type Overrides struct {
 	Name    string
 	Bio     string
@@ -129,7 +107,6 @@ type Overrides struct {
 	Full    bool
 }
 
-// Row is one agent identity: one row per (wallet, role).
 type Row struct {
 	ID        string
 	Name      string
@@ -146,11 +123,6 @@ type Row struct {
 	CreatedAt string
 }
 
-// NewRow resolves the identity row from the role defaults and the
-// overrides: cadence, brief size, budget, stall, and timeout come from the
-// role unless the flag overrides them. Model is always explicit — the
-// operator picks the fleet model. The goal is the architect's one-paragraph
-// goal, carried into the brief.
 func NewRow(wallet string, role Role, o Overrides) (Row, error) {
 	d, err := DefaultsFor(role)
 	if err != nil {
@@ -203,7 +175,6 @@ func NewRow(wallet string, role Role, o Overrides) (Row, error) {
 	}, nil
 }
 
-// Statements is the identity schema.
 var Statements = []string{
 	`CREATE TABLE IF NOT EXISTS identity (
 		id TEXT PRIMARY KEY,
@@ -224,10 +195,6 @@ var Statements = []string{
 
 const SchemaVersion = 5
 
-// migration: v2 adds block_size, v3 adds role/voice/stake_scale (the
-// archetype era), v4 drops them (one row per wallet), v5 adds role + goal
-// back (one row per wallet, role) — the v4 rows become workers and their
-// ids gain the role suffix. No archetypes, no voice, no stake scale.
 func migration(tx *sql.Tx, from, to int) (string, error) {
 	if from < 2 {
 		if _, err := tx.Exec(`ALTER TABLE identity ADD COLUMN block_size TEXT NOT NULL DEFAULT 'compact'`); err != nil {
@@ -290,7 +257,6 @@ func scan(row *sql.Row) (Row, error) {
 	return r, err
 }
 
-// Store opens the identity store at path.
 func Store(path string) (store.DB, error) {
 	db, quarantined, report, err := store.Open(path, Statements, SchemaVersion, migration)
 	if err != nil {
@@ -305,18 +271,10 @@ func Store(path string) (store.DB, error) {
 	return db, nil
 }
 
-// Get returns the newest identity row (the direct -p worker path, and the
-// legacy one-row store).
-func Get(ctx context.Context, db store.DB) (Row, error) {
-	return scan(db.DB.QueryRowContext(ctx, `SELECT `+columns+` FROM identity ORDER BY rowid DESC LIMIT 1`))
-}
-
-// GetByID returns one identity row.
 func GetByID(ctx context.Context, db store.DB, id string) (Row, error) {
 	return scan(db.DB.QueryRowContext(ctx, `SELECT `+columns+` FROM identity WHERE id = ?`, id))
 }
 
-// List returns every identity row.
 func List(ctx context.Context, db store.DB) ([]Row, error) {
 	rows, err := db.DB.QueryContext(ctx, `SELECT `+columns+` FROM identity ORDER BY id`)
 	if err != nil {
@@ -334,10 +292,6 @@ func List(ctx context.Context, db store.DB) ([]Row, error) {
 	return out, rows.Err()
 }
 
-// Upsert writes the identity row. The id is the wallet tag plus the role
-// (computed from the wallet and the row's role — never a caller-supplied
-// label), so a wallet cannot register the same role twice under different
-// ids.
 func Upsert(ctx context.Context, db store.DB, r Row) error {
 	if r.Name == "" || r.Wallet == "" || r.Model == "" {
 		return fmt.Errorf("identity: name, wallet, and model are required")
