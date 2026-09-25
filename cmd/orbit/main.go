@@ -45,6 +45,8 @@ func main() {
 			os.Exit(runInit(args[1:]))
 		case "vault":
 			os.Exit(runVault(args[1:]))
+		case "project":
+			os.Exit(runProject(args[1:]))
 		}
 	}
 	os.Exit(runWorker(args))

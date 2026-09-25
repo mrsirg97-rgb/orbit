@@ -20,6 +20,7 @@ const (
 	ATProgram         = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
 	MemoProgram       = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
 	SystemProgram     = "11111111111111111111111111111111"
+	RentProgram       = "SysvarRent111111111111111111111111111111111"
 )
 
 var (
@@ -28,6 +29,7 @@ var (
 	seedBondingCurveSol  = []byte("bonding_curve_sol")
 	seedTreasury         = []byte("treasury")
 	seedTreasurySolVault = []byte("treasury_sol_vault")
+	seedTreasuryLock     = []byte("treasury_lock")
 	seedUserPosition     = []byte("user_position")
 	seedUserStats        = []byte("user_stats")
 	seedProtocolTreasury = []byte("protocol_treasury_v11")
@@ -69,6 +71,11 @@ func TokenTreasuryPDA(program, mint string) string {
 // TreasurySolVaultPDA is the system-owned per-mint treasury SOL custody.
 func TreasurySolVaultPDA(program, mint string) string {
 	return mustPDA(program, seedTreasurySolVault, must32(mint))
+}
+
+// TreasuryLockPDA is the per-mint treasury lock accounting (create_token).
+func TreasuryLockPDA(program, mint string) string {
+	return mustPDA(program, seedTreasuryLock, must32(mint))
 }
 
 // ProtocolTreasuryPDA is the rewards singleton.

@@ -336,3 +336,70 @@ func SignVersionedTx(msg []byte, k Keypair) []byte {
 	out = append(out, vmsg...)
 	return out
 }
+
+// SignVersionedTxMulti signs a legacy message with several keys (create_token:
+// the creator and the fresh mint) and wraps it in the v0 wire form. The
+// signatures are emitted in the message's signed-key order (the header's
+// required + readonly-signed count), each verified against the v0 message.
+// A missing signer fails loudly — no partial tx.
+func SignVersionedTxMulti(msg []byte, keys ...Keypair) ([]byte, error) {
+	if len(msg) < 3 {
+		return nil, errors.New("tx: legacy message too short")
+	}
+	signedCount := int(msg[0]) + int(msg[1])
+	rawKeys, n, err := readKeys(msg[3:])
+	if err != nil {
+		return nil, err
+	}
+	if signedCount > n {
+		return nil, fmt.Errorf("tx: header says %d signers, message has %d keys", signedCount, n)
+	}
+	byPub := map[string]Keypair{}
+	for _, k := range keys {
+		byPub[k.PublicBase58()] = k
+	}
+	vmsg := make([]byte, 0, len(msg)+2)
+	vmsg = append(vmsg, 0x80)
+	vmsg = append(vmsg, msg...)
+	vmsg = append(vmsg, 0)
+	sigs := make([]byte, 0, signedCount*64)
+	for i := 0; i < signedCount; i++ {
+		pub := Encode(rawKeys[i*32 : (i+1)*32])
+		k, ok := byPub[pub]
+		if !ok {
+			return nil, fmt.Errorf("tx: missing signer %s", pub)
+		}
+		s := k.Sign(vmsg)
+		sigs = append(sigs, s[:]...)
+	}
+	out := []byte{byte(signedCount)}
+	out = append(out, sigs...)
+	out = append(out, vmsg...)
+	return out, nil
+}
+
+// readKeys parses a legacy message's compact-u16 key count + 32-byte keys,
+// returning the remaining bytes and the key count.
+func readKeys(b []byte) ([]byte, int, error) {
+	var shift uint
+	n := 0
+	for i := 0; i < 3; i++ {
+		if i >= len(b) {
+			return nil, 0, errors.New("tx: truncated compact u16")
+		}
+		c := b[i]
+		n |= int(c&0x7f) << shift
+		if c&0x80 == 0 {
+			b = b[i+1:]
+			goto keys
+		}
+		shift += 7
+	}
+	return nil, 0, errors.New("tx: compact u16 too long")
+keys:
+	total := n * 32
+	if len(b) < total {
+		return nil, 0, errors.New("tx: truncated key list")
+	}
+	return b[:total], n, nil
+}

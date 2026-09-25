@@ -205,3 +205,115 @@ func TestMemoCap(t *testing.T) {
 		t.Fatalf("memo builder must not cap (the callers enforce the path cap): %v", err)
 	}
 }
+
+func TestCreateTokenGolden(t *testing.T) {
+	id := loadIDL(t)
+	disc, err := id.Discriminator("create_token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDisc := "5434cce4188cea4b" // IDL 21.0.0
+	if hex.EncodeToString(disc) != wantDisc {
+		t.Fatalf("discriminator %x, want %s", disc, wantDisc)
+	}
+	args, err := id.BorshArgs("create_token", map[string]any{
+		"name":            "Context Compaction",
+		"symbol":          "CONTEX",
+		"uri":             "",
+		"sol_target":      uint64(200_000_000_000),
+		"community_token": false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := hex.EncodeToString(append(append([]byte{}, disc...), args...))
+	want := wantDisc +
+		"12000000" + "436f6e7465787420436f6d70616374696f6e" +
+		"06000000" + "434f4e544558" +
+		"00000000" +
+		"00d0ed902e000000" +
+		"00"
+	if got != want {
+		t.Fatalf("data %s, want %s", got, want)
+	}
+}
+
+func TestCreateTokenAccountOrderAndPDAs(t *testing.T) {
+	id := loadIDL(t)
+	const mint = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
+	const operator = "8GQ4XGM9p5DqKjw2JTrUAc42adwYWD5PK3P7eTobcYKy"
+	ix, err := BuildCreateToken(DevnetProgramID, CreateTokenAccounts{
+		Creator: operator, Mint: mint, ProgramID: DevnetProgramID,
+	}, CreateTokenArgs{Name: "Context Compaction", Symbol: "CONTEX", URI: "", SolTarget: 200_000_000_000, CommunityToken: false}, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names, err := id.AccountNames("create_token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ix.Accounts) != len(names) || len(names) != 16 {
+		t.Fatalf("accounts %d, IDL names %d (want 16)", len(ix.Accounts), len(names))
+	}
+	bc := BondingCurvePDA(DevnetProgramID, mint)
+	treasury := TokenTreasuryPDA(DevnetProgramID, mint)
+	treasurySol := TreasurySolVaultPDA(DevnetProgramID, mint)
+	lock := TreasuryLockPDA(DevnetProgramID, mint)
+	bcATA, err := ATA(mint, bc, Token2022Program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	treasuryATA, err := ATA(mint, treasury, Token2022Program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockATA, err := ATA(mint, lock, Token2022Program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantKeys := []string{
+		operator, GlobalConfigPDA(DevnetProgramID), mint, bc, bcATA,
+		treasury, treasurySol, treasuryATA, lock, lockATA,
+		Token2022Program, ATProgram, SystemProgram, RentProgram,
+		TorchEventAuthorityPDA(DevnetProgramID), DevnetProgramID,
+	}
+	for i, want := range wantKeys {
+		if ix.Accounts[i].Pubkey != want {
+			t.Errorf("account %d %s, want %s", i, ix.Accounts[i].Pubkey, want)
+		}
+	}
+	if !ix.Accounts[0].IsSigner || !ix.Accounts[0].IsWritable {
+		t.Error("creator must be signer + writable")
+	}
+	if !ix.Accounts[2].IsSigner || !ix.Accounts[2].IsWritable {
+		t.Error("mint must be signer + writable")
+	}
+	if !ix.Accounts[3].IsWritable || !ix.Accounts[4].IsWritable ||
+		!ix.Accounts[5].IsWritable || !ix.Accounts[6].IsWritable ||
+		!ix.Accounts[7].IsWritable || !ix.Accounts[8].IsWritable ||
+		!ix.Accounts[9].IsWritable {
+		t.Error("curve/treasury accounts must be writable")
+	}
+	// SDK-verified PDAs (sol/sol_test.go pins the derivation algorithm).
+	if bc != "6wDUn9V7fuP1Ujn6o3xk4yFh4EE3F65LpgQsrNjTjmVx" {
+		t.Errorf("bonding curve PDA: %s", bc)
+	}
+	if treasury != "6qYP4kqANocDpaiMNu5eVijMhRVzXEpL4FzDmPreRTcX" {
+		t.Errorf("treasury PDA: %s", treasury)
+	}
+	if treasurySol != "B9f9i5pgEgvvRgQzzyQ98tVYy3KKc9z3qavu4xVp5nDy" {
+		t.Errorf("treasury sol PDA: %s", treasurySol)
+	}
+	if lock != "6195P6Z7fNWNf2xyVRWkjdGtcRhsQhbfAL6hsQM1Th52" {
+		t.Errorf("treasury lock PDA: %s", lock)
+	}
+	if bcATA != "Dhffw9mKgRiCr5tA56Y4R8hoaVeZDKThpVuYDSG7kRhs" {
+		t.Errorf("bonding curve ATA: %s", bcATA)
+	}
+	if treasuryATA != "GZYt7j3XxyE5vsy66ctAW8UVn3Gj1iWVaETZD5RjG5Tx" {
+		t.Errorf("treasury ATA: %s", treasuryATA)
+	}
+	if lockATA != "GQDmuVmMfaooXTcayDsLS5QXbb1MjkvnbKjJUW2r9ZVv" {
+		t.Errorf("treasury lock ATA: %s", lockATA)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/mrsirg97-rgb/orbit/idl"
 	"github.com/mrsirg97-rgb/orbit/sol"
 )
 
@@ -42,6 +43,80 @@ func BuildVaultATAIx(payer, mint, owner, ata string) sol.Instruction {
 		},
 		Data: []byte{1},
 	}
+}
+
+// CreateTokenAccounts holds everything create_token needs.
+type CreateTokenAccounts struct {
+	Creator   string
+	Mint      string
+	ProgramID string
+}
+
+// CreateTokenArgs are the borsh CreateTokenArgs fields.
+type CreateTokenArgs struct {
+	Name           string
+	Symbol         string
+	URI            string
+	SolTarget      uint64
+	CommunityToken bool
+}
+
+// BuildCreateToken builds create_token from the IDL: discriminator, exact
+// account order (16 accounts), borsh CreateTokenArgs. The creator and the
+// fresh mint keypair both sign.
+func BuildCreateToken(programID string, a CreateTokenAccounts, args CreateTokenArgs, idl *idl.IDL) (sol.Instruction, error) {
+	disc, err := idl.Discriminator("create_token")
+	if err != nil {
+		return sol.Instruction{}, err
+	}
+	encoded, err := idl.BorshArgs("create_token", map[string]any{
+		"name":            args.Name,
+		"symbol":          args.Symbol,
+		"uri":             args.URI,
+		"sol_target":      args.SolTarget,
+		"community_token": args.CommunityToken,
+	})
+	if err != nil {
+		return sol.Instruction{}, err
+	}
+	bc := BondingCurvePDA(programID, a.Mint)
+	tokenVault, err := ATA(a.Mint, bc, Token2022Program)
+	if err != nil {
+		return sol.Instruction{}, err
+	}
+	treasury := TokenTreasuryPDA(programID, a.Mint)
+	treasuryToken, err := ATA(a.Mint, treasury, Token2022Program)
+	if err != nil {
+		return sol.Instruction{}, err
+	}
+	lock := TreasuryLockPDA(programID, a.Mint)
+	lockToken, err := ATA(a.Mint, lock, Token2022Program)
+	if err != nil {
+		return sol.Instruction{}, err
+	}
+	data := append(append([]byte{}, disc...), encoded...)
+	return sol.Instruction{
+		ProgramID: programID,
+		Accounts: []sol.AccountMeta{
+			{Pubkey: a.Creator, IsSigner: true, IsWritable: true},
+			{Pubkey: GlobalConfigPDA(programID), IsWritable: true},
+			{Pubkey: a.Mint, IsSigner: true, IsWritable: true},
+			{Pubkey: bc, IsWritable: true},
+			{Pubkey: tokenVault, IsWritable: true},
+			{Pubkey: treasury, IsWritable: true},
+			{Pubkey: TreasurySolVaultPDA(programID, a.Mint), IsWritable: true},
+			{Pubkey: treasuryToken, IsWritable: true},
+			{Pubkey: lock, IsWritable: true},
+			{Pubkey: lockToken, IsWritable: true},
+			{Pubkey: Token2022Program},
+			{Pubkey: ATProgram},
+			{Pubkey: SystemProgram},
+			{Pubkey: RentProgram},
+			{Pubkey: TorchEventAuthorityPDA(programID)},
+			{Pubkey: programID},
+		},
+		Data: data,
+	}, nil
 }
 
 // BuyAccounts holds everything a curve buy instruction needs.

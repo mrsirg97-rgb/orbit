@@ -2,6 +2,7 @@ package sol
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"testing"
 )
 
@@ -142,4 +143,53 @@ func TestCompileAndSign(t *testing.T) {
 	if !bytes.Contains(signed[64:], must(t, blockhash)) {
 		t.Error("message lacks the blockhash")
 	}
+}
+
+func TestSignVersionedTxMulti(t *testing.T) {
+	const blockhash = "11111111111111111111111111111111"
+	k1 := testKeypair("multi-sign-a")
+	k2 := testKeypair("multi-sign-b")
+	ix := Instruction{
+		ProgramID: "FghCwWojts9MbU3Pmog5peacaKrEYM5n1T68KWHy7TAh",
+		Accounts: []AccountMeta{
+			{Pubkey: k1.PublicBase58(), IsSigner: true, IsWritable: true},
+			{Pubkey: k2.PublicBase58(), IsSigner: true, IsWritable: true},
+		},
+		Data: []byte{1, 2, 3},
+	}
+	msg, err := Compile(blockhash, k1.PublicBase58(), []Instruction{ix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed, err := SignVersionedTxMulti(msg, k1, k2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if signed[0] != 2 {
+		t.Fatalf("signature count %d, want 2", signed[0])
+	}
+	sigs := signed[1 : 1+2*64]
+	vmsg := signed[1+2*64:]
+	if vmsg[0] != 0x80 {
+		t.Fatalf("v0 marker %x", vmsg[0])
+	}
+	if !ed25519.Verify(k1.Public, vmsg, sigs[:64]) {
+		t.Error("first signature does not verify for the payer")
+	}
+	if !ed25519.Verify(k2.Public, vmsg, sigs[64:128]) {
+		t.Error("second signature does not verify for the mint")
+	}
+	if _, err := SignVersionedTxMulti(msg, k1); err == nil {
+		t.Error("missing signer accepted")
+	}
+}
+
+func testKeypair(seed string) Keypair {
+	s := make([]byte, 32)
+	copy(s, seed)
+	k, err := KeypairFromSecret(Encode(append(append([]byte{}, s...), pubOf(s)...)))
+	if err != nil {
+		panic(err)
+	}
+	return k
 }

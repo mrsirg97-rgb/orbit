@@ -111,6 +111,22 @@ Prints the vault pubkey, creator, authority, spendable SOL, linked-wallet
 count, and the deposit/withdraw/spend/received totals, all read from the
 chain.
 
+## project (operator)
+
+```sh
+orbit project create --name "Context Compaction" --goal "<one paragraph>" --treasury 1
+orbit project list
+```
+
+`create` runs `create_token` (the operator is the creator, a fresh mint
+keypair signs), then a first `buy_via_vault` from the operator's own vault
+that funds the treasury. The goal rides that buy as the memo
+`[architect] goal: ...`, so the board's fold (intel) shows the project's
+purpose. The operator key comes from the same flag/env seam as `vault`; the
+mint keypair is generated in-process and never stored. `list` reads the
+indexer: markets, the goal memo per market, and the treasury float.
+`scripts/seed-devnet.sh` seeds three example research projects.
+
 ## the gate
 
 The RPC endpoint is always the full JSON-RPC URL (the proxy's `{indexer}/rpc`,

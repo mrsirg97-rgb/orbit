@@ -258,6 +258,13 @@ func encodeBorsh(t string, v any) ([]byte, error) {
 			return []byte{1}, nil
 		}
 		return []byte{0}, nil
+	case "string":
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("want string, got %T", v)
+		}
+		out := LeU32(uint32(len(s)))
+		return append(out, []byte(s)...), nil
 	default:
 		return nil, fmt.Errorf("unsupported borsh type %q", t)
 	}

@@ -55,7 +55,9 @@ runtime discovery.
 
 Borsh args are encoded positionally per the IDL `types` definitions —
 `BuyArgs{u64 sol_amount, u64 min_tokens_out}`, `SellArgs{u64 token_amount,
-u64 min_sol_out}` — u64 little-endian, `bool` as one byte.
+u64 min_sol_out}`, `CreateTokenArgs{string name, string symbol, string uri,
+u64 sol_target, bool community_token}` — u64 little-endian, `bool` as one
+byte, `string` as a u32-length-prefixed UTF-8 payload.
 
 ### 3. Curve vs DeepPool is decided by market status
 
@@ -141,7 +143,7 @@ frame instead of skipping it.
 - `client/idl.go` — embedded IDL + parsed instruction/account metadata
 - `client/pda.go` — PDA derivations (checked against the IDL seeds)
 - `client/quote.go` — pure buy/sell/swap math
-- `client/ix.go` — instruction builders (curve, vault_swap, memo, vault admin)
+- `client/ix.go` — instruction builders (curve, vault_swap, memo, vault admin, create_token)
 - `client/tx.go` — transaction assemble + sign + send
 - `client/rpc.go` — `RPC` interface + `jsonrpc` implementation
 - `client/api.go` — indexer HTTP reads + typed rows
