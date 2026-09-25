@@ -119,6 +119,21 @@ func TestParseSOLAmount(t *testing.T) {
 	}
 }
 
+func TestFormatSOL(t *testing.T) {
+	cases := map[uint64]string{
+		1_000_000_000: "1.000000000",
+		2_500_000:     "0.002500000",
+		1:             "0.000000001",
+		0:             "0.000000000",
+		1_250_000_000: "1.250000000",
+	}
+	for in, want := range cases {
+		if got := FormatSOL(in); got != want {
+			t.Errorf("FormatSOL(%d) = %s, want %s", in, got, want)
+		}
+	}
+}
+
 func TestDecodeTorchVault(t *testing.T) {
 	data := make([]byte, 114)
 	copy(data[:8], []byte{0x8c, 0x41, 0x81, 0x38, 0x97, 0xba, 0x02, 0x47})

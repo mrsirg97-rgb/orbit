@@ -7,14 +7,18 @@ import (
 	"strings"
 
 	"github.com/mrsirg97-rgb/orbit/client"
+	"github.com/mrsirg97-rgb/orbit/identity"
 	"github.com/mrsirg97-rgb/orbit/world"
 )
 
 // Market is the project read + write tool. Act: back (buy via vault + memo),
 // cut (sell via vault + memo), memo (micro buy + memo). Every write replies
-// with the tx signature plus the memo.
+// with the tx signature plus the memo. Role stamps the memo tag; Stake
+// Lamports is the role's per-action stake when the caller omits `sol`.
 type Market struct {
-	Client *client.TorchClient
+	Client        *client.TorchClient
+	Role          string
+	StakeLamports uint64
 }
 
 func (m *Market) Name() string { return "market" }
@@ -83,18 +87,28 @@ func (m *Market) Exec(ctx context.Context, args json.RawMessage) (string, error)
 		return read, nil
 	}
 	amount := in.SOL
-	if in.Action == "memo" || amount == 0 {
+	if in.Action == "memo" {
 		amount = client.MemoBuyLamports
+	} else if amount == 0 {
+		if m.StakeLamports > 0 {
+			amount = m.StakeLamports
+		} else {
+			amount = client.MemoBuyLamports
+		}
 	}
-	res, err := m.Client.WriteAction(ctx, market, client.Action(in.Action), in.Memo, amount)
+	memo := in.Memo
+	if m.Role != "" {
+		memo = identity.TagMemo(m.Role, memo)
+	}
+	res, err := m.Client.WriteAction(ctx, market, client.Action(in.Action), memo, amount)
 	if err != nil {
 		return read + "\n" + fmt.Sprintf("%s FAILED: %v", in.Action, err), nil
 	}
-	memo := res.Memo
-	if memo == "" {
-		memo = "(no memo)"
+	got := res.Memo
+	if got == "" {
+		got = "(no memo)"
 	}
-	return read + "\n" + fmt.Sprintf("%s %s: %s %s", in.Action, fid8(market.Mint), res.Signature, memo), nil
+	return read + "\n" + fmt.Sprintf("%s %s: %s %s", in.Action, fid8(market.Mint), res.Signature, got), nil
 }
 
 func (m *Market) treasurySOL(ctx context.Context, mint string) (uint64, error) {

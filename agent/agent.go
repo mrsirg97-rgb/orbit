@@ -6,15 +6,28 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mrsirg97-rgb/orbit/identity"
 	"github.com/mrsirg97-rgb/rig/store/scheduler"
 )
 
-// JobName is the stable job name for the agent (the scheduler enforces one
-// job per name).
-func JobName(id string) string { return "orbit-agent-" + id }
+// JobPrefix is the stable job-name prefix for an agent (the scheduler
+// enforces one job per name).
+const JobPrefix = "orbit-agent-"
+
+// JobName is the stable job name for the agent.
+func JobName(id string) string { return JobPrefix + id }
+
+// JobAgentID reverses JobName; a job whose name lacks the prefix is not an
+// orbit agent job.
+func JobAgentID(jobName string) string {
+	if !strings.HasPrefix(jobName, JobPrefix) {
+		return ""
+	}
+	return strings.TrimPrefix(jobName, JobPrefix)
+}
 
 // Register creates (or refreshes) the scheduled job from the identity row.
 // The prompt is the world block; the cadence comes from the row.

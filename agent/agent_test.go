@@ -255,3 +255,119 @@ func TestAgentJobFiresTheWorldBlock(t *testing.T) {
 	}
 	_ = os.Getenv
 }
+
+func TestRoleDefaultsLandInJob(t *testing.T) {
+	home := t.TempDir()
+	db := openSched(t, home)
+	defer db.DB.Close()
+	ct := &fakeCrontab{text: "SHELL=/bin/bash\n"}
+
+	row, err := identity.NewRow("So11111111111111111111111111111111111111112", identity.Worker, identity.Overrides{Model: "dsv4"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := identity.DefaultsFor(identity.Worker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stub := world.StubBlock(world.Identity{
+		Name: row.Name, Bio: row.Bio, Personality: row.Personality,
+		Role: row.Role, Directive: d.Directive, MemoShapes: d.MemoShapes,
+		Stake: identity.StakeLamports(row.StakeScale), Voice: row.Voice,
+	})
+	if _, err := Register(context.Background(), db, ct, row, stub, "/x/orbit run-job", t.TempDir(), "sess-agent"); err != nil {
+		t.Fatal(err)
+	}
+	bound, tx, err := db.TxReadOnly(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := scheddomain.NewJobDomain().GetJob(bound, "j1").Row()
+	tx.Rollback()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job == nil {
+		t.Fatal("job row missing")
+	}
+	if job.Cron != "0 */2 * * *" {
+		t.Errorf("cron %s, want the worker cadence", job.Cron)
+	}
+	if job.Budget == nil || *job.Budget != 0.5 {
+		t.Errorf("budget %v, want 0.5", job.Budget)
+	}
+	if job.Stall == nil || *job.Stall != 30 {
+		t.Errorf("stall %v, want 30", job.Stall)
+	}
+	if job.Timeout == nil || *job.Timeout != 45 {
+		t.Errorf("timeout %v, want 45", job.Timeout)
+	}
+	if job.Model != "dsv4" {
+		t.Errorf("model %s", job.Model)
+	}
+	for _, want := range []string{
+		"ROLE: worker — claims and completes tasks",
+		"MEMO SHAPES: claim | note | complete",
+		"STAKE: 0.0025 SOL per action.",
+	} {
+		if !strings.Contains(job.Prompt, want) {
+			t.Errorf("job prompt lacks %q", want)
+		}
+	}
+}
+
+func TestRoleOverridesWin(t *testing.T) {
+	home := t.TempDir()
+	db := openSched(t, home)
+	defer db.DB.Close()
+	ct := &fakeCrontab{text: "SHELL=/bin/bash\n"}
+
+	row, err := identity.NewRow("So11111111111111111111111111111111111111112", identity.Worker, identity.Overrides{
+		Name: "Beta", Cadence: "0 1 * * *", Model: "qwen3.8-27b", Budget: 2.5, Full: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := identity.DefaultsFor(identity.Worker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stub := world.StubBlock(world.Identity{
+		Name: row.Name, Bio: row.Bio, Personality: row.Personality,
+		Role: row.Role, Directive: d.Directive, MemoShapes: d.MemoShapes,
+		Stake: identity.StakeLamports(row.StakeScale), Voice: row.Voice,
+	})
+	if _, err := Register(context.Background(), db, ct, row, stub, "/x/orbit run-job", t.TempDir(), "sess-agent"); err != nil {
+		t.Fatal(err)
+	}
+	bound, tx, err := db.TxReadOnly(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := scheddomain.NewJobDomain().GetJob(bound, "j1").Row()
+	tx.Rollback()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job == nil {
+		t.Fatal("job row missing")
+	}
+	if job.Cron != "0 1 * * *" {
+		t.Errorf("cron %s, want the override", job.Cron)
+	}
+	if job.Budget == nil || *job.Budget != 2.5 {
+		t.Errorf("budget %v, want 2.5", job.Budget)
+	}
+	if job.Model != "qwen3.8-27b" {
+		t.Errorf("model %s, want the override", job.Model)
+	}
+	if job.Stall == nil || *job.Stall != 30 {
+		t.Errorf("stall %v, want the untouched role default 30", job.Stall)
+	}
+	if row.BlockSize != "full" {
+		t.Errorf("block size %s, want the full override", row.BlockSize)
+	}
+	if row.Name != "Beta" {
+		t.Errorf("name %s, want the override", row.Name)
+	}
+}

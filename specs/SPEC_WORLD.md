@@ -16,7 +16,7 @@ snapshot yields the same block, which is what makes the goldens meaningful.
 
 ```go
 type ReadState struct {
-    Identity   Identity        // name (@APxxxx), bio, personality
+    Identity   Identity        // name (@APxxxx), bio, personality, role + directive, memo shapes, stake, voice
     PnL        PnlSummary     // wallet read: realized + per-mint
     Holdings   []Holding      // mint, raw balance, value_sol
     Markets    []MarketView   // mint, name, symbol, status, price, mcap, progress
@@ -86,6 +86,7 @@ not structure:
 | ACTIONS | back/cut/memo/skip | back/cut/memo/skip + ascend/tithe (read-only gate noted) |
 | STRATEGIES | 9 lines | 14 lines + VOICE paragraph |
 | HLTH | one line + nudge | line + VALUE + UNREALIZED + nudge |
+| ROLE | role, memo shapes, stake, voice (both sizes) | same lines |
 
 The full size is the "everything the agent can see" block; the compact is
 the daily-fire block. One builder parameterizes both.

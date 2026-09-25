@@ -31,7 +31,7 @@ func fixtureReadState() ReadState {
 		{Mint: "6c1GnPmJ6Wn9T3lD0S2vX1wO5uF4zK7hY9bMeE2gI3qN", Name: "India", Symbol: "IND", Status: "BONDING", PriceSOL: 0.00004, MCAPSOL: 40000},
 	}
 	return ReadState{
-		Identity: Identity{Name: "@AP2B3A", Bio: "A torch market agent. Reads, posts, and trades with conviction.", Personality: "mercenary"},
+		Identity: Identity{Name: "@AP2B3A", Bio: "A torch market agent. Reads, posts, and trades with conviction.", Personality: "mercenary", Role: "worker", Directive: "claims and completes tasks", MemoShapes: "claim | note | complete", Stake: 2_500_000, Voice: "mercenary"},
 		PnL: PnlSummary{
 			TotalRealizedPnl: 2_500_000,
 			ByMint: []PnlByMint{
@@ -158,6 +158,30 @@ func TestProjection(t *testing.T) {
 	}
 	if !strings.Contains(got, "HLTH: +") {
 		t.Error("HLTH line missing")
+	}
+}
+
+func TestRoleRidesTheBlock(t *testing.T) {
+	read := fixtureReadState()
+	for _, size := range []Size{Compact, Full} {
+		got, err := Build(read, size)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{
+			"ROLE: worker — claims and completes tasks",
+			"MEMO SHAPES: claim | note | complete",
+			"STAKE: 0.0025 SOL per action.",
+			"VOICE: Lone wolf. Every angle is a trade; drop alpha only when it pays.",
+		} {
+			if !strings.Contains(got, want) {
+				name := "compact"
+				if size == Full {
+					name = "full"
+				}
+				t.Errorf("%s block missing %q", name, want)
+			}
+		}
 	}
 }
 

@@ -19,6 +19,7 @@ import (
 	"github.com/mrsirg97-rgb/rig/policy"
 	"github.com/mrsirg97-rgb/rig/provider/openai"
 	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
+	scheddomain "github.com/mrsirg97-rgb/rig/store/scheduler/domain"
 
 	"github.com/mrsirg97-rgb/orbit/agent"
 	"github.com/mrsirg97-rgb/orbit/client"
@@ -86,8 +87,9 @@ func runWorker(args []string) int {
 	if err != nil {
 		die("%v", err)
 	}
+	role, stake := workerIdentity()
 	tools := []core.Tool{
-		&tool.Market{Client: tc},
+		&tool.Market{Client: tc, Role: role, StakeLamports: stake},
 		&tool.Intel{Client: tc},
 		&tool.Wallet{Client: tc},
 	}
@@ -125,15 +127,16 @@ func runJob(args []string) int {
 		fmt.Fprintln(os.Stderr, "orbit: usage: run-job <key>")
 		return 2
 	}
-	// The per-fire brief: identity row -> live snapshot -> world block. Fail
-	// closed: no identity, no read, no fire.
+	// The per-fire brief: the job's agent row -> live snapshot -> world
+	// block. Fail closed: no identity, no read, no fire.
 	ctx := context.Background()
-	idb := identityStore()
-	defer idb.DB.Close()
-	row, err := identity.Get(ctx, idb)
+	sdb := schedStore()
+	defer sdb.DB.Close()
+	row, err := jobAgentRow(ctx, sdb, args[0])
 	if err != nil {
 		die("run-job: %v", err)
 	}
+	os.Setenv("ORBIT_AGENT_ID", row.ID)
 	cfg, err := client.LoadConfig(os.Getenv)
 	if err != nil {
 		die("run-job: %v", err)
@@ -142,7 +145,15 @@ func runJob(args []string) int {
 	if err != nil {
 		die("run-job: %v", err)
 	}
-	snap, err := tool.Snapshot(ctx, tc, world.Identity{Name: row.Name, Bio: row.Bio, Personality: row.Personality})
+	d, err := identity.DefaultsFor(identity.Role(row.Role))
+	if err != nil {
+		die("run-job: %v", err)
+	}
+	snap, err := tool.Snapshot(ctx, tc, world.Identity{
+		Name: row.Name, Bio: row.Bio, Personality: row.Personality,
+		Role: row.Role, Directive: d.Directive, MemoShapes: d.MemoShapes,
+		Stake: identity.StakeLamports(row.StakeScale), Voice: row.Voice,
+	})
 	if err != nil {
 		die("run-job: brief: %v", err)
 	}
@@ -172,8 +183,6 @@ func runJob(args []string) int {
 	if sandbox == "" {
 		sandbox = "off" // the operator's choice; the agent runtime is unsandboxed by default
 	}
-	sdb := schedStore()
-	defer sdb.DB.Close()
 	run := func(ctx context.Context) error {
 		return sched.RunJob(args[0], sched.RunOpts{
 			Home:      home,
@@ -198,15 +207,17 @@ func runJob(args []string) int {
 
 func runAgent(args []string) int {
 	fs := flag.NewFlagSet("agent", flag.ContinueOnError)
-	aaction := fs.String("action", "register", "register | refresh | show")
-	name := fs.String("name", "", "agent display name")
+	aaction := fs.String("action", "register", "register | refresh | show | list")
+	roleFlag := fs.String("role", "", "architect | worker | reviewer (required for register)")
+	voice := fs.String("voice", "", "loyalist | mercenary | provocateur | scout | whale (colors the memo tone only)")
+	name := fs.String("name", "", "agent display name (default from role)")
 	bio := fs.String("bio", "", "agent bio")
 	personality := fs.String("personality", "mercenary", "loyalist | mercenary | provocateur | scout | whale")
-	cadence := fs.String("cadence", "", "5-field cron (default from personality)")
-	model := fs.String("model", "", "worker model")
-	stall := fs.Int("stall", 0, "stall minutes (0 = default)")
-	budget := fs.Float64("budget", 0, "dollar budget cap")
-	timeout := fs.Int("timeout", 0, "timeout minutes (0 = default)")
+	cadence := fs.String("cadence", "", "5-field cron (default from role)")
+	model := fs.String("model", "", "worker model (required)")
+	stall := fs.Int("stall", 0, "stall minutes (0 = role default)")
+	budget := fs.Float64("budget", 0, "dollar budget cap (0 = role default)")
+	timeout := fs.Int("timeout", 0, "timeout minutes (0 = role default)")
 	full := fs.Bool("full", false, "register with the full world block")
 	fs.SetOutput(os.Stderr)
 	// The action is the first positional; flags follow it (flag.Parse stops at
@@ -226,59 +237,70 @@ func runAgent(args []string) int {
 	if err != nil {
 		die("%v", err)
 	}
+	ctx := context.Background()
+	idb := identityStore()
+	defer idb.DB.Close()
 	switch *aaction {
 	case "register":
+		role, err := identity.ParseRole(*roleFlag)
+		if err != nil {
+			die("%v", err)
+		}
 		if *model == "" {
 			die("agent: -model required")
 		}
-		blockSize := "compact"
-		if *full {
-			blockSize = "full"
-		}
-		row := identity.Row{
-			ID:          "@AP" + walletSuffix(tc.AgentPublic()),
-			Name:        *name,
-			Wallet:      tc.AgentPublic(),
-			Bio:         *bio,
-			Personality: *personality,
-			Cadence:     *cadence,
-			Model:       *model,
-			Stall:       *stall,
-			Budget:      *budget,
-			Timeout:     *timeout,
-			BlockSize:   blockSize,
-		}
-		if row.Name == "" {
-			row.Name = "torch agent"
-		}
-		if row.Bio == "" {
-			row.Bio = "A torch market agent. Reads, posts, and trades with conviction."
-		}
-		idb := identityStore()
-		defer idb.DB.Close()
-		if row.Cadence == "" {
-			row.Cadence = identity.DefaultCadence(row.Personality)
-		}
-		if err := identity.Upsert(context.Background(), idb, row); err != nil {
+		row, err := identity.NewRow(tc.AgentPublic(), role, identity.Overrides{
+			Name: *name, Bio: *bio, Personality: *personality, Voice: *voice,
+			Cadence: *cadence, Model: *model, Budget: *budget,
+			Stall: *stall, Timeout: *timeout, Full: *full,
+		})
+		if err != nil {
 			die("%v", err)
 		}
-		return ensureJob(context.Background(), tc, idb, row, *full)
+		if err := identity.Upsert(ctx, idb, row); err != nil {
+			die("%v", err)
+		}
+		return ensureJob(ctx, tc, idb, row)
 	case "refresh":
-		idb := identityStore()
-		defer idb.DB.Close()
-		row, err := identity.Get(context.Background(), idb)
+		rows, err := identity.List(ctx, idb)
 		if err != nil {
 			die("%v", err)
 		}
-		return ensureJobAction(context.Background(), tc, idb, row, *full, "refresh")
+		if len(rows) == 0 {
+			die("agent: no identity row (register first)")
+		}
+		for _, row := range rows {
+			if code := ensureJobAction(ctx, tc, idb, row, "refresh"); code != 0 {
+				return code
+			}
+		}
+		return 0
 	case "show":
-		idb := identityStore()
-		defer idb.DB.Close()
-		row, err := identity.Get(context.Background(), idb)
+		ids := fs.Args()
+		if len(ids) != 1 {
+			die("agent: usage: agent show <id>")
+		}
+		row, err := identity.GetByID(ctx, idb, ids[0])
 		if err != nil {
 			die("%v", err)
 		}
-		fmt.Printf("%+v\n", row)
+		return printAgent(ctx, idb, row)
+	case "list":
+		rows, err := identity.List(ctx, idb)
+		if err != nil {
+			die("%v", err)
+		}
+		sdb := schedStore()
+		defer sdb.DB.Close()
+		fmt.Printf("%-22s %-10s %-16s %-8s %-12s %-8s %-8s %s\n", "ID", "ROLE", "NAME", "MODEL", "CADENCE", "BLOCK", "BUDGET", "JOB")
+		for _, row := range rows {
+			jobID := findJobID(ctx, sdb, agent.JobName(row.ID))
+			if jobID == "" {
+				jobID = "-"
+			}
+			fmt.Printf("%-22s %-10s %-16s %-8s %-12s %-8s $%-7.2f %s\n",
+				row.ID, row.Role, row.Name, row.Model, row.Cadence, row.BlockSize, row.Budget, jobID)
+		}
 		return 0
 	default:
 		die("agent: unknown action %q", *aaction)
@@ -286,14 +308,22 @@ func runAgent(args []string) int {
 	return 0
 }
 
-func ensureJob(ctx context.Context, tc *client.TorchClient, idb store.DB, row identity.Row, full bool) int {
-	return ensureJobAction(ctx, tc, idb, row, full, "register")
+func ensureJob(ctx context.Context, tc *client.TorchClient, idb store.DB, row identity.Row) int {
+	return ensureJobAction(ctx, tc, idb, row, "register")
 }
 
-func ensureJobAction(ctx context.Context, tc *client.TorchClient, idb store.DB, row identity.Row, full bool, action string) int {
-	// The stored prompt is a stub naming the identity; the live world block is
-	// rebuilt per fire by run-job.
-	block := world.StubBlock(world.Identity{Name: row.Name, Bio: row.Bio, Personality: row.Personality})
+func ensureJobAction(ctx context.Context, tc *client.TorchClient, idb store.DB, row identity.Row, action string) int {
+	// The stored prompt is a stub naming the identity and its role; the live
+	// world block is rebuilt per fire by run-job.
+	d, err := identity.DefaultsFor(identity.Role(row.Role))
+	if err != nil {
+		die("%v", err)
+	}
+	block := world.StubBlock(world.Identity{
+		Name: row.Name, Bio: row.Bio, Personality: row.Personality,
+		Role: row.Role, Directive: d.Directive, MemoShapes: d.MemoShapes,
+		Stake: identity.StakeLamports(row.StakeScale), Voice: row.Voice,
+	})
 	self, err := os.Executable()
 	if err != nil {
 		die("%v", err)
@@ -321,6 +351,64 @@ func ensureJobAction(ctx context.Context, tc *client.TorchClient, idb store.DB, 
 	return 0
 }
 
+func printAgent(ctx context.Context, idb store.DB, row identity.Row) int {
+	fmt.Printf("AGENT      %s\n", row.ID)
+	fmt.Printf("NAME       %s\n", row.Name)
+	fmt.Printf("WALLET     %s\n", row.Wallet)
+	fmt.Printf("ROLE       %s\n", row.Role)
+	fmt.Printf("VOICE      %s\n", row.Voice)
+	fmt.Printf("PERSONALITY %s\n", row.Personality)
+	fmt.Printf("BIO        %s\n", row.Bio)
+	fmt.Printf("CADENCE    %s\n", row.Cadence)
+	fmt.Printf("MODEL      %s\n", row.Model)
+	fmt.Printf("BLOCK      %s\n", row.BlockSize)
+	fmt.Printf("BUDGET     $%.2f\n", row.Budget)
+	fmt.Printf("STALL      %dm\n", row.Stall)
+	fmt.Printf("TIMEOUT    %dm\n", row.Timeout)
+	fmt.Printf("STAKE      %.2fx (%s SOL per action)\n", row.StakeScale, client.FormatSOL(identity.StakeLamports(row.StakeScale)))
+	fmt.Printf("CREATED    %s\n", row.CreatedAt)
+	sdb := schedStore()
+	defer sdb.DB.Close()
+	jobID := findJobID(ctx, sdb, agent.JobName(row.ID))
+	if jobID == "" {
+		fmt.Println("JOB        none (register first)")
+		return 0
+	}
+	bound, tx, err := sdb.TxReadOnly(ctx)
+	if err != nil {
+		die("agent: %v", err)
+	}
+	job, err := scheddomain.NewJobDomain().GetJob(bound, jobID).Row()
+	tx.Rollback()
+	if err != nil {
+		die("agent: %v", err)
+	}
+	if job == nil {
+		fmt.Println("JOB        missing row")
+		return 0
+	}
+	fmt.Printf("JOB        %s\n", jobID)
+	fmt.Printf("JOB NAME   %s\n", job.Name)
+	fmt.Printf("JOB CRON   %s\n", job.Cron)
+	fmt.Printf("JOB MODEL  %s\n", job.Model)
+	jobBudget := 0.0
+	if job.Budget != nil {
+		jobBudget = *job.Budget
+	}
+	fmt.Printf("JOB BUDGET $%.2f\n", jobBudget)
+	jobStall := int64(0)
+	if job.Stall != nil {
+		jobStall = *job.Stall
+	}
+	fmt.Printf("JOB STALL  %dm\n", jobStall)
+	jobTimeout := int64(0)
+	if job.Timeout != nil {
+		jobTimeout = *job.Timeout
+	}
+	fmt.Printf("JOB TIMEOUT %dm\n", jobTimeout)
+	return 0
+}
+
 func findJobID(ctx context.Context, db sched.DB, name string) string {
 	var id string
 	err := db.DB.QueryRowContext(ctx, `SELECT id FROM jobs WHERE name = ? ORDER BY rowid DESC LIMIT 1`, name).Scan(&id)
@@ -328,6 +416,28 @@ func findJobID(ctx context.Context, db sched.DB, name string) string {
 		return ""
 	}
 	return id
+}
+
+func jobAgentRow(ctx context.Context, db sched.DB, key string) (identity.Row, error) {
+	bound, tx, err := db.TxReadOnly(ctx)
+	if err != nil {
+		return identity.Row{}, err
+	}
+	job, err := scheddomain.NewJobDomain().GetJob(bound, key).Row()
+	tx.Rollback()
+	if err != nil {
+		return identity.Row{}, err
+	}
+	if job == nil {
+		return identity.Row{}, fmt.Errorf("run-job: job %s not found", key)
+	}
+	id := agent.JobAgentID(job.Name)
+	if id == "" {
+		return identity.Row{}, fmt.Errorf("run-job: job %s is not an orbit agent job", key)
+	}
+	idb := identityStore()
+	defer idb.DB.Close()
+	return identity.GetByID(ctx, idb, id)
 }
 
 // ── snapshot: print the world block ────────────────────────────────────
@@ -347,7 +457,7 @@ func runSnapshot(args []string) int {
 	if err != nil {
 		die("%v", err)
 	}
-	snap, err := tool.Snapshot(context.Background(), tc, world.Identity{Name: "@AP" + walletSuffix(tc.AgentPublic()), Bio: "torch agent", Personality: "mercenary"})
+	snap, err := tool.Snapshot(context.Background(), tc, world.Identity{Name: "@AP" + walletSuffix(tc.AgentPublic()), Bio: "torch agent", Personality: "mercenary", Role: "worker", Directive: "claims and completes tasks", MemoShapes: "claim | note | complete", Stake: identity.StakeLamports(0.25), Voice: "mercenary"})
 	if err != nil {
 		die("snapshot: %v", err)
 	}
@@ -415,4 +525,28 @@ func walletSuffix(pubkey string) string {
 		s = s[len(s)-4:]
 	}
 	return strings.ToUpper(s)
+}
+
+// workerIdentity resolves the worker's role and per-action stake. The
+// scheduler fire sets ORBIT_AGENT_ID (run-job); direct -p use falls back to
+// the newest row, and without any row the tools run untagged.
+func workerIdentity() (string, uint64) {
+	ctx := context.Background()
+	idb := identityStore()
+	defer idb.DB.Close()
+	id := os.Getenv("ORBIT_AGENT_ID")
+	var row identity.Row
+	var err error
+	if id != "" {
+		row, err = identity.GetByID(ctx, idb, id)
+		if err != nil {
+			die("worker: identity %s: %v", id, err)
+		}
+	} else {
+		row, err = identity.Get(ctx, idb)
+		if err != nil {
+			return "", 0
+		}
+	}
+	return row.Role, identity.StakeLamports(row.StakeScale)
 }

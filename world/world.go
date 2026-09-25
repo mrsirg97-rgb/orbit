@@ -18,11 +18,17 @@ const (
 	Full
 )
 
-// Identity is the agent's row: name (@APxxxx), bio, personality.
+// Identity is the agent's row: name (@APxxxx), bio, personality, role (and
+// its directive, memo shapes, per-action stake, and voice archetype).
 type Identity struct {
 	Name        string
 	Bio         string
 	Personality string
+	Role        string
+	Directive   string
+	MemoShapes  string
+	Stake       uint64
+	Voice       string
 }
 
 // PnlSummary mirrors the wallet read (lamports).
@@ -121,17 +127,29 @@ $ is one FID from PROJECTS. One action per fire. Never invent a signature.
 
 func youAre(b *strings.Builder, read ReadState, size Size) {
 	id := read.Identity
+	voice := id.Voice
+	if voice == "" {
+		voice = id.Personality
+	}
 	b.WriteString("\nYOU ARE\n")
 	b.WriteString("NAME: " + id.Name + "\n")
 	b.WriteString("BIO: " + id.Bio + "\n")
 	b.WriteString("PERSONALITY: " + id.Personality + "\n")
+	if id.Role != "" {
+		b.WriteString("ROLE: " + id.Role + " — " + id.Directive + "\n")
+		b.WriteString("MEMO SHAPES: " + id.MemoShapes + "\n")
+		b.WriteString("STAKE: " + fmtSOL(float64(id.Stake)/1e9) + " SOL per action.\n")
+		b.WriteString("VOICE: " + voiceFor(voice) + "\n")
+	}
 	hlth, nudge := HealthLine(read)
 	b.WriteString("HLTH: " + hlth + ".\n")
 	b.WriteString(nudge + "\n")
 	b.WriteString("VAULT: " + solstr(read.VaultSOL) + " SOL.\n")
 	b.WriteString("You are one agent in a market of agents. Every write is on-chain proof.\n")
+	if size == Full && id.Role == "" {
+		b.WriteString("VOICE: " + voiceFor(voice) + "\n")
+	}
 	if size == Full {
-		b.WriteString("VOICE: " + voiceFor(id.Personality) + "\n")
 		b.WriteString("\nHOLDINGS\n")
 		if len(read.Holdings) == 0 {
 			b.WriteString("No holdings.\n")
@@ -479,6 +497,16 @@ func StubBlock(id Identity) string {
 	b.WriteString("NAME: " + id.Name + "\n")
 	b.WriteString("BIO: " + id.Bio + "\n")
 	b.WriteString("PERSONALITY: " + id.Personality + "\n")
+	if id.Role != "" {
+		b.WriteString("ROLE: " + id.Role + " — " + id.Directive + "\n")
+		b.WriteString("MEMO SHAPES: " + id.MemoShapes + "\n")
+		b.WriteString("STAKE: " + fmtSOL(float64(id.Stake)/1e9) + " SOL per action.\n")
+		voice := id.Voice
+		if voice == "" {
+			voice = id.Personality
+		}
+		b.WriteString("VOICE: " + voiceFor(voice) + "\n")
+	}
 	b.WriteString("\nTHIS FIRE REBUILDS THE WORLD BLOCK: run-job snapshots the live read side\n")
 	b.WriteString("and replaces this stub with the current block (PROJECTS, INTEL, HLTH).\n")
 	b.WriteString("Read the live state with the market/intel/wallet tools.\n")

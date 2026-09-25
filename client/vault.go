@@ -228,7 +228,7 @@ func ShowVault(ctx context.Context, tc *TorchClient, creator string) (VaultShow,
 
 // FormatSOL renders lamports as a SOL amount string.
 func FormatSOL(lamports uint64) string {
-	return fmt.Sprintf("%d.%06d", lamports/1_000_000_000, lamports%1_000_000_000)
+	return fmt.Sprintf("%d.%09d", lamports/1_000_000_000, lamports%1_000_000_000)
 }
 
 // trimSolAmount parses a SOL amount ("1", "1.5", "0.25") into lamports.
