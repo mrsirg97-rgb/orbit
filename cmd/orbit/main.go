@@ -1,533 +1,1526 @@
-// orbit is the torch agent runtime: a rig one-shot worker with the market /
-// intel / wallet tools, one scheduled agent (identity row → job), and the
-// vault bootstrap printer. The operator's vault key never enters the process.
 package main
 
 import (
+	"errors"
+	"path/filepath"
+
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
+	"os/exec"
+	"os/signal"
+	"reflect"
+	"runtime"
+	"strconv"
 	"strings"
+	"sync"
+	"syscall"
+	"time"
 
 	"github.com/mrsirg97-rgb/rig"
+	"github.com/mrsirg97-rgb/rig/command"
+	"github.com/mrsirg97-rgb/rig/config"
 	"github.com/mrsirg97-rgb/rig/core"
+	"github.com/mrsirg97-rgb/rig/frontend/cli"
 	"github.com/mrsirg97-rgb/rig/frontend/oneshot"
+	"github.com/mrsirg97-rgb/rig/frontend/tui"
+	"github.com/mrsirg97-rgb/rig/imagemarker"
 	"github.com/mrsirg97-rgb/rig/loop"
-	"github.com/mrsirg97-rgb/rig/policy"
+	"github.com/mrsirg97-rgb/rig/middleware/approve"
+	"github.com/mrsirg97-rgb/rig/middleware/paths"
+	"github.com/mrsirg97-rgb/rig/middleware/toolset"
+	"github.com/mrsirg97-rgb/rig/models"
+	"github.com/mrsirg97-rgb/rig/plugins"
+	"github.com/mrsirg97-rgb/rig/policy/compact"
+	effort "github.com/mrsirg97-rgb/rig/policy/effort"
+	"github.com/mrsirg97-rgb/rig/policy/empty"
 	"github.com/mrsirg97-rgb/rig/provider/openai"
+	"github.com/mrsirg97-rgb/rig/store"
+	remstore "github.com/mrsirg97-rgb/rig/store/rem"
+	remdom "github.com/mrsirg97-rgb/rig/store/rem/domain"
 	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
-	scheddomain "github.com/mrsirg97-rgb/rig/store/scheduler/domain"
+	"github.com/mrsirg97-rgb/rig/store/scope"
+	"github.com/mrsirg97-rgb/rig/store/state"
+	todostore "github.com/mrsirg97-rgb/rig/store/todo"
+	"github.com/mrsirg97-rgb/rig/swarm"
+	"github.com/mrsirg97-rgb/rig/tool/bash"
+	"github.com/mrsirg97-rgb/rig/tool/delegate"
+	"github.com/mrsirg97-rgb/rig/tool/diff"
+	"github.com/mrsirg97-rgb/rig/tool/file"
+	"github.com/mrsirg97-rgb/rig/tool/fs"
+	pythontool "github.com/mrsirg97-rgb/rig/tool/python"
+	remapi "github.com/mrsirg97-rgb/rig/tool/rem"
+	schedapi "github.com/mrsirg97-rgb/rig/tool/scheduler"
+	sessionstool "github.com/mrsirg97-rgb/rig/tool/sessions"
+	todoapi "github.com/mrsirg97-rgb/rig/tool/todo"
+	viewtool "github.com/mrsirg97-rgb/rig/tool/view"
+	webtool "github.com/mrsirg97-rgb/rig/tool/web"
 
-	"github.com/mrsirg97-rgb/orbit/agent"
 	"github.com/mrsirg97-rgb/orbit/board"
 	"github.com/mrsirg97-rgb/orbit/client"
+	"github.com/mrsirg97-rgb/orbit/earn"
 	"github.com/mrsirg97-rgb/orbit/identity"
-	"github.com/mrsirg97-rgb/orbit/tool"
-	"github.com/mrsirg97-rgb/orbit/world"
-	"github.com/mrsirg97-rgb/rig/store"
+	"github.com/mrsirg97-rgb/orbit/onboard"
+	"github.com/mrsirg97-rgb/orbit/sol"
+	orbittool "github.com/mrsirg97-rgb/orbit/tool"
 )
 
-func main() {
-	args := os.Args[1:]
-	if len(args) > 0 {
-		switch args[0] {
-		case "run-job":
-			os.Exit(runJob(args[1:]))
-		case "agent":
-			os.Exit(runAgent(args[1:]))
-		case "snapshot":
-			os.Exit(runSnapshot(args[1:]))
-		case "bootstrap":
-			os.Exit(runBootstrap(args[1:]))
-		case "init":
-			os.Exit(runInit(args[1:]))
-		case "vault":
-			os.Exit(runVault(args[1:]))
-		case "project":
-			os.Exit(runProject(args[1:]))
-		case "board":
-			os.Exit(runBoard(args[1:]))
-		}
-	}
-	os.Exit(runWorker(args))
+const Version = "0.1.0"
+
+var orbitRows = []string{
+	"█▀█ █▀▄ █▀▄ █ █ ▀▀█",
+	"█▀█ █▀▄ █▀▄ █ █ █▄█",
+	"▀▀▀ ▀▀▀ ▀▀▀ ▀▀▀ ▀▀▀",
 }
 
-func die(format string, a ...any) {
-	fmt.Fprintf(os.Stderr, "orbit: "+format+"\n", a...)
-	os.Exit(1)
+type root struct {
+	pluginMax int
+	baseURL   string
+	system    string
+	agents    string
+	allow     []string
+	retries   int
+	rounds    int
+	resultCap int
+
+	middleware []core.ToolMiddleware
+
+	fe    core.Frontend
+	sdb   store.DB
+	remDB store.DB
+	cwd   string
+	home  string
+
+	pluginsDir string
+	rigHome    string
+
+	activeID string
+	row      models.Model
+	runtime  models.Table
+
+	effort string
+	role   string
+
+	approve        string
+	approveDefault string
+	askDoor        func(ctx context.Context, prompt string) bool
+
+	session *core.Session
+	rec     *state.Recorder
+	tools   map[string]core.Tool
+
+	workers *config.Workers
+	swarm   *swarm.Controller
+
+	pluginTools []core.Tool
+
+	live *toolset.Table
+
+	natives map[string]bool
+
+	py plugins.Kernel
+
+	pluginsHome string
+
+	pluginInfos []command.PluginInfo
+
+	fullSystem string
+	k          *rig.Kernel
+
+	compactFn func(ctx context.Context) (core.Compacted, bool, error)
+
+	client *clientProvider
+	board  *board.Store
+	earn   *earn.Command
 }
 
-// ── the worker (rig one-shot with the orbit tools) ─────────────────────
+// clientProvider is the orbit client's lazy seam: the first tool use loads
+// the agent config (and fails loudly, naming /earn, when it is missing); a
+// failed load is retried at the next use, so /earn's init can fix it in the
+// same session. The operator's vault authority key never enters the process.
+type clientProvider struct {
+	mu     sync.Mutex
+	getenv func(string) string
+	tc     *client.TorchClient
+}
 
-func runWorker(args []string) int {
-	fs := flag.NewFlagSet("orbit", flag.ContinueOnError)
-	prompt := fs.String("p", "", "one-shot: run the single prompt and exit (the scheduler's worker path)")
-	sessionID := fs.String("session-id", "", "set the fresh session identity (worker use)")
-	baseURL := fs.String("base-url", "", "OpenAI-compatible endpoint base URL (the worker swap)")
-	model := fs.String("model", "", "model name")
-	system := fs.String("system", "", "system prompt")
-	allow := fs.String("allow", "", "comma-separated allow-list of tool names")
-	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
-		return 2
+func (p *clientProvider) Torch() (*client.TorchClient, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.tc != nil {
+		return p.tc, nil
 	}
-	if *prompt == "" {
-		fmt.Fprintln(os.Stderr, "orbit: worker mode needs -p (or a subcommand)")
-		return 2
-	}
-	if *baseURL == "" {
-		die("worker: no -base-url")
-	}
-	if *model == "" {
-		die("worker: no -model")
-	}
-	cfg, err := client.LoadConfig(os.Getenv)
+	cfg, err := client.LoadConfig(p.getenv)
 	if err != nil {
-		die("%v", err)
+		return nil, fmt.Errorf("no orbit config (run /earn): %w", err)
 	}
 	tc, err := client.New(cfg)
 	if err != nil {
-		die("%v", err)
+		return nil, err
 	}
-	stake := workerIdentity()
-	bs, err := board.Open(board.StorePath(rigHome()))
-	if err != nil {
-		die("board store: %v", err)
-	}
-	defer bs.DB.Close()
-	tools := []core.Tool{
-		&tool.Market{Client: tc, StakeLamports: stake},
-		&tool.Intel{Client: tc},
-		&tool.Wallet{Client: tc},
-		&tool.Board{Store: &board.Store{Client: tc, DB: bs}, Client: tc},
-	}
-	if *allow != "" {
-		allowed := map[string]bool{}
-		for _, name := range strings.Split(*allow, ",") {
-			allowed[strings.TrimSpace(name)] = true
-		}
-		filtered := tools[:0]
-		for _, t := range tools {
-			if allowed[t.Name()] {
-				filtered = append(filtered, t)
-			}
-		}
-		tools = filtered
-	}
-	_ = sessionID
-	k := rig.New(
-		rig.WithProvider(openai.New(*baseURL, *model)),
-		rig.WithFrontend(&oneshot.OneShot{Prompt: *prompt, Out: os.Stdout, Err: os.Stderr}),
-		rig.WithPolicy(policy.Passthrough(*system)),
-		rig.WithTools(tools...),
-	)
-	if err := loop.Run(context.Background(), k); err != nil {
-		fmt.Fprintf(os.Stderr, "orbit: worker: %v\n", err)
-		return 1
-	}
-	return 0
+	p.tc = tc
+	return tc, nil
 }
 
-// ── run-job: the scheduler's fire path ─────────────────────────────────
+const defaultResultCap = 64 * 1024
+
+func wire(r *root) *rig.Kernel {
+	r.applyVision()
+	// approve rides the door: manual means "ask before mutating", and
+	// asking needs a door, so a doorless frontend runs auto — a TUI
+	// user's manual never binds the workers.
+	if r.askDoor == nil {
+		r.approve = approve.Auto
+		r.approveDefault = approve.Auto
+	}
+
+	if r.live == nil {
+
+		r.live = toolset.New()
+		if r.tools["plugin"] == nil {
+
+			var redo func(ctx context.Context) error
+			if r.pluginsHome != "" {
+				redo = r.redoPlugins
+			}
+			r.tools["plugin"] = plugins.NewDoor(r.live, redo)
+		}
+		r.live.Set(append(r.nativeTools(), r.pluginTools...))
+	}
+	r.live.SetPlugins(r.pluginNames()...)
+	if r.natives == nil {
+		r.natives = make(map[string]bool)
+		for _, name := range effectiveNativeNames(r.workers) {
+			r.natives[name] = true
+		}
+	}
+	mw := r.middleware
+	if mw == nil {
+		mw = r.canonicalMiddleware()
+	}
+
+	r.fullSystem = r.buildSystem()
+	provider, pol := r.buildPair()
+	k := rig.New(
+		rig.WithProvider(provider),
+		rig.WithFrontend(r.rec),
+		rig.WithPolicy(pol),
+		rig.WithTools(append(
+			r.nativeTools(),
+			r.pluginTools...,
+		)...),
+		rig.WithMiddleware(mw...),
+		rig.WithConcurrent(func(c core.ToolCall) bool { return concurrentNatives[c.Name] }),
+	)
+	k.Session = r.session
+	r.k = k
+	return k
+}
+
+func (r *root) buildSystem() string {
+	mw := r.middleware
+	if mw == nil {
+		mw = r.canonicalMiddleware()
+	}
+	parts := make([]string, 0, 6)
+	if r.system != "" {
+		parts = append(parts, r.system)
+	}
+	if seg := sessionSection(r.cwd, r.home); seg != "" {
+		parts = append(parts, seg)
+	}
+	if seg := command.RoleProse(r.role); seg != "" {
+		parts = append(parts, seg)
+	}
+	if r.agents != "" {
+		parts = append(parts, r.agents)
+	}
+	if g := guidelinesOf(mw); g != "" {
+		parts = append(parts, g)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func sessionSection(cwd, home string) string {
+	if cwd == "" {
+		return ""
+	}
+	if home == "" {
+		return fmt.Sprintf("The session's working directory is %s.", cwd)
+	}
+	return fmt.Sprintf("The session's working directory is %s and the session home is %s. A leading ~ in a tool path expands to the session home.", cwd, home)
+}
+
+func remRow(m remdom.Memory) command.RemRow {
+	var src string
+	if m.Source != nil {
+		src = *m.Source
+	}
+	return command.RemRow{ID: m.Id, Kind: m.Kind, ScopeLabel: m.ScopeLabel, CreatedAt: m.CreatedAt, Strength: m.Strength, Importance: m.Importance, Source: src, Superseded: m.SupersededBy, Content: m.Content}
+}
+
+func (r *root) nativeTools() []core.Tool {
+	names := registeredNativeNames(r.workers, r.row.Vision)
+	out := make([]core.Tool, 0, len(names))
+	for _, name := range names {
+		tool, ok := r.tools[name]
+		if !ok {
+			continue
+		}
+		out = append(out, tool)
+	}
+	return out
+}
+
+func (r *root) buildPair() (core.Provider, core.ContextPolicy) {
+	inner := r.buildProvider()
+	pol, err := compact.New(inner, r.rec, r.session, r.fullSystem, r.row)
+	if err != nil {
+		panic("rig: wire: " + err.Error())
+	}
+	r.compactFn = pol.Compact
+
+	effInner := effort.Decorator(inner, r.effortForWire)
+
+	return toolset.Carry(r.live, compact.Decorator(empty.Decorator(effInner), pol)), pol
+}
+
+func (r *root) buildProvider() core.Provider {
+	if !r.row.Remote && r.row.APIKey == "" {
+		if !r.row.Vision {
+			return openai.New(r.baseURL, r.activeID)
+		}
+		return openai.NewWithVision(r.baseURL, r.activeID, r.blobsDir())
+	}
+	baseURL := r.baseURL
+	if r.row.Remote {
+		baseURL = r.row.BaseURL
+	}
+	return openai.NewWithConfig(openai.Config{
+		BaseURL:      baseURL,
+		Model:        r.activeID,
+		APIKey:       r.row.APIKey,
+		Remote:       r.row.Remote,
+		Reasoning:    r.row.Reasoning,
+		ProviderPin:  r.row.ProviderPin,
+		CacheControl: r.row.CacheControl,
+		Retries:      r.row.Retries,
+		BlobsDir:     r.blobsDir(),
+	})
+}
+
+// applyVision is the whole of the vision gate: the tool exists when the
+// row has vision and does not when it has none, and the model switch
+// re-applies it so the next turn's table follows the row.
+func (r *root) applyVision() {
+	if r.row.Vision {
+		if r.tools == nil {
+			r.tools = map[string]core.Tool{}
+		}
+		if _, ok := r.tools["view"]; !ok {
+			r.tools["view"] = viewtool.New(r.blobsDir())
+		}
+		return
+	}
+	delete(r.tools, "view")
+}
+
+func (r *root) blobsDir() string {
+	if r.rigHome == "" {
+		if h, err := rigHome(); err == nil {
+			r.rigHome = h
+		}
+	}
+	return imagemarker.BlobsDir(r.rigHome)
+}
+
+func (r *root) swapIn(s *core.Session, rec2 *state.Recorder) {
+	r.rec.Retarget(s.ID, s)
+	r.rec = rec2
+	r.session = s
+	r.k.Frontend = rec2
+	r.k.Session = s
+
+	r.fullSystem = r.buildSystem()
+	provider, pol := r.buildPair()
+	r.k.Provider = provider
+	r.k.Policy = pol
+}
+
+func (r *root) compactNow(ctx context.Context) (core.Compacted, bool, error) {
+	ev, compacted, err := r.compactFn(ctx)
+	if err != nil || !compacted {
+		return ev, compacted, err
+	}
+	r.rec.Notify(ev)
+	return ev, true, nil
+}
+
+func (r *root) newSession(ctx context.Context) (string, error) {
+	if err := r.rec.Close("ok"); err != nil {
+		return "", fmt.Errorf("new: %v", err)
+	}
+
+	r.effort = ""
+	r.role = ""
+	r.approve = r.approveDefault
+	s2 := core.NewSession()
+	rec2 := state.NewRecorder(r.fe, r.sdb, r.cwd, r.activeID, Version, s2.ID, s2).Snapshot(file.SnapshotFiles)
+	if err := rec2.Ensure(); err != nil {
+		return "", fmt.Errorf("new: %v", err)
+	}
+	r.swapIn(s2, rec2)
+	return s2.ID, nil
+}
+
+func (r *root) sessionList(ctx context.Context) ([]command.SessionRow, error) {
+	rows, err := state.ListSessions(ctx, r.sdb, state.ListCap)
+	if err != nil {
+		return nil, fmt.Errorf("sessions: %v", err)
+	}
+	out := make([]command.SessionRow, len(rows))
+	for i, row := range rows {
+		out[i] = command.SessionRow{ID: row.ID, Started: row.Started, Exit: row.Exit, Turns: row.Turns, Tokens: row.Tokens, Label: row.Label, Current: row.ID == r.session.ID}
+	}
+	return out, nil
+}
+
+func (r *root) sessionShow(ctx context.Context, id string) (string, error) {
+	s, err := state.Resume(ctx, r.sdb, id)
+	if err != nil {
+		if errors.Is(err, state.ErrNoSuchSession) {
+			return "", fmt.Errorf("sessions: no such session: %s", id)
+		}
+		return "", fmt.Errorf("sessions: %v", err)
+	}
+	return command.RenderShow(s), nil
+}
+
+func (r *root) sessionResume(ctx context.Context, id string) error {
+	s, err := state.Resume(ctx, r.sdb, id)
+	if err != nil {
+		if errors.Is(err, state.ErrNoSuchSession) {
+			return fmt.Errorf("sessions: no such session: %s", id)
+		}
+		return fmt.Errorf("sessions: %v", err)
+	}
+	if err := r.rec.Close("ok"); err != nil {
+		return fmt.Errorf("sessions: %v", err)
+	}
+	rec2 := state.NewRecorder(r.fe, r.sdb, r.cwd, r.activeID, Version, s.ID, s).Snapshot(file.SnapshotFiles)
+	if err := rec2.Ensure(); err != nil {
+		return fmt.Errorf("sessions: %v", err)
+	}
+	r.swapIn(s, rec2)
+	return nil
+}
+
+func (r *root) switchModel(ctx context.Context, id string) (string, error) {
+	row, ok := r.runtime.Get(id)
+	if !ok {
+		return "", fmt.Errorf("models: no row for %q (known: %s)", id, strings.Join(r.runtime.Known(), ", "))
+	}
+
+	note := ""
+	if r.effort != "" && !hasLevel(row.Efforts, r.effort) {
+		note = fmt.Sprintf("effort: %q is not a level for %s — reset to server default", r.effort, id)
+		r.effort = ""
+	}
+	r.row = row
+	r.activeID = id
+	r.applyVision()
+	r.live.Set(append(r.nativeTools(), r.pluginTools...))
+	provider, pol := r.buildPair()
+	r.k.Provider = provider
+	r.k.Policy = pol
+	return note, nil
+}
+
+func firstNonEmpty(v, fallback string) string {
+	if v != "" {
+		return v
+	}
+	return fallback
+}
+
+func hasLevel(levels []string, level string) bool {
+	for _, l := range levels {
+		if l == level {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *root) effortForWire() string {
+	if r.effort != "" {
+		return r.effort
+	}
+	return r.row.Effort
+}
+
+func (r *root) switchEffort(ctx context.Context, level string) error {
+	r.effort = level
+	return nil
+}
+
+var concurrentNatives = map[string]bool{
+	"read": true, "ls": true, "find": true, "grep": true, "view": true,
+	"web_search": true, "web_fetch": true, "diff": true,
+	"delegate": true,
+}
+
+var mutatingNatives = map[string]bool{
+	"bash": true, "write": true, "edit": true, "python": true,
+	"scheduler": true, "plugin": true, "plugins": true, "delegate": true,
+}
+
+func (r *root) isMutating(name string) bool {
+	return mutatingNatives[name] || !r.natives[name]
+}
+
+func (r *root) switchApprove(ctx context.Context, mode string) error {
+	m, ok := approve.Mode(mode)
+	if !ok {
+		return fmt.Errorf("approve: %q is not a mode (auto, manual)", mode)
+	}
+	if m == approve.Manual && r.askDoor == nil {
+		return errors.New("approve: manual needs an ask door (this frontend cannot ask)")
+	}
+	r.approve = m
+	return nil
+}
+
+func (r *root) switchRole(ctx context.Context, name string) error {
+	if !command.ValidRole(name) {
+		return fmt.Errorf("role: %q is not a role (default, architect, reviewer)", name)
+	}
+	if name == "default" {
+		name = ""
+	}
+	r.role = name
+	r.fullSystem = r.buildSystem()
+	provider, pol := r.buildPair()
+	r.k.Provider = provider
+	r.k.Policy = pol
+	return nil
+}
+
+func capPlugins(reports []plugins.Report, max int) []plugins.Report {
+	if max <= 0 {
+		return reports
+	}
+	out := make([]plugins.Report, 0, len(reports))
+	live := 0
+	for _, rep := range reports {
+		if !rep.Skipped {
+			if live >= max {
+				rep.Skipped = true
+				rep.Reason = "disabled: over the settings.json plugins.max cap"
+			} else {
+				live++
+			}
+		}
+		out = append(out, rep)
+	}
+	return out
+}
+
+func (r *root) swapPlugins(ctx context.Context, reports []plugins.Report) (string, error) {
+	reports = capPlugins(reports, r.pluginMax)
+	infos := make([]command.PluginInfo, 0, len(reports))
+	tools := r.nativeTools()
+	for _, rep := range reports {
+		infos = append(infos, command.PluginInfo{
+			Name: rep.Name, Description: rep.Description, File: rep.File,
+			Skipped: rep.Skipped, Reason: rep.Reason,
+		})
+		if !rep.Skipped {
+			tools = append(tools, plugins.New(rep.Name, rep.Description, rep.File, rep.Schema, r.py))
+		}
+	}
+	names := make([]string, 0, len(reports))
+	for _, rep := range reports {
+		if !rep.Skipped {
+			names = append(names, rep.Name)
+		}
+	}
+	r.live.Set(tools)
+	r.live.SetPlugins(names...)
+	r.pluginInfos = infos
+	return command.RenderPlugins(infos, "reload", r.pluginsHome), nil
+}
+
+func (r *root) pluginNames() []string {
+	out := make([]string, 0, len(r.pluginTools))
+	for _, t := range r.pluginTools {
+		out = append(out, t.Name())
+	}
+	return out
+}
+
+func (r *root) pluginDoor() func(string) bool {
+	return func(name string) bool {
+		return r.live != nil && r.live.IsPlugin(name)
+	}
+}
+
+func (r *root) redoPlugins(ctx context.Context) error {
+	_, err := r.reloadPlugins(ctx)
+	return err
+}
+
+func (r *root) reloadPlugins(ctx context.Context) (string, error) {
+	files, err := plugins.List(r.pluginsHome)
+	if err != nil {
+		return "", fmt.Errorf("plugins: reload: %v", err)
+	}
+	reports := make([]plugins.Report, 0)
+	if len(files) > 0 {
+		reports, err = plugins.DiscoverChecked(ctx, r.py, files, r.natives)
+		if err != nil {
+			if plugins.IsNameCollision(err) {
+				return "", err
+			}
+			return "", fmt.Errorf("plugins: reload: %v", err)
+		}
+	}
+	if err := plugins.Check(reports, r.natives); err != nil {
+		return "", err
+	}
+	return r.swapPlugins(ctx, reports)
+}
+
+func runtimeTable(t models.Table, active string, resolved models.Model) models.Table {
+	if base, ok := t.Get(active); ok && reflect.DeepEqual(base, resolved) {
+		return t
+	}
+	rows := make([]models.Model, 0, len(t.Known())+1)
+	for _, id := range t.Known() {
+		if id == active {
+			continue
+		}
+		m, _ := t.Get(id)
+		rows = append(rows, m)
+	}
+	rows = append(rows, resolved)
+	t2, err := models.New(rows...)
+	if err != nil {
+		panic("rig: runtime table: " + err.Error())
+	}
+	return t2
+}
+
+func guidelinesOf(ms []core.ToolMiddleware) string {
+	var b strings.Builder
+	for _, mw := range ms {
+		if gc, ok := mw.(core.GuidelineContributor); ok {
+			if b.Len() > 0 {
+				b.WriteString("\n\n")
+			}
+			b.WriteString(gc.Guidelines())
+		}
+	}
+	return b.String()
+}
+
+var ErrResumeWithPrompt = errors.New("rig: -resume is not available with -p (one-shot stays one-shot)")
+var ErrSessionIDWithResume = errors.New("rig: -session-id and -resume cannot be combined")
+
+func checkOneShot(prompt, resumeID string) error {
+	if prompt != "" && resumeID != "" {
+		return ErrResumeWithPrompt
+	}
+	return nil
+}
+
+func checkSessionID(sessionID, resumeID string) error {
+	if sessionID != "" && resumeID != "" {
+		return ErrSessionIDWithResume
+	}
+	return nil
+}
+
+func userHome() string {
+	if h, err := os.UserHomeDir(); err == nil && h != "" {
+		return h
+	}
+	return os.Getenv("HOME")
+}
+
+var nativeToolNames = []string{"bash", "read", "write", "edit", "ls", "find", "grep", "view", "todo", "rem", "scheduler", "delegate", "python", "web_search", "web_fetch", "diff", "plugin", "plugins", "sessions"}
+
+var workerToolNames = []string{"scheduler", "delegate"}
+
+func effectiveNativeNames(workers *config.Workers) []string {
+	drop := workers == nil
+	out := make([]string, 0, len(nativeToolNames))
+	for _, name := range nativeToolNames {
+		if drop && isWorkerTool(name) {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+// registeredNativeNames is the effective menu under the model row's gates:
+// the worker tools need a fleet and view needs vision, and what is not
+// offered is simply not in the table.
+func registeredNativeNames(workers *config.Workers, vision bool) []string {
+	names := effectiveNativeNames(workers)
+	if vision {
+		return names
+	}
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		if name == "view" {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+func isWorkerTool(name string) bool {
+	for _, n := range workerToolNames {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
+func rigHome() (string, error) {
+	if v := os.Getenv("RIG_HOME"); v != "" {
+		return v, nil
+	}
+	if h := userHome(); h == "" {
+		return "", errors.New("cannot resolve the home directory (set $HOME or RIG_HOME)")
+	} else {
+		newHome := filepath.Join(h, ".rig")
+		oldHome := filepath.Join(h, ".config", "rig")
+		if fi, err := os.Stat(oldHome); err == nil && fi.IsDir() {
+			if _, err := os.Stat(newHome); errors.Is(err, os.ErrNotExist) {
+				if err := os.Rename(oldHome, newHome); err != nil {
+					return "", fmt.Errorf("migrate the config home: %s -> %s: %v", oldHome, newHome, err)
+				}
+				fmt.Fprintf(os.Stderr, "rig: migrated the config home: %s -> %s\n", oldHome, newHome)
+			} else if err == nil {
+
+				fmt.Fprintf(os.Stderr, "rig: the old config home still exists: %s (the home here won: %s; merge or prune it by hand)\n", oldHome, newHome)
+			}
+		}
+		return newHome, nil
+	}
+}
+
+func resolveModel(id string, table models.Table) models.Model {
+	m, err := models.Resolve(table, id, os.LookupEnv)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "rig:", err)
+		os.Exit(1)
+	}
+	return m
+}
+
+func tuiTrueColor() bool {
+	ct := os.Getenv("COLORTERM")
+	return ct == "truecolor" || ct == "24bit"
+}
+
+func (r *root) statusIn(ctx context.Context) tui.StatusIn {
+	eff := r.effort
+	if eff == "" {
+		eff = r.row.Effort
+	}
+	b := tui.StatusIn{Model: r.activeID, Effort: eff, Window: r.row.Window, Role: r.role, Approve: r.approve}
+	if r.workers != nil {
+		b.Workers = r.workers.Model
+	}
+	if r.session != nil {
+		b.Session = r.session.ID
+		if err := r.sdb.DB.QueryRowContext(ctx,
+			`SELECT COALESCE(SUM(u.prompt), 0), COALESCE(SUM(u.completion), 0), COALESCE(SUM(u.cache_read), 0), COALESCE(SUM(u.cost), 0)
+			 FROM usage u JOIN messages m ON m.seq = u.message_seq
+			 WHERE m.session_id = ?`, r.session.ID).Scan(&b.Up, &b.Down, &b.CacheRead, &b.Cost); err != nil {
+			return b
+		}
+	}
+	b.Rows = r.earnRows(ctx)
+	return b
+}
+
+var earnRowsCache struct {
+	mu   sync.Mutex
+	at   time.Time
+	rows []string
+}
+
+// earnRows is the /earn footer's rows, cached for 30s: projects held,
+// open claims, last memo, PnL since start. No rows when the orbit config
+// is missing (the TUI starts before /earn) — the status line stays quiet.
+func (r *root) earnRows(ctx context.Context) []string {
+	earnRowsCache.mu.Lock()
+	defer earnRowsCache.mu.Unlock()
+	if time.Since(earnRowsCache.at) < 30*time.Second {
+		return earnRowsCache.rows
+	}
+	tc, err := r.client.Torch()
+	if err != nil {
+		return nil
+	}
+	rows, err := earn.Status(ctx, tc, r.board)
+	if err != nil {
+		return nil
+	}
+	earnRowsCache.at = time.Now()
+	earnRowsCache.rows = rows.Lines()
+	return earnRowsCache.rows
+}
+
+func sessionFor(resumeID string, resume func(id string) (*core.Session, error)) (*core.Session, error) {
+	if resumeID == "" {
+		return core.NewSession(), nil
+	}
+	s, err := resume(resumeID)
+	if err != nil {
+		return nil, err
+	}
+	if s == nil || s.ID == "" {
+		return nil, errors.New("resume: the projection returned no session")
+	}
+	return s, nil
+}
+
+// reapClaims releases todo claims owned by sessions whose rows have
+// ended, so a dead session's in-progress tasks return to the shared
+// pool at the next open instead of blocking every live session that
+// reads the queue. The ended set comes from this cwd's session store
+// (a SIGKILL'd session leaves its row open; its claims age out through
+// Reap's staleness arm). The note names what was freed; an idle reap
+// returns "".
+// sessionQueue is the queue a session works in: the one it bound (a
+// resume from another directory keeps working in the same queue instead
+// of re-deriving one from where the process started), else the launch
+// directory's. A failed binding read falls back to the launch directory
+// and says so: the reap must still run.
+func sessionQueue(ctx context.Context, tdb store.DB, cwd, session string) (todostore.Project, error) {
+	b, ok, err := todostore.BindingOf(ctx, tdb, session)
+	if err != nil {
+		return todostore.ProjectOf(cwd), err
+	}
+	if ok {
+		return b.Project(), nil
+	}
+	return todostore.ProjectOf(cwd), nil
+}
+
+func reapClaims(ctx context.Context, sdb, tdb store.DB, cwd string, proj todostore.Project, session string) (string, error) {
+	rows, err := state.ListSessions(ctx, sdb, state.ListCap)
+	if err != nil {
+		return "", err
+	}
+	var ended []string
+	for _, r := range rows {
+		if r.Exit != "" && r.Exit != "open" {
+			ended = append(ended, r.ID)
+		}
+	}
+	if len(ended) == 0 {
+		return "", nil
+	}
+	return todostore.Reap(ctx, tdb, proj, ended, session)
+}
+
+func main() {
+
+	if i := execDoor(os.Args, os.Getenv(sched.LandlockEnv)); i >= 0 {
+		if err := sched.ApplyLandlock(os.Getenv(sched.LandlockEnv)); err != nil {
+			fmt.Fprintln(os.Stderr, "rig:", err)
+			os.Exit(1)
+		}
+		runtime.LockOSThread()
+		argv := os.Args[i+1:]
+		if len(argv) == 0 {
+			fmt.Fprintln(os.Stderr, "rig: -exec needs a command")
+			os.Exit(1)
+		}
+		resolved, err := exec.LookPath(argv[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "rig: -exec: %v\n", err)
+			os.Exit(1)
+		}
+		if err := syscall.Exec(resolved, argv, os.Environ()); err != nil {
+			fmt.Fprintf(os.Stderr, "rig: -exec: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "run-job":
+			os.Exit(runJobFire(os.Args[2:]))
+		case "agent":
+			os.Exit(runAgent(os.Args[2:]))
+		case "snapshot":
+			os.Exit(runSnapshot(os.Args[2:]))
+		case "bootstrap":
+			os.Exit(runBootstrap(os.Args[2:]))
+		case "init":
+			os.Exit(runInit(os.Args[2:]))
+		case "vault":
+			os.Exit(runVault(os.Args[2:]))
+		case "project":
+			os.Exit(runProject(os.Args[2:]))
+		case "board":
+			os.Exit(runBoard(os.Args[2:]))
+		}
+	}
+
+	baseURL := flag.String("base-url", "", "OpenAI-compatible endpoint base URL (the worker swap); precedence: flag > RIG_BASE_URL > settings.json baseUrl > the embedded default")
+	model := flag.String("model", "", "model name; precedence: flag > RIG_MODEL > settings.json model (no default; a run without one refuses)")
+	system := flag.String("system", "", "system prompt; precedence: flag > RIG_SYSTEM > settings.json system > the embedded default")
+	allow := flag.String("allow", "", "comma-separated allow-list of tool names; precedence: flag > RIG_ALLOW > settings.json allow > the embedded default")
+	retries := flag.Int("retries", 0, "repetition bound on identical failing calls (cleared on success); precedence: flag > RIG_RETRIES > settings.json retries > the embedded default")
+	prompt := flag.String("p", "", "one-shot: run the single prompt and exit (the scheduler's worker path)")
+	resumeID := flag.String("resume", "", "resume the session with this id (the transcript, the file provenance, and the identity rebuild from the state rows)")
+	sessionID := flag.String("session-id", "", "set the fresh session identity (worker use)")
+	tuiMode := flag.String("tui", "auto", "the terminal frontend: auto (default; when stdout is a terminal), true (force it), false (the piped CLI)")
+	showVersion := flag.Bool("version", false, "print the version and exit")
+	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("orbit %s (rig 1.5.5)\n", Version)
+		return
+	}
+
+	if len(os.Args) > 1 && os.Args[1] == "run-job" {
+		os.Exit(runJobFire(os.Args[2:]))
+	}
+
+	if err := checkOneShot(*prompt, *resumeID); err != nil {
+		fmt.Fprintln(os.Stderr, "rig:", err)
+		os.Exit(2)
+	}
+	if err := checkSessionID(*sessionID, *resumeID); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "rig:", err)
+		os.Exit(1)
+	}
+
+	cfgDir, err := rigHome()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "rig:", err)
+		os.Exit(1)
+	}
+	cfg, err := config.Load(cfgDir, cwd)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "rig:", err)
+		os.Exit(1)
+	}
+	if cfg.Notice != "" {
+		fmt.Fprintln(os.Stderr, "rig:", cfg.Notice)
+	}
+
+	passed := map[string]bool{}
+	flag.Visit(func(f *flag.Flag) { passed[f.Name] = true })
+	envOr := func(key, def string) string {
+		if v := os.Getenv(key); v != "" {
+			return v
+		}
+		return def
+	}
+	baseURLV := envOr("RIG_BASE_URL", cfg.Settings.BaseURL)
+	if passed["base-url"] {
+		baseURLV = *baseURL
+	}
+	modelID := envOr("RIG_MODEL", cfg.Settings.Model)
+	if passed["model"] {
+		modelID = *model
+	}
+	if modelID == "" {
+		fmt.Fprintln(os.Stderr, "rig: no model: set --model, RIG_MODEL, or the model key in settings.json; there is no embedded default")
+		os.Exit(1)
+	}
+	systemPrompt := envOr("RIG_SYSTEM", cfg.Settings.System)
+	if passed["system"] {
+		systemPrompt = *system
+	}
+	allowList := cfg.Settings.Allow
+	if v := os.Getenv("RIG_ALLOW"); v != "" {
+		allowList = splitCSV(v)
+	}
+	if passed["allow"] {
+		allowList = splitCSV(*allow)
+	}
+	envInt := func(key string, def int) int {
+		v := os.Getenv(key)
+		if v == "" {
+			return def
+		}
+		n, aerr := strconv.Atoi(v)
+		if aerr != nil {
+			fmt.Fprintf(os.Stderr, "rig: %s: expected an integer, got %q\n", key, v)
+			os.Exit(1)
+		}
+		if n < 0 {
+			fmt.Fprintf(os.Stderr, "rig: %s: expected a non-negative integer, got %d\n", key, n)
+			os.Exit(1)
+		}
+		return n
+	}
+	retriesN := envInt("RIG_RETRIES", cfg.Settings.Retries)
+	if passed["retries"] {
+		retriesN = *retries
+	}
+	roundsN := envInt("RIG_ROUNDS", cfg.Settings.Rounds)
+	resultCapN := envInt("RIG_RESULT_CAP", cfg.Settings.ResultCap)
+
+	row := resolveModel(modelID, cfg.Models)
+
+	py := pythontool.New()
+	if python := envOr("RIG_PYTHON", cfg.Settings.Python); python != "" {
+		py = pythontool.NewWith(python, pythontool.DefaultHost())
+	}
+	py.SetCwd(cwd)
+	defer py.Close()
+	fmt.Fprintf(os.Stderr, "rig: python kernel host: %s\n", py.Host())
+
+	webSearch := webtool.NewSearch(webtool.SearchConfig{BaseURL: envOr("RIG_SEARXNG_URL", cfg.Settings.SearXNG)})
+	proxy := ""
+	if cfg.Settings.WebFetchProxy != nil {
+		proxy = *cfg.Settings.WebFetchProxy
+	}
+	if v, ok := os.LookupEnv("RIG_WEB_FETCH_PROXY"); ok {
+		proxy = v
+	}
+	traf := cfg.Settings.Trafilatura
+	if v, ok := os.LookupEnv("RIG_TRAFILATURA"); ok {
+		traf = &v
+	}
+	webFetch := webtool.NewFetch(webtool.FetchConfig{Proxy: proxy, Trafilatura: traf})
+
+	pluginsDir := filepath.Join(cfgDir, "plugins")
+	if err := os.MkdirAll(filepath.Join(pluginsDir, "pending"), 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "rig: plugins: create the pending zone: %v\n", err)
+	}
+	pluginFiles, err := plugins.List(cfgDir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "rig:", err)
+		os.Exit(1)
+	}
+	native := make(map[string]bool)
+	for _, name := range effectiveNativeNames(cfg.Workers) {
+		native[name] = true
+	}
+	pluginReports := make([]plugins.Report, 0)
+	if len(pluginFiles) > 0 {
+		pluginReports, err = plugins.DiscoverChecked(context.Background(), py, pluginFiles, native)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "rig:", err)
+			os.Exit(1)
+		}
+	}
+	pluginTools := make([]core.Tool, 0, len(pluginReports))
+	pluginInfos := make([]command.PluginInfo, 0, len(pluginReports))
+	pluginReports = capPlugins(pluginReports, cfg.Settings.Plugins.Max)
+	for _, rep := range pluginReports {
+		info := command.PluginInfo{
+			Name: rep.Name, Description: rep.Description, File: rep.File,
+			Skipped: rep.Skipped, Reason: rep.Reason,
+		}
+		pluginInfos = append(pluginInfos, info)
+		if info.Skipped {
+
+			fmt.Fprintf(os.Stderr, "rig: plugins: %s: %s\n", filepath.Base(rep.File), info.Reason)
+			continue
+		}
+		pluginTools = append(pluginTools, plugins.New(rep.Name, rep.Description, rep.File, rep.Schema, py))
+	}
+
+	if err := plugins.Check(pluginReports, native); err != nil {
+		fmt.Fprintln(os.Stderr, "rig:", err)
+		os.Exit(1)
+	}
+
+	sessionsPath := state.StorePath(cfgDir, cwd)
+	if err := os.MkdirAll(filepath.Dir(sessionsPath), 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, "rig:", err)
+		os.Exit(1)
+	}
+	sdb, quarantined, sReport, err := store.Open(sessionsPath, state.Statements(), state.SchemaVersion, state.Migration())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "rig: state store:", err)
+		os.Exit(1)
+	}
+	if quarantined != "" {
+		fmt.Fprintf(os.Stderr, "rig: quarantined corrupt state file: %s\n", quarantined)
+	}
+	if sReport != "" {
+		fmt.Fprintln(os.Stderr, "rig:", sReport)
+	}
+	defer sdb.DB.Close()
+
+	todoPath := todostore.FilePath(cfgDir)
+	if err := os.MkdirAll(filepath.Dir(todoPath), 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, "rig:", err)
+		os.Exit(1)
+	}
+	tdb, todoQuarantined, todoReport, todoErr := store.Open(todoPath, todostore.Statements(), todostore.SchemaVersion, todostore.Migration(cwd, filepath.Dir(todoPath)), todostore.ReviewMigration, todostore.EdgeMigration)
+	if todoErr != nil {
+		fmt.Fprintln(os.Stderr, "rig: todo store:", todoErr)
+		os.Exit(1)
+	}
+	if todoQuarantined != "" {
+		fmt.Fprintf(os.Stderr, "rig: quarantined corrupt todo file: %s\n", todoQuarantined)
+	}
+	if todoReport != "" {
+		fmt.Fprintf(os.Stderr, "rig: %s\n", todoReport)
+	}
+	defer tdb.DB.Close()
+
+	remPath := remstore.FilePath(cfgDir)
+	if err := os.MkdirAll(filepath.Dir(remPath), 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, "rig:", err)
+		os.Exit(1)
+	}
+	rdb, remQuarantined, remReport, remErr := store.Open(remPath, remstore.Statements(), remstore.SchemaVersion, remstore.Migration(cwd))
+	if remErr != nil {
+		fmt.Fprintln(os.Stderr, "rig: rem store:", remErr)
+		os.Exit(1)
+	}
+	if remQuarantined != "" {
+		fmt.Fprintf(os.Stderr, "rig: quarantined corrupt rem file: %s\n", remQuarantined)
+	}
+	if remReport != "" {
+		fmt.Fprintf(os.Stderr, "rig: %s\n", remReport)
+	}
+	defer rdb.DB.Close()
+
+	schedHome := filepath.Join(cfgDir, "scheduler")
+	if err := os.MkdirAll(schedHome, 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, "rig:", err)
+		os.Exit(1)
+	}
+	scdb, sQuarantined, sReport, sErr := store.Open(filepath.Join(schedHome, "global.sqlite"), sched.Statements(), sched.SchemaVersion, sched.Migration(schedHome, sched.RealCrontab("")))
+	if sErr != nil {
+		fmt.Fprintln(os.Stderr, "rig: scheduler store:", sErr)
+		os.Exit(1)
+	}
+	if sQuarantined != "" {
+		fmt.Fprintf(os.Stderr, "rig: quarantined corrupt scheduler file: %s\n", sQuarantined)
+	}
+	if sReport != "" {
+		fmt.Fprintf(os.Stderr, "rig: %s\n", sReport)
+	}
+	defer scdb.DB.Close()
+
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "rig:", err)
+		os.Exit(1)
+	}
+	swapURL := cfg.Settings.SwapURL
+	if v := os.Getenv("RIG_SWAP_URL"); v != "" {
+		swapURL = v
+	}
+
+	r := &root{
+		pluginMax:  cfg.Settings.Plugins.Max,
+		baseURL:    baseURLV,
+		system:     systemPrompt,
+		agents:     cfg.Agents,
+		allow:      allowList,
+		retries:    retriesN,
+		rounds:     roundsN,
+		resultCap:  resultCapN,
+		sdb:        sdb,
+		remDB:      rdb,
+		cwd:        cwd,
+		home:       userHome(),
+		pluginsDir: pluginsDir,
+		rigHome:    cfgDir,
+		activeID:   modelID,
+		row:        row,
+		runtime:    runtimeTable(cfg.Models, modelID, row),
+
+		approve:        firstNonEmpty(cfg.Settings.Approve, approve.Auto),
+		approveDefault: firstNonEmpty(cfg.Settings.Approve, approve.Auto),
+		tools: map[string]core.Tool{
+			"bash": bash.New(), "read": file.Read(), "write": file.Write(), "edit": file.Edit(),
+			"ls": fs.LS(), "find": fs.Find(), "grep": fs.Grep(),
+			"todo": todoapi.New(tdb, todoapi.Mode(*prompt != "")), "rem": remapi.New(rdb),
+			"python": py, "web_search": webSearch, "web_fetch": webFetch,
+			"diff": diff.New(sdb), "sessions": sessionstool.New(cfgDir, cwd),
+		},
+		workers:     cfg.Workers,
+		pluginTools: pluginTools,
+		py:          py,
+		pluginsHome: cfgDir,
+		pluginInfos: pluginInfos,
+	}
+
+	if workers := cfg.Workers; workers != nil {
+		r.tools["scheduler"] = schedapi.New(scdb, sched.RealCrontab(""), self+" run-job", workers.Model, cfgDir)
+		r.tools["delegate"] = delegate.New(delegate.Opts{
+			DB:           scdb,
+			Home:         schedHome,
+			RigHome:      cfgDir,
+			StateDir:     filepath.Join(cfgDir, "sessions"),
+			SwapURL:      swapURL,
+			WorkerCmd:    []string{self},
+			DefaultModel: workers.Model,
+			Slots:        workers.Slots,
+			Sandbox:      cfg.Settings.Sandbox,
+			SandboxBinds: cfg.Settings.SandboxBinds,
+			Allow:        allowList,
+			Fetch:        sched.RealFetch(0),
+			Spawn:        sched.RealSpawn,
+			Models:       func() models.Table { return r.runtime },
+			Notify:       func(ev core.Event) { r.rec.Notify(ev) },
+		})
+		r.swarm = swarm.New(swarm.Opts{
+			TodoDB:  tdb,
+			SchedDB: scdb,
+			Home:    schedHome,
+			Project: func(ctx context.Context, session string) (todostore.Project, error) {
+				return sessionQueue(ctx, tdb, cwd, session)
+			},
+			Cwd:           cwd,
+			WorkerCmd:     []string{self},
+			Fetch:         sched.RealFetch(0),
+			Spawn:         sched.RealSpawn,
+			SwapURL:       swapURL,
+			Sandbox:       cfg.Settings.Sandbox,
+			SandboxBinds:  cfg.Settings.SandboxBinds,
+			RigHome:       cfgDir,
+			StateDir:      filepath.Join(cfgDir, "sessions"),
+			Allow:         allowList,
+			FleetModel:    workers.Model,
+			ReviewerModel: workers.Reviewer,
+			Models:        func() models.Table { return r.runtime },
+			Frontend:      func() core.Frontend { return r.rec },
+		})
+	}
+
+	for _, t := range pluginTools {
+		r.tools[t.Name()] = t
+	}
+
+	r.natives = native
+	r.tools["plugins"] = plugins.NewEcosystem(cfgDir, r.natives, py, r.swapPlugins, func() (string, error) {
+		return command.RenderPlugins(r.pluginInfos, "", r.pluginsHome), nil
+	})
+
+	cp := &clientProvider{getenv: os.Getenv}
+	orbitHome := filepath.Join(cfgDir, "orbit")
+	if err := os.MkdirAll(orbitHome, 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, "orbit:", err)
+		os.Exit(1)
+	}
+	idb, err := identity.Store(filepath.Join(orbitHome, "identity.sqlite"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "orbit: identity store:", err)
+		os.Exit(1)
+	}
+	defer idb.DB.Close()
+	bdb, err := board.Open(filepath.Join(orbitHome, "board.sqlite"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "orbit: board store:", err)
+		os.Exit(1)
+	}
+	defer bdb.DB.Close()
+	r.board = &board.Store{Client: cp.Torch, DB: bdb}
+	r.tools["market"] = &orbittool.Market{Client: cp.Torch, StakeLamports: identity.BaseStakeLamports}
+	r.tools["intel"] = &orbittool.Intel{Client: cp.Torch}
+	r.tools["wallet"] = &orbittool.Wallet{Client: cp.Torch}
+	r.tools["board"] = &orbittool.Board{Store: r.board, Client: cp.Torch}
+	r.client = cp
+	r.earn = &earn.Command{
+		Getenv: os.Getenv,
+		Client: cp.Torch,
+		Init: func() (onboard.InitResult, error) {
+			return onboard.Init(onboard.InitOpts{Getenv: os.Getenv, RPC: client.NewJSONRPC(client.DevnetAirdropRPC)})
+		},
+		Operator: func(flagKey, flagPath string) (sol.Keypair, error) {
+			return onboard.OperatorKey(os.Getenv, flagKey, flagPath)
+		},
+		IdentityDB: idb,
+		SchedDB:    scdb,
+		Crontab:    sched.RealCrontab(""),
+		Board:      r.board,
+		Self:       self,
+		Cwd:        cwd,
+		Session:    "orbit-earn",
+		Model:      func() string { return r.activeID },
+	}
+
+	workersEnv := command.Workers{File: filepath.Join(cfgDir, "workers.json")}
+	if cfg.Workers != nil {
+		workersEnv.Model = cfg.Workers.Model
+		workersEnv.Slots = cfg.Workers.Slots
+		workersEnv.Configured = true
+	}
+	env := &command.Env{
+		Workers:       workersEnv,
+		Swarm:         swarmAdapter{r.swarm},
+		Session:       func() *core.Session { return r.session },
+		Compact:       r.compactNow,
+		NewSession:    r.newSession,
+		SessionList:   r.sessionList,
+		SessionShow:   r.sessionShow,
+		SessionResume: r.sessionResume,
+		Models:        func() models.Table { return r.runtime },
+		ActiveModel:   func() string { return r.activeID },
+		SwitchModel:   r.switchModel,
+		Effort:        func() string { return r.effort },
+		Efforts:       func() []string { return r.row.Efforts },
+		SetEffort:     r.switchEffort,
+		Role:          func() string { return r.role },
+		SetRole:       r.switchRole,
+		Approve:       func() string { return r.approve },
+		SetApprove:    r.switchApprove,
+		Tools:         r.tools,
+		Plugins:       func() []command.PluginInfo { return r.pluginInfos },
+		Reload:        r.reloadPlugins,
+		PluginsDir:    pluginsDir,
+		RemList: func(ctx context.Context, project string) ([]command.RemRow, error) {
+			if r.remDB.DB == nil {
+				return []command.RemRow{}, nil
+			}
+			proj := r.cwd
+			if project != "" {
+				proj = paths.Expand(project)
+			}
+			mems, err := remstore.List(ctx, r.remDB, proj, 50)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]command.RemRow, len(mems))
+			for i, m := range mems {
+				out[i] = command.RemRow{ID: m.ID, Kind: m.Kind, ScopeLabel: m.ScopeLabel, CreatedAt: m.CreatedAt, Strength: m.Strength, Content: m.Content}
+			}
+			return out, nil
+		},
+		RemShow: func(ctx context.Context, id int64) (command.RemRow, error) {
+			if r.remDB.DB == nil {
+				return command.RemRow{}, errors.New("rem: no rem store")
+			}
+			m, err := remstore.Show(ctx, r.remDB, id)
+			if err != nil {
+				if errors.Is(err, remstore.ErrNoSuchMemory) {
+					return command.RemRow{}, fmt.Errorf("rem: no such memory: %d", id)
+				}
+				return command.RemRow{}, err
+			}
+			return remRow(*m), nil
+		},
+		RemForget: func(ctx context.Context, id int64) error {
+			if r.remDB.DB == nil {
+				return errors.New("rem: no rem store")
+			}
+			if err := remstore.Forget(ctx, r.remDB, r.cwd, id); err != nil {
+				if errors.Is(err, remstore.ErrNoSuchMemory) {
+					return fmt.Errorf("rem: no such memory: %d", id)
+				}
+				return err
+			}
+			return nil
+		},
+		RemLabel: func(ctx context.Context, project string) (string, error) {
+			return scope.Label(paths.Expand(project)), nil
+		},
+	}
+
+	var fe core.Frontend
+	closeFrontend := func() {}
+	if *prompt != "" {
+		if err := oneshot.ErrPrompt(*prompt); err != nil {
+			fmt.Fprintln(os.Stderr, "rig:", err)
+			os.Exit(1)
+		}
+		fe = &oneshot.OneShot{Prompt: *prompt, Out: os.Stdout, Err: os.Stderr}
+	} else if *tuiMode == "true" || (*tuiMode == "auto" && tui.IsTerminal(os.Stdout.Fd())) {
+
+		th, terr := tui.ResolveTheme(cfg.Settings.Theme, cfg.Theme, tuiTrueColor())
+		if terr != nil {
+			fmt.Fprintln(os.Stderr, "rig:", terr)
+			os.Exit(1)
+		}
+		fe = tui.New(os.Stdin, os.Stdout, th,
+			tui.WithTitle("orbit", orbitRows, "powered by rig"),
+			tui.WithStatus(r.statusIn),
+			tui.WithCommands(append(command.All(), r.earn), env),
+		)
+
+		if c, ok := fe.(interface{ Close() }); ok {
+			closeFrontend = c.Close
+			defer closeFrontend()
+		}
+	} else {
+		fe = cli.New(os.Stdin, os.Stdout, cli.WithCommands(append(command.All(), r.earn), env))
+	}
+
+	session, err := sessionFor(*resumeID, func(id string) (*core.Session, error) {
+		return state.Resume(context.Background(), sdb, id)
+	})
+	if err != nil {
+		closeFrontend()
+		fmt.Fprintln(os.Stderr, "rig:", err)
+		os.Exit(1)
+	}
+	if *sessionID != "" {
+		session.ID = *sessionID
+	}
+	r.session = session
+	r.fe = fe
+
+	if a, ok := fe.(interface {
+		Ask(ctx context.Context, prompt string) bool
+	}); ok {
+		r.askDoor = a.Ask
+	}
+	proj, perr := sessionQueue(context.Background(), tdb, cwd, session.ID)
+	if perr != nil {
+		fmt.Fprintln(os.Stderr, "rig: todo queue:", perr)
+	}
+	if note, e := reapClaims(context.Background(), sdb, tdb, cwd, proj, session.ID); e != nil {
+		fmt.Fprintln(os.Stderr, "rig: todo reap:", e)
+	} else if note != "" {
+		fmt.Fprintln(os.Stderr, "rig: todo:", note)
+	}
+	rec := state.NewRecorder(fe, sdb, cwd, modelID, Version, session.ID, session).Snapshot(file.SnapshotFiles)
+	r.rec = rec
+
+	k := wire(r)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	runErr := loop.Run(ctx, k)
+	if runErr != nil {
+		fmt.Fprintln(os.Stderr, "rig:", runErr)
+	}
+	if r.swarm != nil && len(r.swarm.List()) > 0 {
+		if _, err := r.swarm.Stop(); err != nil {
+			fmt.Fprintf(os.Stderr, "rig: swarm stop: %v\n", err)
+		}
+	}
+
+	oneShot, oneShotOK := fe.(*oneshot.OneShot)
+	faulted := oneShotOK && oneShot.Faulted()
+
+	switch {
+	case runErr != nil && ctx.Err() != nil:
+		if e := rec.Close("cancelled"); e != nil {
+			fmt.Fprintf(os.Stderr, "rig: session closure: %v\n", e)
+		}
+	case runErr != nil:
+		if e := rec.Close("fault"); e != nil {
+			fmt.Fprintf(os.Stderr, "rig: session closure: %v\n", e)
+		}
+	case faulted:
+		if e := rec.Close("fault"); e != nil {
+			fmt.Fprintf(os.Stderr, "rig: session closure: %v\n", e)
+		}
+	default:
+		if e := rec.Close("ok"); e != nil {
+			fmt.Fprintf(os.Stderr, "rig: session closure: %v\n", e)
+		}
+	}
+
+	if runErr != nil || faulted {
+		closeFrontend()
+		os.Exit(1)
+	}
+}
 
 func runJob(args []string) int {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "orbit: usage: run-job <key>")
+		fmt.Fprintln(os.Stderr, "rig: usage: run-job <key>")
 		return 2
 	}
-	// The per-fire brief: the job's agent row -> live snapshot -> world
-	// block. Fail closed: no identity, no read, no fire.
-	ctx := context.Background()
-	sdb := schedStore()
-	defer sdb.DB.Close()
-	row, err := jobAgentRow(ctx, sdb, args[0])
+	cfgDir, err := rigHome()
 	if err != nil {
-		die("run-job: %v", err)
+		fmt.Fprintln(os.Stderr, "rig:", err)
+		return 1
 	}
-	os.Setenv("ORBIT_AGENT_ID", row.ID)
-	cfg, err := client.LoadConfig(os.Getenv)
+	cwd, err := os.Getwd()
 	if err != nil {
-		die("run-job: %v", err)
+		fmt.Fprintln(os.Stderr, "rig:", err)
+		return 1
 	}
-	tc, err := client.New(cfg)
+	cfg, err := config.Load(cfgDir, cwd)
 	if err != nil {
-		die("run-job: %v", err)
+		fmt.Fprintln(os.Stderr, "rig:", err)
+		return 1
 	}
-	snap, err := tool.Snapshot(ctx, tc, world.Identity{Name: row.Name, Bio: row.Bio})
-	if err != nil {
-		die("run-job: brief: %v", err)
+	if cfg.Notice != "" {
+		fmt.Fprintln(os.Stderr, "rig:", cfg.Notice)
 	}
-	size := world.Compact
-	if row.BlockSize == "full" {
-		size = world.Full
-	}
-	brief, err := world.Build(snap, size)
-	if err != nil {
-		die("run-job: brief: %v", err)
+	swapURL := cfg.Settings.SwapURL
+	if v := os.Getenv("RIG_SWAP_URL"); v != "" {
+		swapURL = v
 	}
 	self, err := os.Executable()
 	if err != nil {
-		die("%v", err)
+		fmt.Fprintln(os.Stderr, "rig:", err)
+		return 1
 	}
-	// The scheduler's home is ~/.rig/scheduler (DB, locks, run logs) — the
-	// same path rig's own run-job uses.
-	home := filepath.Join(rigHome(), "scheduler")
+	home := filepath.Join(cfgDir, "scheduler")
 	if err := os.MkdirAll(home, 0o755); err != nil {
-		die("%v", err)
+		fmt.Fprintln(os.Stderr, "rig:", err)
+		return 1
 	}
-	swapURL := os.Getenv("RIG_SWAP_URL")
-	if swapURL == "" {
-		swapURL = "http://127.0.0.1:8090"
-	}
-	sandbox := os.Getenv("ORBIT_SANDBOX")
-	if sandbox == "" {
-		sandbox = "off" // the operator's choice; the agent runtime is unsandboxed by default
-	}
-	run := func(ctx context.Context) error {
-		return sched.RunJob(args[0], sched.RunOpts{
-			Home:      home,
-			Crontab:   sched.RealCrontab(""),
-			Fetch:     sched.RealFetch(0),
-			Spawn:     sched.RealSpawn,
-			WorkerCmd: []string{self},
-			SwapURL:   swapURL,
-			Sandbox:   sandbox,
-			RigHome:   rigHome(),
-			StateDir:  filepath.Join(rigHome(), "sessions"),
-		})
-	}
-	if err := agent.Fire(ctx, sdb, sched.RealCrontab(""), args[0], row.ID, brief, self+" run-job", run); err != nil {
-		fmt.Fprintln(os.Stderr, "orbit:", err)
+	if err := sched.RunJob(args[0], sched.RunOpts{
+		Home:      home,
+		Crontab:   sched.RealCrontab(""),
+		Fetch:     sched.RealFetch(0),
+		Spawn:     sched.RealSpawn,
+		WorkerCmd: []string{self},
+		SwapURL:   swapURL,
+
+		Sandbox:      cfg.Settings.Sandbox,
+		SandboxBinds: cfg.Settings.SandboxBinds,
+		RigHome:      cfgDir,
+		StateDir:     filepath.Join(cfgDir, "sessions"),
+		Models:       func() models.Table { return cfg.Models },
+	}); err != nil {
+		fmt.Fprintln(os.Stderr, "rig:", err)
 		return 1
 	}
 	return 0
 }
 
-// ── agent: identity row → scheduled job ────────────────────────────────
-
-func runAgent(args []string) int {
-	fs := flag.NewFlagSet("agent", flag.ContinueOnError)
-	aaction := fs.String("action", "register", "register | refresh | show | list")
-	name := fs.String("name", "", "agent display name")
-	bio := fs.String("bio", "", "agent bio")
-	cadence := fs.String("cadence", "", "5-field cron")
-	model := fs.String("model", "", "worker model (required)")
-	stall := fs.Int("stall", 0, "stall minutes")
-	budget := fs.Float64("budget", 0, "dollar budget cap")
-	timeout := fs.Int("timeout", 0, "timeout minutes")
-	full := fs.Bool("full", false, "register with the full world block")
-	fs.SetOutput(os.Stderr)
-	// The action is the first positional; flags follow it (flag.Parse stops at
-	// the first non-flag).
-	if len(args) > 0 {
-		*aaction = args[0]
-		args = args[1:]
+func execArgIndex(args []string) int {
+	for i, a := range args[1:] {
+		if a == "-exec" || strings.HasPrefix(a, "-exec=") {
+			return i + 1
+		}
 	}
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	ctx := context.Background()
-	idb := identityStore()
-	defer idb.DB.Close()
-	switch *aaction {
-	case "register":
-		cfg, err := client.LoadConfig(os.Getenv)
-		if err != nil {
-			die("%v", err)
-		}
-		tc, err := client.New(cfg)
-		if err != nil {
-			die("%v", err)
-		}
-		if *model == "" {
-			die("agent: -model required")
-		}
-		row, err := identity.NewRow(tc.AgentPublic(), identity.Overrides{
-			Name: *name, Bio: *bio,
-			Cadence: *cadence, Model: *model, Budget: *budget,
-			Stall: *stall, Timeout: *timeout, Full: *full,
-		})
-		if err != nil {
-			die("%v", err)
-		}
-		if err := identity.Upsert(ctx, idb, row); err != nil {
-			die("%v", err)
-		}
-		return ensureJob(ctx, idb, row)
-	case "refresh":
-		rows, err := identity.List(ctx, idb)
-		if err != nil {
-			die("%v", err)
-		}
-		if len(rows) == 0 {
-			die("agent: no identity row (register first)")
-		}
-		for _, row := range rows {
-			if code := ensureJobAction(ctx, idb, row, "refresh"); code != 0 {
-				return code
-			}
-		}
-		return 0
-	case "show":
-		ids := fs.Args()
-		if len(ids) != 1 {
-			die("agent: usage: agent show <id>")
-		}
-		row, err := identity.GetByID(ctx, idb, ids[0])
-		if err != nil {
-			die("%v", err)
-		}
-		return printAgent(ctx, idb, row)
-	case "list":
-		rows, err := identity.List(ctx, idb)
-		if err != nil {
-			die("%v", err)
-		}
-		sdb := schedStore()
-		defer sdb.DB.Close()
-		fmt.Printf("%-22s %-16s %-8s %-12s %-8s %-8s %s\n", "ID", "NAME", "MODEL", "CADENCE", "BLOCK", "BUDGET", "JOB")
-		for _, row := range rows {
-			jobID := findJobID(ctx, sdb, agent.JobName(row.ID))
-			if jobID == "" {
-				jobID = "-"
-			}
-			fmt.Printf("%-22s %-16s %-8s %-12s %-8s $%-7.2f %s\n",
-				row.ID, row.Name, row.Model, row.Cadence, row.BlockSize, row.Budget, jobID)
-		}
-		return 0
-	default:
-		die("agent: unknown action %q", *aaction)
-	}
-	return 0
+	return -1
 }
 
-func ensureJob(ctx context.Context, idb store.DB, row identity.Row) int {
-	return ensureJobAction(ctx, idb, row, "register")
+func execDoor(args []string, spec string) int {
+	if spec == "" {
+		return -1
+	}
+	return execArgIndex(args)
 }
 
-func ensureJobAction(ctx context.Context, idb store.DB, row identity.Row, action string) int {
-	// The stored prompt is a stub naming the identity; the live world block
-	// is rebuilt per fire by run-job.
-	block := world.StubBlock(world.Identity{Name: row.Name, Bio: row.Bio})
-	self, err := os.Executable()
-	if err != nil {
-		die("%v", err)
-	}
-	sdb := schedStore()
-	defer sdb.DB.Close()
-	cwd, err := os.Getwd()
-	if err != nil {
-		die("%v", err)
-	}
-	var reply string
-	if action == "refresh" {
-		jobID := findJobID(ctx, sdb, agent.JobName(row.ID))
-		if jobID == "" {
-			die("agent: job: no existing job %s (register first)", agent.JobName(row.ID))
-		}
-		reply, err = agent.Refresh(ctx, sdb, sched.RealCrontab(""), jobID, row.ID, block, "orbit-agent", self+" run-job")
-	} else {
-		reply, err = agent.Register(ctx, sdb, sched.RealCrontab(""), row, block, self+" run-job", cwd, "orbit-agent")
-	}
-	if err != nil {
-		die("agent: job: %v", err)
-	}
-	fmt.Println(reply)
-	return 0
-}
-
-func printAgent(ctx context.Context, idb store.DB, row identity.Row) int {
-	fmt.Printf("AGENT      %s\n", row.ID)
-	fmt.Printf("NAME       %s\n", row.Name)
-	fmt.Printf("WALLET     %s\n", row.Wallet)
-	fmt.Printf("BIO        %s\n", row.Bio)
-	fmt.Printf("CADENCE    %s\n", row.Cadence)
-	fmt.Printf("MODEL      %s\n", row.Model)
-	fmt.Printf("BLOCK      %s\n", row.BlockSize)
-	fmt.Printf("BUDGET     $%.2f\n", row.Budget)
-	fmt.Printf("STALL      %dm\n", row.Stall)
-	fmt.Printf("TIMEOUT    %dm\n", row.Timeout)
-	fmt.Printf("CREATED    %s\n", row.CreatedAt)
-	sdb := schedStore()
-	defer sdb.DB.Close()
-	jobID := findJobID(ctx, sdb, agent.JobName(row.ID))
-	if jobID == "" {
-		fmt.Println("JOB        none (register first)")
-		return 0
-	}
-	bound, tx, err := sdb.TxReadOnly(ctx)
-	if err != nil {
-		die("agent: %v", err)
-	}
-	job, err := scheddomain.NewJobDomain().GetJob(bound, jobID).Row()
-	tx.Rollback()
-	if err != nil {
-		die("agent: %v", err)
-	}
-	if job == nil {
-		fmt.Println("JOB        missing row")
-		return 0
-	}
-	fmt.Printf("JOB        %s\n", jobID)
-	fmt.Printf("JOB NAME   %s\n", job.Name)
-	fmt.Printf("JOB CRON   %s\n", job.Cron)
-	fmt.Printf("JOB MODEL  %s\n", job.Model)
-	jobBudget := 0.0
-	if job.Budget != nil {
-		jobBudget = *job.Budget
-	}
-	fmt.Printf("JOB BUDGET $%.2f\n", jobBudget)
-	jobStall := int64(0)
-	if job.Stall != nil {
-		jobStall = *job.Stall
-	}
-	fmt.Printf("JOB STALL  %dm\n", jobStall)
-	jobTimeout := int64(0)
-	if job.Timeout != nil {
-		jobTimeout = *job.Timeout
-	}
-	fmt.Printf("JOB TIMEOUT %dm\n", jobTimeout)
-	return 0
-}
-
-func findJobID(ctx context.Context, db sched.DB, name string) string {
-	var id string
-	err := db.DB.QueryRowContext(ctx, `SELECT id FROM jobs WHERE name = ? ORDER BY rowid DESC LIMIT 1`, name).Scan(&id)
-	if err != nil {
-		return ""
-	}
-	return id
-}
-
-func jobAgentRow(ctx context.Context, db sched.DB, key string) (identity.Row, error) {
-	bound, tx, err := db.TxReadOnly(ctx)
-	if err != nil {
-		return identity.Row{}, err
-	}
-	job, err := scheddomain.NewJobDomain().GetJob(bound, key).Row()
-	tx.Rollback()
-	if err != nil {
-		return identity.Row{}, err
-	}
-	if job == nil {
-		return identity.Row{}, fmt.Errorf("run-job: job %s not found", key)
-	}
-	id := agent.JobAgentID(job.Name)
-	if id == "" {
-		return identity.Row{}, fmt.Errorf("run-job: job %s is not an orbit agent job", key)
-	}
-	idb := identityStore()
-	defer idb.DB.Close()
-	return identity.GetByID(ctx, idb, id)
-}
-
-// ── snapshot: print the world block ────────────────────────────────────
-
-func runSnapshot(args []string) int {
-	fs := flag.NewFlagSet("snapshot", flag.ContinueOnError)
-	full := fs.Bool("full", false, "the full block (default compact)")
-	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	cfg, err := client.LoadConfig(os.Getenv)
-	if err != nil {
-		die("%v", err)
-	}
-	tc, err := client.New(cfg)
-	if err != nil {
-		die("%v", err)
-	}
-	snap, err := tool.Snapshot(context.Background(), tc, world.Identity{Name: "@AP" + walletSuffix(tc.AgentPublic()), Bio: "torch agent"})
-	if err != nil {
-		die("snapshot: %v", err)
-	}
-	size := world.Compact
-	if *full {
-		size = world.Full
-	}
-	block, err := world.Build(snap, size)
-	if err != nil {
-		die("snapshot: %v", err)
-	}
-	fmt.Print(block)
-	fmt.Fprintf(os.Stderr, "orbit: %d tokens (%d bytes)\n", world.Tokens(block), len(block))
-	return 0
-}
-
-// ── bootstrap: unsigned vault admin for the operator ───────────────────
-
-func runBootstrap(args []string) int {
-	fs := flag.NewFlagSet("bootstrap", flag.ContinueOnError)
-	deposit := fs.Int64("deposit", 0, "lamports to deposit into the vault")
-	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	cfg, err := client.LoadConfig(os.Getenv)
-	if err != nil {
-		die("%v", err)
-	}
-	tc, err := client.New(cfg)
-	if err != nil {
-		die("%v", err)
-	}
-	fmt.Fprintf(os.Stderr, "orbit: vault %s (creator %s), link %s\n", tc.VaultPDA(), tc.VaultCreator, tc.AgentPublic())
-	fmt.Fprintln(os.Stderr, "orbit: sign each line with the OPERATOR's vault authority key; the process never holds it.")
-	fmt.Fprintln(os.Stderr, "orbit: 1. create_vault  2. link_wallet  3. deposit_vault  4. done: re-run agent register.")
-	out := map[string]UnsignedIx{
-		"create_vault": bootstrapTx(tc, cfg, "create_vault", nil),
-		"link_wallet":  bootstrapTx(tc, cfg, "link_wallet", nil),
-	}
-	if *deposit > 0 {
-		out["deposit_vault"] = bootstrapTx(tc, cfg, "deposit_vault", map[string]any{"sol_amount": uint64(*deposit)})
-	}
-	b, _ := json.MarshalIndent(out, "", "  ")
-	fmt.Println(string(b))
-	return 0
-}
-
-// ── helpers ────────────────────────────────────────────────────────────
-
-func rigHome() string {
-	if h := os.Getenv("RIG_HOME"); h != "" {
-		return h
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "."
-	}
-	return filepath.Join(home, ".rig")
-}
-
-func walletSuffix(pubkey string) string {
-	s := pubkey
-	if len(s) > 4 {
-		s = s[len(s)-4:]
-	}
-	return strings.ToUpper(s)
-}
-
-// workerIdentity resolves the worker's per-action stake — one set of
-// defaults, no roles. The scheduler fire sets ORBIT_AGENT_ID (run-job);
-// direct -p use falls back to the newest row, and without any row the
-// tools run with no default stake.
-func workerIdentity() uint64 {
-	ctx := context.Background()
-	idb := identityStore()
-	defer idb.DB.Close()
-	id := os.Getenv("ORBIT_AGENT_ID")
-	if id != "" {
-		if _, err := identity.GetByID(ctx, idb, id); err != nil {
-			die("worker: identity %s: %v", id, err)
-		}
-	} else {
-		if _, err := identity.Get(ctx, idb); err != nil {
-			return 0
+func splitCSV(csv string) []string {
+	var out []string
+	for _, part := range strings.Split(csv, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
 		}
 	}
-	return identity.BaseStakeLamports
+	return out
 }

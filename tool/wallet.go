@@ -6,19 +6,30 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mrsirg97-rgb/orbit/brief"
 	"github.com/mrsirg97-rgb/orbit/client"
-	"github.com/mrsirg97-rgb/orbit/world"
 )
 
 // Wallet is the wallet read: P&L, positions, health. Vault-attributed.
 type Wallet struct {
-	Client *client.TorchClient
+	Client func() (*client.TorchClient, error)
+}
+
+func (w *Wallet) client() (*client.TorchClient, error) {
+	if w.Client == nil {
+		return nil, fmt.Errorf("wallet: no client seam (run /earn)")
+	}
+	tc, err := w.Client()
+	if err != nil {
+		return nil, fmt.Errorf("wallet: %w", err)
+	}
+	return tc, nil
 }
 
 func (w *Wallet) Name() string { return "wallet" }
 
 func (w *Wallet) Description() string {
-	return "the agent's wallet: P&L (FIFO over trades + swaps), positions with health, and the health nudge."
+	return "the agent's wallet: PnL (FIFO over trades + swaps), positions with health, and the PnL nudge."
 }
 
 func (w *Wallet) Schema() json.RawMessage {
@@ -31,13 +42,17 @@ func (w *Wallet) Schema() json.RawMessage {
 }
 
 func (w *Wallet) Exec(ctx context.Context, args json.RawMessage) (string, error) {
+	tc, err := w.client()
+	if err != nil {
+		return "", err
+	}
 	var in struct {
 		Action string `json:"action"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
 		return "", fmt.Errorf("wallet: args: %w", err)
 	}
-	wallet, err := w.Client.WalletRead(ctx)
+	wallet, err := tc.WalletRead(ctx)
 	if err != nil {
 		return "", fmt.Errorf("wallet: %w", err)
 	}
@@ -53,7 +68,7 @@ func (w *Wallet) Exec(ctx context.Context, args json.RawMessage) (string, error)
 		}
 	}
 	if in.Action == "" || in.Action == "positions" {
-		positions, err := w.Client.API.Positions(ctx, client.Q("owner", w.Client.AgentPublic(), "is_active", "true"))
+		positions, err := tc.API.Positions(ctx, client.Q("owner", tc.AgentPublic(), "is_active", "true"))
 		if err == nil {
 			if len(positions) == 0 {
 				lines = append(lines, "POSITIONS: none")
@@ -66,16 +81,16 @@ func (w *Wallet) Exec(ctx context.Context, args json.RawMessage) (string, error)
 		}
 	}
 	if in.Action == "" || in.Action == "health" {
-		read := world.ReadState{
-			PnL: world.PnlSummary{TotalRealizedPnl: wallet.Pnl.TotalRealizedPnl},
+		read := brief.ReadState{
+			PnL: brief.PnlSummary{TotalRealizedPnl: wallet.Pnl.TotalRealizedPnl},
 		}
 		for _, m := range wallet.Pnl.ByMint {
-			read.PnL.ByMint = append(read.PnL.ByMint, world.PnlByMint{
+			read.PnL.ByMint = append(read.PnL.ByMint, brief.PnlByMint{
 				Mint: m.Mint, CostBasisRemaining: m.CostBasisRemaining,
 			})
 		}
-		line, nudge := world.HealthLine(read)
-		lines = append(lines, "HLTH: "+line+"."+nudge)
+		line, nudge := brief.HealthLine(read)
+		lines = append(lines, "PNL: "+line+"."+nudge)
 		lines = append(lines, fmt.Sprintf("Vault SOL: %s (rent floor excluded)", sol(float64(wallet.VaultSOL)/1e9)))
 	}
 	return strings.Join(lines, "\n"), nil

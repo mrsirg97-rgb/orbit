@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/mrsirg97-rgb/orbit/identity"
-	"github.com/mrsirg97-rgb/orbit/world"
+	"github.com/mrsirg97-rgb/orbit/brief"
 	"github.com/mrsirg97-rgb/rig/store"
 	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
 	scheddomain "github.com/mrsirg97-rgb/rig/store/scheduler/domain"
@@ -73,26 +73,26 @@ func TestFireRebuildsBriefPerFire(t *testing.T) {
 		Bio:     "A torch market agent.",
 		Cadence: "0 */8 * * *", Model: "dsv4", BlockSize: "compact",
 	}
-	stub := world.StubBlock(world.Identity{Name: row.Name, Bio: row.Bio})
+	stub := brief.StubBrief(brief.Identity{Name: row.Name, Bio: row.Bio})
 	if _, err := Register(context.Background(), db, ct, row, stub, "/x/orbit run-job", t.TempDir(), "sess-agent"); err != nil {
 		t.Fatal(err)
 	}
 
 	// Two fixture snapshots with different values produce different briefs.
-	fixture := func(price float64) world.ReadState {
-		return world.ReadState{
-			Identity: world.Identity{Name: "@AP2B3A", Bio: "b"},
-			PnL:      world.PnlSummary{TotalRealizedPnl: 2_500_000},
-			Markets: []world.MarketView{
+	fixture := func(price float64) brief.ReadState {
+		return brief.ReadState{
+			Identity: brief.Identity{Name: "@AP2B3A", Bio: "b"},
+			PnL:      brief.PnlSummary{TotalRealizedPnl: 2_500_000},
+			Markets: []brief.MarketView{
 				{Mint: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", Name: "Torch Test", Symbol: "TST", Status: "BONDING", PriceSOL: price, MCAPSOL: price * 1e9, ValueSOL: price * 1e6},
 			},
 		}
 	}
-	brief1, err := world.Build(fixture(0.00015), world.Compact)
+	brief1, err := brief.Build(fixture(0.00015), brief.Compact)
 	if err != nil {
 		t.Fatal(err)
 	}
-	brief2, err := world.Build(fixture(0.00030), world.Compact)
+	brief2, err := brief.Build(fixture(0.00030), brief.Compact)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,10 +201,10 @@ func TestAgentJobFiresTheWorldBlock(t *testing.T) {
 		t.Errorf("timeout %v", job.Timeout)
 	}
 	if !strings.Contains(job.Prompt, worldBlock) {
-		t.Errorf("prompt lacks the world block")
+		t.Errorf("prompt lacks the brief")
 	}
 
-	// Fire: the fake spawn captures the argv; the worker is `-p <world block>`.
+	// Fire: the fake spawn captures the argv; the worker is `-p <brief>`.
 	spawn := &fakeSpawn{}
 	spawnFn := func(ctx context.Context, argv []string, cwd string, env []string, observe func([]byte)) (sched.SpawnResult, error) {
 		return spawn.spawn(ctx, argv, cwd, env, observe)
@@ -233,7 +233,7 @@ func TestAgentJobFiresTheWorldBlock(t *testing.T) {
 		}
 	}
 	if found["-p"] == "" || !strings.Contains(found["-p"], worldBlock) {
-		t.Errorf("worker prompt missing the world block: %q", found["-p"])
+		t.Errorf("worker prompt missing the brief: %q", found["-p"])
 	}
 	if !strings.Contains(found["-p"], sched.ReportBack) {
 		t.Errorf("prompt lacks the report-back line")
@@ -262,11 +262,11 @@ func TestDefaultsLandInJob(t *testing.T) {
 	defer db.DB.Close()
 	ct := &fakeCrontab{text: "SHELL=/bin/bash\n"}
 
-	row, err := identity.NewRow("So11111111111111111111111111111111111111112", identity.Overrides{Model: "dsv4"})
+	row, err := identity.NewRow("So11111111111111111111111111111111111111112", identity.Worker, identity.Overrides{Model: "dsv4"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	stub := world.StubBlock(world.Identity{Name: row.Name, Bio: row.Bio})
+	stub := brief.StubBrief(brief.Identity{Name: row.Name, Bio: row.Bio})
 	if _, err := Register(context.Background(), db, ct, row, stub, "/x/orbit run-job", t.TempDir(), "sess-agent"); err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +298,7 @@ func TestDefaultsLandInJob(t *testing.T) {
 		t.Errorf("model %s", job.Model)
 	}
 	for _, want := range []string{
-		"NAME: torch agent",
+		"NAME: torch worker",
 		"BIO:",
 	} {
 		if !strings.Contains(job.Prompt, want) {
@@ -318,13 +318,13 @@ func TestOverridesWin(t *testing.T) {
 	defer db.DB.Close()
 	ct := &fakeCrontab{text: "SHELL=/bin/bash\n"}
 
-	row, err := identity.NewRow("So11111111111111111111111111111111111111112", identity.Overrides{
+	row, err := identity.NewRow("So11111111111111111111111111111111111111112", identity.Worker, identity.Overrides{
 		Name: "Beta", Cadence: "0 1 * * *", Model: "qwen3.8-27b", Budget: 2.5, Full: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	stub := world.StubBlock(world.Identity{Name: row.Name, Bio: row.Bio})
+	stub := brief.StubBrief(brief.Identity{Name: row.Name, Bio: row.Bio})
 	if _, err := Register(context.Background(), db, ct, row, stub, "/x/orbit run-job", t.TempDir(), "sess-agent"); err != nil {
 		t.Fatal(err)
 	}

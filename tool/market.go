@@ -6,24 +6,35 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mrsirg97-rgb/orbit/brief"
 	"github.com/mrsirg97-rgb/orbit/client"
-	"github.com/mrsirg97-rgb/orbit/world"
 )
 
 // Market is the project read + write tool. Act: back (buy via vault + memo),
-// cut (sell via vault + memo), memo (micro buy + memo). Every write replies
+// exit (sell via vault + memo), post (micro buy + memo). Every write replies
 // with the tx signature plus the memo; the memo carries no role tag — the
 // wallet's stake is the proof. Stake Lamports is the default per-action
 // stake when the caller omits `sol`.
 type Market struct {
-	Client        *client.TorchClient
+	Client        func() (*client.TorchClient, error)
 	StakeLamports uint64
+}
+
+func (m *Market) client() (*client.TorchClient, error) {
+	if m.Client == nil {
+		return nil, fmt.Errorf("market: no client seam (run /earn)")
+	}
+	tc, err := m.Client()
+	if err != nil {
+		return nil, fmt.Errorf("market: %w", err)
+	}
+	return tc, nil
 }
 
 func (m *Market) Name() string { return "market" }
 
 func (m *Market) Description() string {
-	return "read a project: price, treasury, sentiment, holdings; act: back, cut, memo. Every write replies with the tx signature plus the memo."
+	return "read a project: price, treasury, sentiment, holdings; act: back, exit, post. Every write replies with the tx signature plus the memo."
 }
 
 func (m *Market) Schema() json.RawMessage {
@@ -31,8 +42,8 @@ func (m *Market) Schema() json.RawMessage {
 		"type": "object",
 		"properties": {
 			"mint": {"type": "string", "description": "Full mint pubkey, or the 8-char FID suffix from PROJECTS."},
-			"action": {"type": "string", "enum": ["back", "cut", "memo"], "description": "Optional write. Omit to read only."},
-			"memo": {"type": "string", "description": "Memo text; required for memo action, optional for back/cut."},
+			"action": {"type": "string", "enum": ["back", "exit", "post"], "description": "Optional write. Omit to read only."},
+			"memo": {"type": "string", "description": "Memo text; required for post, optional for back/exit."},
 			"sol": {"type": "integer", "description": "Lamports to spend on back (default 10000000 = 0.01 SOL)."}
 		},
 		"required": ["mint"]
@@ -40,6 +51,10 @@ func (m *Market) Schema() json.RawMessage {
 }
 
 func (m *Market) Exec(ctx context.Context, args json.RawMessage) (string, error) {
+	tc, err := m.client()
+	if err != nil {
+		return "", err
+	}
 	var in struct {
 		Mint   string `json:"mint"`
 		Action string `json:"action"`
@@ -53,40 +68,40 @@ func (m *Market) Exec(ctx context.Context, args json.RawMessage) (string, error)
 	if in.Mint == "" {
 		return "", fmt.Errorf("market: mint required")
 	}
-	mint, err := resolveMint(ctx, m.Client, in.Mint)
+	mint, err := resolveMint(ctx, tc, in.Mint)
 	if err != nil {
 		return "", fmt.Errorf("market: %w", err)
 	}
-	detail, err := m.Client.API.Market(ctx, mint)
+	detail, err := tc.API.Market(ctx, mint)
 	if err != nil {
 		return "", fmt.Errorf("market: read %s: %w", mint, err)
 	}
 	market := detail.Market
-	treasurySOL, err := m.treasurySOL(ctx, market.Mint)
+	treasurySOL, err := m.treasurySOL(ctx, tc, market.Mint)
 	if err != nil {
 		treasurySOL = 0
 	}
-	holdings, err := m.Client.VaultHoldings(ctx, market.Mint)
+	holdings, err := tc.VaultHoldings(ctx, market.Mint)
 	if err != nil {
 		holdings = 0
 	}
-	msgs, _ := m.Client.API.Messages(ctx, client.Q("mint", market.Mint, "limit", "10"))
-	views := make([]world.MessageView, 0, len(msgs))
+	msgs, _ := tc.API.Messages(ctx, client.Q("mint", market.Mint, "limit", "10"))
+	views := make([]brief.MessageView, 0, len(msgs))
 	for _, msg := range msgs {
-		views = append(views, world.MessageView{Mint: msg.Mint, Text: msg.MemoText})
+		views = append(views, brief.MessageView{Mint: msg.Mint, Text: msg.MemoText})
 	}
 	price := client.PriceSOL(market, detail.Reserves)
 	value := float64(holdings) / 1e6 * price
-	sent := world.SentimentFrom(views)
+	sent := brief.SentimentFrom(views)
 	read := fmt.Sprintf(
-		"%s: PRICE %s SOL, MCAP %s SOL, STATUS %s, TREASURY %s SOL, HOLDINGS %d (%s SOL), SENT %+.0f",
+		"%s: PRICE %s SOL, MCAP %s SOL, STATUS %s, TREASURY %s SOL, HOLDINGS %d (%s SOL), SENTIMENT %+.0f",
 		fid8(market.Mint), sol(price), sol(price*1_000_000_000), market.Status,
 		sol(float64(treasurySOL)/1e9), holdings, sol(value), sent)
 	if in.Action == "" {
 		return read, nil
 	}
 	amount := in.SOL
-	if in.Action == "memo" {
+	if in.Action == "post" {
 		amount = client.MemoBuyLamports
 	} else if amount == 0 {
 		if m.StakeLamports > 0 {
@@ -96,7 +111,7 @@ func (m *Market) Exec(ctx context.Context, args json.RawMessage) (string, error)
 		}
 	}
 	memo := in.Memo
-	res, err := m.Client.WriteAction(ctx, market, client.Action(in.Action), memo, amount)
+	res, err := tc.WriteAction(ctx, market, client.Action(in.Action), memo, amount)
 	if err != nil {
 		return read + "\n" + fmt.Sprintf("%s FAILED: %v", in.Action, err), nil
 	}
@@ -107,8 +122,8 @@ func (m *Market) Exec(ctx context.Context, args json.RawMessage) (string, error)
 	return read + "\n" + fmt.Sprintf("%s %s: %s %s", in.Action, fid8(market.Mint), res.Signature, got), nil
 }
 
-func (m *Market) treasurySOL(ctx context.Context, mint string) (uint64, error) {
-	info, err := m.Client.RPC.GetAccountInfo(ctx, client.TreasurySolVaultPDA(m.Client.ProgramID, mint))
+func (m *Market) treasurySOL(ctx context.Context, tc *client.TorchClient, mint string) (uint64, error) {
+	info, err := tc.RPC.GetAccountInfo(ctx, client.TreasurySolVaultPDA(tc.ProgramID, mint))
 	if err != nil {
 		return 0, err
 	}

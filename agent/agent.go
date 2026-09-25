@@ -1,5 +1,5 @@
 // Package agent is the scheduled agent: one identity row → one rig scheduled
-// job. The fire is rig -p with the world block as the brief; cadence comes
+// job. The fire is rig -p with the brief; cadence comes
 // from the identity row; stall/budget/timeout ride along as configured.
 package agent
 
@@ -30,17 +30,17 @@ func JobAgentID(jobName string) string {
 }
 
 // Register creates (or refreshes) the scheduled job from the identity row.
-// The prompt is the world block; the cadence comes from the row.
-func Register(ctx context.Context, db scheduler.DB, ct scheduler.Crontab, row identity.Row, worldBlock, runnerCmd, sessionCwd, session string) (string, error) {
+// The prompt is the brief; the cadence comes from the row.
+func Register(ctx context.Context, db scheduler.DB, ct scheduler.Crontab, row identity.Row, brief, runnerCmd, sessionCwd, session string) (string, error) {
 	if row.ID == "" {
 		return "", fmt.Errorf("agent: identity row required")
 	}
-	if worldBlock == "" {
-		return "", fmt.Errorf("agent: world block required")
+	if brief == "" {
+		return "", fmt.Errorf("agent: brief required")
 	}
 	return scheduler.Create(ctx, db, ct, scheduler.CreateInput{
 		Name:    JobName(row.ID),
-		Prompt:  worldBlock,
+		Prompt:  brief,
 		Cron:    row.Cadence,
 		Cwd:     sessionCwd,
 		Model:   row.Model,
@@ -50,13 +50,13 @@ func Register(ctx context.Context, db scheduler.DB, ct scheduler.Crontab, row id
 	}, sessionCwd, session, runnerCmd, time.Now)
 }
 
-// Refresh updates the job's prompt (the fresh world block) without touching
+// Refresh updates the job's prompt (the fresh brief) without touching
 // the cadence or the budget.
-func Refresh(ctx context.Context, db scheduler.DB, ct scheduler.Crontab, jobID, rowID, worldBlock, session, runnerCmd string) (string, error) {
-	if worldBlock == "" {
-		return "", fmt.Errorf("agent: world block required")
+func Refresh(ctx context.Context, db scheduler.DB, ct scheduler.Crontab, jobID, rowID, brief, session, runnerCmd string) (string, error) {
+	if brief == "" {
+		return "", fmt.Errorf("agent: brief required")
 	}
 	return scheduler.Update(ctx, db, ct, scheduler.UpdateInput{
-		ID: jobID, Name: JobName(rowID), Prompt: worldBlock,
+		ID: jobID, Name: JobName(rowID), Prompt: brief,
 	}, session, runnerCmd, time.Now)
 }

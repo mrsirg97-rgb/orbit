@@ -11,7 +11,18 @@ import (
 
 // Intel is the message board read: recent messages on held/watched projects.
 type Intel struct {
-	Client *client.TorchClient
+	Client func() (*client.TorchClient, error)
+}
+
+func (t *Intel) client() (*client.TorchClient, error) {
+	if t.Client == nil {
+		return nil, fmt.Errorf("intel: no client seam (run /earn)")
+	}
+	tc, err := t.Client()
+	if err != nil {
+		return nil, fmt.Errorf("intel: %w", err)
+	}
+	return tc, nil
 }
 
 func (t *Intel) Name() string { return "intel" }
@@ -31,6 +42,10 @@ func (t *Intel) Schema() json.RawMessage {
 }
 
 func (t *Intel) Exec(ctx context.Context, args json.RawMessage) (string, error) {
+	tc, err := t.client()
+	if err != nil {
+		return "", err
+	}
 	var in struct {
 		Mint  string `json:"mint"`
 		Limit int    `json:"limit"`
@@ -46,13 +61,13 @@ func (t *Intel) Exec(ctx context.Context, args json.RawMessage) (string, error) 
 	}
 	mints := []string{}
 	if in.Mint != "" {
-		full, err := resolveMint(ctx, t.Client, in.Mint)
+		full, err := resolveMint(ctx, tc, in.Mint)
 		if err != nil {
 			return "", fmt.Errorf("intel: %w", err)
 		}
 		mints = append(mints, full)
 	} else {
-		markets, err := t.Client.API.Markets(ctx, nil)
+		markets, err := tc.API.Markets(ctx, nil)
 		if err != nil {
 			return "", fmt.Errorf("intel: markets: %w", err)
 		}
@@ -62,7 +77,7 @@ func (t *Intel) Exec(ctx context.Context, args json.RawMessage) (string, error) 
 	}
 	var lines []string
 	for _, mint := range mints {
-		msgs, err := t.Client.API.Messages(ctx, client.Q("mint", mint, "limit", fmt.Sprint(in.Limit)))
+		msgs, err := tc.API.Messages(ctx, client.Q("mint", mint, "limit", fmt.Sprint(in.Limit)))
 		if err != nil {
 			continue
 		}

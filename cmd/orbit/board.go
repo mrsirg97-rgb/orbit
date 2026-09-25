@@ -56,12 +56,12 @@ func boardRead(ctx context.Context, project board.Project) int {
 	if err != nil {
 		die("board: %v", err)
 	}
-	db, err := board.Open(board.StorePath(rigHome()))
+	db, err := board.Open(board.StorePath(mustRigHome()))
 	if err != nil {
 		die("board: store: %v", err)
 	}
 	defer db.DB.Close()
-	st := &board.Store{Client: tc, DB: db}
+	st := &board.Store{Client: func() (*client.TorchClient, error) { return tc, nil }, DB: db}
 	reply, err := st.Board(ctx, project)
 	if err != nil {
 		die("board: read %s: %v", project.Mint, err)
@@ -81,12 +81,12 @@ func boardAct(ctx context.Context, project board.Project, verb string, rest []st
 	if err != nil {
 		die("board: %v", err)
 	}
-	db, err := board.Open(board.StorePath(rigHome()))
+	db, err := board.Open(board.StorePath(mustRigHome()))
 	if err != nil {
 		die("board: store: %v", err)
 	}
 	defer db.DB.Close()
-	st := &board.Store{Client: tc, DB: db}
+	st := &board.Store{Client: func() (*client.TorchClient, error) { return tc, nil }, DB: db}
 	var reply string
 	switch verb {
 	case "task":

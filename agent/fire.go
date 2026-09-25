@@ -8,8 +8,8 @@ import (
 )
 
 // Fire is the per-fire path: the caller builds the fresh brief (a live read
-// snapshot projected through world.Build), Fire refreshes the job's prompt
-// with it, then runs the fire. The world block is therefore per-fire — the
+// snapshot projected through brief.Build), Fire refreshes the job's prompt
+// with it, then runs the fire. The brief is therefore per-fire — the
 // prompt stored by register is only a stub naming the identity until the
 // first fire replaces it.
 //

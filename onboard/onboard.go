@@ -332,3 +332,14 @@ func isHostOnlyURL(endpoint string) bool {
 	}
 	return !strings.Contains(rest, "/")
 }
+
+// Load returns the orbit home's config file as a map (missing file =
+// empty). Reads only — the /earn wizard checks the hot key and the vault
+// creator before it runs any step.
+func Load(getenv func(string) string) (map[string]string, error) {
+	path, err := ConfigPath(getenv)
+	if err != nil {
+		return nil, err
+	}
+	return readConfig(path)
+}

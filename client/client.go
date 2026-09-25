@@ -16,8 +16,8 @@ type Action string
 
 const (
 	ActionBack Action = "back"
-	ActionCut  Action = "cut"
-	ActionMemo Action = "memo"
+	ActionExit Action = "exit"
+	ActionPost Action = "post"
 )
 
 // WriteResult is every write reply: the tx signature plus the memo.
@@ -150,7 +150,7 @@ func ATAFor(programID, vaultCreator, mint, _ string) (string, error) {
 	return ATA(mint, vault, Token2022Program)
 }
 
-// WriteAction routes and executes back/cut/memo on one market. Memo rides
+// WriteAction routes and executes back/exit/post on one market. Memo rides
 // the write tx (the indexer persists memos only on torch txs).
 func (c *TorchClient) WriteAction(ctx context.Context, market MarketRow, action Action, memo string, amountSOL uint64) (WriteResult, error) {
 	if !c.AllowWrite {
@@ -163,9 +163,9 @@ func (c *TorchClient) WriteAction(ctx context.Context, market MarketRow, action 
 	switch action {
 	case ActionBack:
 		return c.writeBuy(ctx, market, route, memo, amountSOL)
-	case ActionMemo:
+	case ActionPost:
 		return c.writeBuy(ctx, market, route, memo, MemoBuyLamports)
-	case ActionCut:
+	case ActionExit:
 		return c.writeSell(ctx, market, route, memo)
 	default:
 		return WriteResult{}, fmt.Errorf("write: unknown action %q", action)

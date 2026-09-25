@@ -2,6 +2,9 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/json"
+	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -14,7 +17,11 @@ import (
 
 // identityStore is the agent's identity row store.
 func identityStore() store.DB {
-	dir := filepath.Join(rigHome(), "orbit")
+	home, err := rigHome()
+	if err != nil {
+		die("%v", err)
+	}
+	dir := filepath.Join(home, "orbit")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		die("%v", err)
 	}
@@ -27,7 +34,11 @@ func identityStore() store.DB {
 
 // schedStore is the scheduler's own store (the job rows live there).
 func schedStore() sched.DB {
-	dir := filepath.Join(rigHome(), "scheduler")
+	home, err := rigHome()
+	if err != nil {
+		die("%v", err)
+	}
+	dir := filepath.Join(home, "scheduler")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		die("%v", err)
 	}
@@ -99,4 +110,33 @@ func bootstrapTx(tc *client.TorchClient, cfg client.Config, name string, args ma
 		die("bootstrap: unknown instruction %q", name)
 	}
 	return ix
+}
+func runBootstrap(args []string) int {
+	fs := flag.NewFlagSet("bootstrap", flag.ContinueOnError)
+	deposit := fs.Int64("deposit", 0, "lamports to deposit into the vault")
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	cfg, err := client.LoadConfig(os.Getenv)
+	if err != nil {
+		die("%v", err)
+	}
+	tc, err := client.New(cfg)
+	if err != nil {
+		die("%v", err)
+	}
+	fmt.Fprintf(os.Stderr, "orbit: vault %s (creator %s), link %s\n", tc.VaultPDA(), tc.VaultCreator, tc.AgentPublic())
+	fmt.Fprintln(os.Stderr, "orbit: sign each line with the OPERATOR's vault authority key; the process never holds it.")
+	fmt.Fprintln(os.Stderr, "orbit: 1. create_vault  2. link_wallet  3. deposit_vault  4. done: re-run agent register.")
+	out := map[string]UnsignedIx{
+		"create_vault": bootstrapTx(tc, cfg, "create_vault", nil),
+		"link_wallet":  bootstrapTx(tc, cfg, "link_wallet", nil),
+	}
+	if *deposit > 0 {
+		out["deposit_vault"] = bootstrapTx(tc, cfg, "deposit_vault", map[string]any{"sol_amount": uint64(*deposit)})
+	}
+	b, _ := json.MarshalIndent(out, "", "  ")
+	fmt.Println(string(b))
+	return 0
 }

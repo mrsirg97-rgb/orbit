@@ -4,40 +4,40 @@ import (
 	"context"
 	"sort"
 
+	"github.com/mrsirg97-rgb/orbit/brief"
 	"github.com/mrsirg97-rgb/orbit/client"
-	"github.com/mrsirg97-rgb/orbit/world"
 )
 
-// Snapshot assembles the world block's ReadState from the live read side:
+// Snapshot assembles the brief's ReadState from the live read side:
 // markets, the wallet read, holdings value, sentiment, intel, positions.
 // Pure projection — no writes, no state.
-func Snapshot(ctx context.Context, c *client.TorchClient, identity world.Identity) (world.ReadState, error) {
+func Snapshot(ctx context.Context, c *client.TorchClient, identity brief.Identity) (brief.ReadState, error) {
 	markets, err := c.API.Markets(ctx, nil)
 	if err != nil {
-		return world.ReadState{}, err
+		return brief.ReadState{}, err
 	}
 	wallet, err := c.WalletRead(ctx)
 	if err != nil {
-		return world.ReadState{}, err
+		return brief.ReadState{}, err
 	}
 	positions, err := c.API.Positions(ctx, client.Q("owner", c.AgentPublic(), "is_active", "true"))
 	if err != nil {
-		return world.ReadState{}, err
+		return brief.ReadState{}, err
 	}
-	state := world.ReadState{
+	state := brief.ReadState{
 		Identity:  identity,
-		PnL:       world.PnlSummary{TotalRealizedPnl: wallet.Pnl.TotalRealizedPnl},
+		PnL:       brief.PnlSummary{TotalRealizedPnl: wallet.Pnl.TotalRealizedPnl},
 		Sentiment: map[string]float64{},
 		VaultSOL:  wallet.VaultSOL,
 	}
 	for _, m := range wallet.Pnl.ByMint {
-		state.PnL.ByMint = append(state.PnL.ByMint, world.PnlByMint{
+		state.PnL.ByMint = append(state.PnL.ByMint, brief.PnlByMint{
 			Mint: m.Mint, TokensRemaining: uint64(m.TokensRemaining),
 			CostBasisRemaining: m.CostBasisRemaining, RealizedPnl: m.RealizedPnl,
 		})
 	}
 	for _, p := range positions {
-		state.Positions = append(state.Positions, world.PositionView{
+		state.Positions = append(state.Positions, brief.PositionView{
 			Mint: p.Mint, Side: string(p.Side), Health: string(p.Health),
 			DebtSOL: float64(p.DebtAmount) / 1e9,
 		})
@@ -52,11 +52,11 @@ func Snapshot(ctx context.Context, c *client.TorchClient, identity world.Identit
 		if err != nil {
 			continue
 		}
-		views := make([]world.MessageView, 0, len(msgs))
+		views := make([]brief.MessageView, 0, len(msgs))
 		for _, msg := range msgs {
-			views = append(views, world.MessageView{Mint: msg.Mint, Sender: msg.Sender, Text: truncate(msg.MemoText, 160)})
+			views = append(views, brief.MessageView{Mint: msg.Mint, Sender: msg.Sender, Text: truncate(msg.MemoText, 160)})
 		}
-		state.Sentiment[m.Mint] = world.SentimentFrom(views)
+		state.Sentiment[m.Mint] = brief.SentimentFrom(views)
 		state.Intel = append(state.Intel, views...)
 	}
 	for _, m := range markets {
@@ -69,7 +69,7 @@ func Snapshot(ctx context.Context, c *client.TorchClient, identity world.Identit
 			}
 		}
 		value := float64(raw) / 1e6 * price
-		state.Markets = append(state.Markets, world.MarketView{
+		state.Markets = append(state.Markets, brief.MarketView{
 			Mint:      m.Mint,
 			Name:      m.Name,
 			Symbol:    m.Symbol,
@@ -104,7 +104,7 @@ func pnlFor(pnl *client.PnlSummary, mint string, value float64) float64 {
 	return 0
 }
 
-func hasLoan(state *world.ReadState, mint string) bool {
+func hasLoan(state *brief.ReadState, mint string) bool {
 	for _, p := range state.Positions {
 		if p.Mint == mint && p.Side == "long" && p.Health != "none" {
 			return true

@@ -260,7 +260,7 @@ func TestWriteCutSellsWholeVaultHolding(t *testing.T) {
 	rpc.accounts = map[string]AccountInfo{
 		vaultATA: {Exists: true, Data: tokenData},
 	}
-	res, err := tc.WriteAction(context.Background(), tc.API.(*stubAPI).market, ActionCut, "cutting weak", 0)
+	res, err := tc.WriteAction(context.Background(), tc.API.(*stubAPI).market, ActionExit, "cutting weak", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

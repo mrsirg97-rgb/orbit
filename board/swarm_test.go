@@ -139,7 +139,7 @@ func openBoardStore(t *testing.T) (store.DB, *Store) {
 		t.Fatal(err)
 	}
 	tc, _ := boardTestClient(t, testMint)
-	st := &Store{Client: tc, DB: db}
+	st := &Store{Client: func() (*client.TorchClient, error) { return tc, nil }, DB: db}
 	return db, st
 }
 
@@ -250,12 +250,14 @@ func TestSwarmReapExpiredClaim(t *testing.T) {
 }
 
 func dbFakeSent(st *Store) []string {
-	rpc := st.Client.RPC.(*boardFakeRPC)
+	tc, _ := st.client()
+	rpc := tc.RPC.(*boardFakeRPC)
 	return rpc.sent
 }
 
 func lastTxMemos(st *Store) string {
-	rpc := st.Client.RPC.(*boardFakeRPC)
+	tc, _ := st.client()
+	rpc := tc.RPC.(*boardFakeRPC)
 	var out []string
 	for _, tx := range rpc.sent {
 		raw, err := sol.Decode(tx)

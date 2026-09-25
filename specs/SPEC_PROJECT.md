@@ -4,7 +4,7 @@ A project is a torch market with a purpose. The operator creates one with
 `orbit project create`: a new token (create_token), then a first buy from
 the operator's own vault that funds the treasury. The project's goal is the
 memo on that buy, `goal: ...`, so the board's fold
-(intel, the world block's INTEL section) shows what the project is for.
+(intel, the brief's INTEL section) shows what the project is for.
 `orbit project list` reads the indexer: markets, the goal memo per market,
 and the treasury float. Devnet only, like every write.
 
@@ -67,8 +67,8 @@ without a hand-rolled path.
 ### 3. The goal lives on the buy memo, not in metadata
 
 The IDL's `uri` stays empty; the goal is a memo because memos ride torch txs
-and the indexer persists them as board messages. The world block's INTEL
-section already surfaces message text, so no world change is needed — the
+and the indexer persists them as board messages. The brief's INTEL
+section already surfaces message text, so no brief change is needed — the
 fold shows the goal as soon as the buy lands. `project list` reconstructs the
 goal from the same indexer log, so the operator view and the agent view
 agree.
@@ -77,7 +77,7 @@ agree.
 
 `--treasury` is the SOL amount of the first buy, not a token allocation. The
 treasury float shown by `list` is the `treasury_sol_vault` PDA lamports minus
-the rent floor — the same number the world block reads for a held market.
+the rent floor — the same number the brief reads for a held market.
 
 ### 5. Fail closed at each step
 

@@ -33,8 +33,17 @@ type Project struct {
 // the fold projection) and the chain write path. The store file never is
 // the record — the chain memo log is.
 type Store struct {
-	Client *client.TorchClient
+	Client func() (*client.TorchClient, error)
 	DB     store.DB
+}
+
+// client resolves the read/write client (the tool's lazy provider) and
+// fails loudly when the orbit config is missing.
+func (s *Store) client() (*client.TorchClient, error) {
+	if s.Client == nil {
+		return nil, fmt.Errorf("board: no orbit config (run /earn)")
+	}
+	return s.Client()
 }
 
 // Statements is the board schema: the generated DDL plus the signature
@@ -82,15 +91,19 @@ func StorePath(home string) string {
 // The cache is the board's window: each sync adds the newest messages and
 // the fold covers what the cache holds.
 func (s *Store) Sync(ctx context.Context, p Project, limit int) error {
+	tc, err := s.client()
+	if err != nil {
+		return err
+	}
 	var rows []client.MessageRow
-	if s.Client.Indexer != "" {
-		msgs, err := s.Client.API.Messages(ctx, client.Q("mint", p.Mint, "limit", fmt.Sprint(limit)))
+	if tc.Indexer != "" {
+		msgs, err := tc.API.Messages(ctx, client.Q("mint", p.Mint, "limit", fmt.Sprint(limit)))
 		if err != nil {
 			return fmt.Errorf("board sync %s: indexer: %w", p.Mint, err)
 		}
 		rows = msgs
 	} else {
-		msgs, err := client.ScanMessages(ctx, s.Client.RPC, s.Client.ProgramID, p.Mint, limit)
+		msgs, err := client.ScanMessages(ctx, tc.RPC, tc.ProgramID, p.Mint, limit)
 		if err != nil {
 			return fmt.Errorf("board sync %s: rpc scan: %w", p.Mint, err)
 		}
@@ -112,7 +125,7 @@ func (s *Store) Sync(ctx context.Context, p Project, limit int) error {
 	next := maxSeq
 	for _, r := range rows {
 		seq := int64(r.MessageID)
-		if s.Client.Indexer == "" {
+		if tc.Indexer == "" {
 			seq = next + 1
 			next = seq
 		}
@@ -195,6 +208,10 @@ func rewrite(bound context.Context, mint string, tasks []Task) error {
 // wallet may act — the fold decides ownership and stake. The reply is the
 // tx signature plus the memo, then the affected board.
 func (s *Store) Act(ctx context.Context, p Project, shape Shape) (string, error) {
+	tc, err := s.client()
+	if err != nil {
+		return "", err
+	}
 	memo, err := MemoFor(shape)
 	if err != nil {
 		return "", err
@@ -206,7 +223,7 @@ func (s *Store) Act(ctx context.Context, p Project, shape Shape) (string, error)
 	if err != nil {
 		return "", fmt.Errorf("board act %s: %w", shape.Verb, err)
 	}
-	res, err := s.Client.WriteAction(ctx, market, client.ActionMemo, memo, client.MemoBuyLamports)
+	res, err := tc.WriteAction(ctx, market, client.ActionPost, memo, client.MemoBuyLamports)
 	if err != nil {
 		return "", fmt.Errorf("board act %s: %w", shape.Verb, err)
 	}
@@ -227,7 +244,7 @@ func (s *Store) Act(ctx context.Context, p Project, shape Shape) (string, error)
 	kind := "buy"
 	created := now.Format(time.RFC3339)
 	if _, err := domain.NewMessageDomain().InsertMessage(bound, domain.Message{
-		Mint: p.Mint, Seq: seq, Sender: s.Client.AgentPublic(), Memo: memo,
+		Mint: p.Mint, Seq: seq, Sender: tc.AgentPublic(), Memo: memo,
 		ActionKind: &kind, Signature: res.Signature, CreatedAt: created,
 	}); err != nil {
 		return "", fmt.Errorf("board act %s: cache: %w", shape.Verb, err)
@@ -254,14 +271,18 @@ func nextSeq(bound context.Context, tx *sql.Tx, mint string) (int64, error) {
 }
 
 func (s *Store) Market(ctx context.Context, mint string) (client.MarketRow, error) {
-	if s.Client.Indexer != "" {
-		detail, err := s.Client.API.Market(ctx, mint)
+	tc, err := s.client()
+	if err != nil {
+		return client.MarketRow{}, err
+	}
+	if tc.Indexer != "" {
+		detail, err := tc.API.Market(ctx, mint)
 		if err != nil {
 			return client.MarketRow{}, err
 		}
 		return detail.Market, nil
 	}
-	return client.MarketFromRPC(ctx, s.Client.RPC, s.Client.ProgramID, mint)
+	return client.MarketFromRPC(ctx, tc.RPC, tc.ProgramID, mint)
 }
 
 // Board is the live read: sync the chain into the cache, fold, render.
@@ -412,4 +433,57 @@ func shortAddr(s string) string {
 		return s
 	}
 	return s[:4] + "…" + s[len(s)-4:]
+}
+
+// Claims counts the wallet's open claims on a project's cached board: tasks
+// the wallet claimed that have not completed. The read is the project's
+// primary-key window, never a scan.
+func (s *Store) Claims(ctx context.Context, p Project, owner string) (int, error) {
+	bound, tx, err := s.DB.TxReadOnly(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	rows, err := domain.NewTaskDomain().WindowTaskByProject(bound, p.Mint, "", "\uffff", 1<<30).Rows()
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, r := range rows {
+		if r.Status == StatusActive && r.Owner == owner {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// LastMemo returns the wallet's newest memo on a project's cached log
+// (the memo text and the message time), or zero values when the wallet has
+// posted nothing there.
+func (s *Store) LastMemo(ctx context.Context, p Project, sender string) (Memo, bool, error) {
+	bound, tx, err := s.DB.TxReadOnly(ctx)
+	if err != nil {
+		return Memo{}, false, err
+	}
+	defer tx.Rollback()
+	rows, err := domain.NewMessageDomain().WindowMessageByMint(bound, p.Mint, 0, math.MaxInt64, 1<<30).Rows()
+	if err != nil {
+		return Memo{}, false, err
+	}
+	var latest Memo
+	found := false
+	for _, r := range rows {
+		if r.Sender != sender {
+			continue
+		}
+		m, ok := ParseMemo(r.Memo)
+		if !ok {
+			continue
+		}
+		m.Sender = r.Sender
+		m.At = r.CreatedAt
+		latest = m
+		found = true
+	}
+	return latest, found, nil
 }

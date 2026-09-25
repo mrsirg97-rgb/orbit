@@ -1,4 +1,4 @@
-package world
+package brief
 
 import (
 	"bytes"
@@ -92,8 +92,8 @@ func TestCompactTokenBand(t *testing.T) {
 		t.Fatal(err)
 	}
 	n := Tokens(got)
-	if n < 700 || n > 1000 {
-		t.Errorf("compact tokens %d, want [700, 1000]", n)
+	if n < 650 || n > 900 {
+		t.Errorf("compact tokens %d, want [650, 900]", n)
 	}
 	full, err := Build(fixtureReadState(), Full)
 	if err != nil {
@@ -134,19 +134,26 @@ func TestHealthNudges(t *testing.T) {
 	}
 }
 
+func TestStatusWord(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"BONDING", "bonding"}, {"COMPLETE", "ready"}, {"MIGRATED", "migrated"}, {"RECLAIMED", "reclaimed"},
+	} {
+		if got := statusWord(c.in); got != c.want {
+			t.Errorf("statusWord(%s) = %s, want %s", c.in, got, c.want)
+		}
+	}
+}
+
 func TestProjection(t *testing.T) {
 	read := fixtureReadState()
 	got, err := Build(read, Compact)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if statusChar("RECLAIMED") != "RAZED" {
-		t.Errorf("statusChar: %s", statusChar("RECLAIMED"))
-	}
 	for _, want := range []string{
 		"krZBG", // the 8-char FID of the fixture mint
 		"jmVx",  // the second mint's FID
-		"RS", "ASN",
+		"bonding", "migrated", "ready",
 		"T", "F",
 	} {
 		if !strings.Contains(got, want) {
@@ -156,8 +163,8 @@ func TestProjection(t *testing.T) {
 	if !strings.Contains(got, "@AP2B3A") {
 		t.Error("identity name missing")
 	}
-	if !strings.Contains(got, "HLTH: +") {
-		t.Error("HLTH line missing")
+	if !strings.Contains(got, "PNL: +") {
+		t.Error("PNL line missing")
 	}
 }
 
@@ -170,7 +177,7 @@ func TestYouAreDescribesTheWallet(t *testing.T) {
 		}
 		for _, want := range []string{
 			"NAME: @AP2B3A",
-			"PNL: +0.0025 SOL realized.",
+			"PNL: +0.1609 SOL.",
 			"POSITIONS: rNjTjmVx long at_risk 0.0050 SOL.",
 		} {
 			if !strings.Contains(got, want) {
@@ -178,16 +185,16 @@ func TestYouAreDescribesTheWallet(t *testing.T) {
 				if size == Full {
 					name = "full"
 				}
-				t.Errorf("%s block missing %q", name, want)
+				t.Errorf("%s brief missing %q", name, want)
 			}
 		}
-		for _, gone := range []string{"ROLE:", "MEMO SHAPES:", "VOICE:", "PERSONALITY:", "STAKE:"} {
+		for _, gone := range []string{"HLTH", "ROLE:", "MEMO SHAPES:", "VOICE:", "PERSONALITY:", "STAKE:", "RS ", "ASN", "RAZED", "(&)", "(-)", "(!)", "(_)", "MBR", "FNR", "SENT ", "rival", " an ally", "world block"} {
 			if strings.Contains(got, gone) {
 				name := "compact"
 				if size == Full {
 					name = "full"
 				}
-				t.Errorf("%s block still carries %q", name, gone)
+				t.Errorf("%s brief still carries %q", name, gone)
 			}
 		}
 	}
@@ -234,5 +241,17 @@ func TestRowsAndSizes(t *testing.T) {
 		if !strings.Contains(compact, sec+"\n") || !strings.Contains(full, sec+"\n") {
 			t.Errorf("section %s missing in one size", sec)
 		}
+	}
+}
+
+func TestArchitectGoal(t *testing.T) {
+	read := fixtureReadState()
+	read.Identity.Goal = "Research whether compact briefs degrade decisions."
+	got, err := Build(read, Compact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "GOAL: Research whether compact briefs degrade decisions.") {
+		t.Errorf("architect goal missing from the brief")
 	}
 }

@@ -17,7 +17,18 @@ import (
 // accept) and stake.
 type Board struct {
 	Store  *board.Store
-	Client *client.TorchClient
+	Client func() (*client.TorchClient, error)
+}
+
+func (b *Board) client() (*client.TorchClient, error) {
+	if b.Client == nil {
+		return nil, fmt.Errorf("board: no client seam (run /earn)")
+	}
+	tc, err := b.Client()
+	if err != nil {
+		return nil, fmt.Errorf("board: %w", err)
+	}
+	return tc, nil
 }
 
 func (b *Board) Name() string { return "board" }
@@ -79,16 +90,20 @@ func (b *Board) Exec(ctx context.Context, args json.RawMessage) (string, error) 
 // 8-char FID resolves through the indexer's market list (RPC-only boards
 // need the full mint).
 func (b *Board) resolveMint(ctx context.Context, input string) (string, error) {
+	tc, err := b.client()
+	if err != nil {
+		return "", err
+	}
 	if len(input) == 44 {
 		if _, err := b.Store.Market(ctx, input); err == nil {
 			return input, nil
 		}
 		return "", fmt.Errorf("no project with mint %s", input)
 	}
-	if b.Client.Indexer == "" {
+	if tc.Indexer == "" {
 		return "", fmt.Errorf("RPC-only boards need the full mint (ORBIT_INDEXER unset)")
 	}
-	markets, err := b.Client.API.Markets(ctx, nil)
+	markets, err := tc.API.Markets(ctx, nil)
 	if err != nil {
 		return "", fmt.Errorf("resolve %s: %w", input, err)
 	}
@@ -101,10 +116,14 @@ func (b *Board) resolveMint(ctx context.Context, input string) (string, error) {
 }
 
 func (b *Board) label(ctx context.Context, mint string) string {
-	if b.Client.Indexer == "" {
+	tc, err := b.client()
+	if err != nil {
 		return ""
 	}
-	m, err := b.Client.API.Market(ctx, mint)
+	if tc.Indexer == "" {
+		return ""
+	}
+	m, err := tc.API.Market(ctx, mint)
 	if err != nil {
 		return ""
 	}
