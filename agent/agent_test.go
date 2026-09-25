@@ -3,15 +3,14 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/mrsirg97-rgb/orbit/identity"
 	"github.com/mrsirg97-rgb/orbit/brief"
+	"github.com/mrsirg97-rgb/orbit/identity"
 	"github.com/mrsirg97-rgb/rig/store"
 	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
 	scheddomain "github.com/mrsirg97-rgb/rig/store/scheduler/domain"
@@ -78,7 +77,6 @@ func TestFireRebuildsBriefPerFire(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Two fixture snapshots with different values produce different briefs.
 	fixture := func(price float64) brief.ReadState {
 		return brief.ReadState{
 			Identity: brief.Identity{Name: "@AP2B3A", Bio: "b"},
@@ -129,7 +127,6 @@ func TestFireRebuildsBriefPerFire(t *testing.T) {
 		return ""
 	}
 
-	// Fire 1: brief built from the first snapshot.
 	if err := Fire(context.Background(), db, ct, "j1", row.ID, brief1, "/x/orbit run-job", runJob); err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +135,6 @@ func TestFireRebuildsBriefPerFire(t *testing.T) {
 		t.Errorf("fire 1 prompt is stale: %q, want the fresh brief", got1[:20])
 	}
 
-	// Fire 2: the same job, a different snapshot -> a different brief.
 	if err := Fire(context.Background(), db, ct, "j1", row.ID, brief2, "/x/orbit run-job", runJob); err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +147,7 @@ func TestFireRebuildsBriefPerFire(t *testing.T) {
 	}
 }
 
-func TestAgentJobFiresTheWorldBlock(t *testing.T) {
+func TestAgentJobFiresTheBrief(t *testing.T) {
 	home := t.TempDir()
 	db := openSched(t, home)
 	defer db.DB.Close()
@@ -162,9 +158,9 @@ func TestAgentJobFiresTheWorldBlock(t *testing.T) {
 		Bio:     "A torch market agent.",
 		Cadence: "0 */8 * * *", Model: "dsv4", Stall: 45, Budget: 1.25, Timeout: 60,
 	}
-	const worldBlock = "LEGEND\n(&) $ \"*\" → BACK — buy a project\nONE ACTION PER FIRE.\n"
+	const briefText = "LEGEND\nback $ \"*\" — buy a project. Vault-routed: the vault pays, the memo rides the tx.\nONE ACTION PER FIRE.\n"
 	jobCwd := t.TempDir()
-	reply, err := Register(context.Background(), db, ct, row, worldBlock, "/x/orbit run-job", jobCwd, "sess-agent")
+	reply, err := Register(context.Background(), db, ct, row, briefText, "/x/orbit run-job", jobCwd, "sess-agent")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +168,6 @@ func TestAgentJobFiresTheWorldBlock(t *testing.T) {
 		t.Fatalf("create reply: %s", reply)
 	}
 
-	// The job row carries the identity's cadence/stall/budget/timeout.
 	bound, tx, err := db.TxReadOnly(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -200,11 +195,10 @@ func TestAgentJobFiresTheWorldBlock(t *testing.T) {
 	if job.Timeout == nil || *job.Timeout != 60 {
 		t.Errorf("timeout %v", job.Timeout)
 	}
-	if !strings.Contains(job.Prompt, worldBlock) {
+	if !strings.Contains(job.Prompt, briefText) {
 		t.Errorf("prompt lacks the brief")
 	}
 
-	// Fire: the fake spawn captures the argv; the worker is `-p <brief>`.
 	spawn := &fakeSpawn{}
 	spawnFn := func(ctx context.Context, argv []string, cwd string, env []string, observe func([]byte)) (sched.SpawnResult, error) {
 		return spawn.spawn(ctx, argv, cwd, env, observe)
@@ -232,7 +226,7 @@ func TestAgentJobFiresTheWorldBlock(t *testing.T) {
 			found[argv[i]] = argv[i+1]
 		}
 	}
-	if found["-p"] == "" || !strings.Contains(found["-p"], worldBlock) {
+	if found["-p"] == "" || !strings.Contains(found["-p"], briefText) {
 		t.Errorf("worker prompt missing the brief: %q", found["-p"])
 	}
 	if !strings.Contains(found["-p"], sched.ReportBack) {
@@ -245,7 +239,6 @@ func TestAgentJobFiresTheWorldBlock(t *testing.T) {
 		t.Errorf("worker argv lacks session/base-url: %v", argv)
 	}
 
-	// The run recorded ok.
 	rows, err := sched.Runs(context.Background(), db, "j1", 5)
 	if err != nil {
 		t.Fatal(err)
@@ -253,7 +246,6 @@ func TestAgentJobFiresTheWorldBlock(t *testing.T) {
 	if !strings.Contains(rows, "ok") {
 		t.Errorf("runs: %s", rows)
 	}
-	_ = os.Getenv
 }
 
 func TestDefaultsLandInJob(t *testing.T) {
