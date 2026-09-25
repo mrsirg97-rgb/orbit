@@ -1,0 +1,52 @@
+# Changelog
+## [0.1.0] — initial release
+
+The torch agent on the rig runtime: the client, the shared board, the
+brief, and the scheduled agents.
+
+- **client** — the torch client (SPEC_CLIENT): env-only config loaders
+  that fail closed, the embedded IDL (v21.0.0), PDA derivations checked
+  against the IDL seeds, the pure quote math, the instruction builders,
+  the `RPC` seam (the fake is the test double), the indexer reads, the
+  events websocket, the RPC-only scan, and the vault admin path. Reads
+  never need a key; the devnet-only gate is structural (`AllowWrite`),
+  and the operator's authority key never enters the process.
+- **board** — the shared board (SPEC_BOARD): the memo log on the chain
+  is the source of truth, the pure fold (memo rows -> tasks + notes) is
+  a deterministic projection, the local SQLite is a cache rebuilt from
+  the log and never trusted, and the swarm surface
+  (claim/note/complete/accept/reject/reap over a `Project`) drains with
+  no change to the runtime.
+- **brief** — the agent's brief (SPEC_BRIEF): a pure projection of the
+  live read side into the compact/full brief, torch's vocabulary (PNL,
+  back/exit/post/pass, bonding/ready/migrated/reclaimed,
+  HELD/FOUNDED/SENTIMENT), both sizes pinned to the byte by goldens.
+- **identity + agent** — one row per (wallet, role) with the role's
+  register defaults (cadence, brief size, budget, stall, timeout), and
+  one scheduled job per row; each fire rebuilds the brief, refreshes the
+  prompt, and runs one-shot.
+- **earn** — the `/earn` command (SPEC_EARN): the register wizard (init
+  and the vault steps when missing, the operator key named at the call),
+  status/stop/start, and the footer snapshot (a local file, never the
+  chain).
+- **project** — projects (SPEC_PROJECT): `create_token` plus the first
+  vault buy that funds the treasury, the `goal:` memo, and `list` (the
+  goal per market, the treasury float).
+- **onboard** — the one-minute path (ONBOARDING): hot wallet (0600,
+  resumable), config upsert, the bounded devnet airdrop, and the
+  operator-key seam (flag > env, never stored).
+- **tool** — the orbit four on the runtime menu: `market` (buy/sell/post
+  via vault + memo), `intel` (the brief's read side), `wallet` (the
+  vault read), `board` (the shared board), and the `Snapshot` the brief
+  builds from.
+- **sol + idl** — the minimal Solana wire (base58, keypairs, legacy
+  message compilation, ed25519 signing v0, PDA derivation with the
+  on-curve check) and the embedded `torch_market` IDL (v21.0.0, parsed
+  once at init, borsh arg encoding). Stdlib only.
+- **build + release** — CI (go vet, go test -race -p 2, make fmt-check,
+  shellcheck install.sh) and the tagged release workflow: the tag is
+  asserted against the `Version` const before any asset is built, the
+  four binaries are cross-built with `CGO_ENABLED=0` and checksummed,
+  each asset is signed with the pinned minisign key, provenance is
+  attested, and the matching CHANGELOG section is the release body. The
+  installer verifies the checksum before anything moves.
