@@ -30,7 +30,10 @@ func runVault(args []string) int {
 	}
 	// Positional arguments: link/unlink <hot pubkey>, deposit/withdraw <sol>.
 	positional := fs.Args()
-	cfg, err := client.LoadConfig(os.Getenv)
+	if action == "show" {
+		return runVaultShow()
+	}
+	cfg, err := client.LoadOperatorConfig(os.Getenv)
 	if err != nil {
 		die("vault: %v", err)
 	}
@@ -117,23 +120,36 @@ func runVault(args []string) int {
 		}
 		fmt.Printf("%s %s %s\n", action, hot, client.VaultWalletLinkPDA(tc.ProgramID, hot))
 		fmt.Printf("signature %s\n", sig)
-	case "show":
-		show, err := client.ShowVault(ctx, tc, creator)
-		if err != nil {
-			die("vault: %v", err)
-		}
-		fmt.Printf("VAULT     %s\n", show.Vault)
-		fmt.Printf("CREATOR   %s\n", show.Creator)
-		fmt.Printf("AUTHORITY %s\n", show.Authority)
-		fmt.Printf("SOL       %s\n", client.FormatSOL(show.VaultSOL))
-		fmt.Printf("LINKED    %d wallet(s)\n", show.LinkedWallets)
-		fmt.Printf("DEPOSITED %s SOL\n", client.FormatSOL(show.TotalDeposited))
-		fmt.Printf("WITHDRAWN %s SOL\n", client.FormatSOL(show.TotalWithdrawn))
-		fmt.Printf("SPENT     %s SOL\n", client.FormatSOL(show.TotalSpent))
-		fmt.Printf("RECEIVED  %s SOL\n", client.FormatSOL(show.TotalReceived))
 	default:
 		fmt.Fprintf(os.Stderr, "orbit: vault: unknown action %q\n", action)
 		return 2
 	}
+	return 0
+}
+
+// runVaultShow is the read-only vault read: config (public creator) + chain,
+// no operator secret, no agent key.
+func runVaultShow() int {
+	cfg, err := client.LoadOperatorConfig(os.Getenv)
+	if err != nil {
+		die("vault: %v", err)
+	}
+	tc, err := client.New(cfg)
+	if err != nil {
+		die("vault: %v", err)
+	}
+	show, err := client.ShowVault(context.Background(), tc, cfg.VaultCreator)
+	if err != nil {
+		die("vault: %v", err)
+	}
+	fmt.Printf("VAULT     %s\n", show.Vault)
+	fmt.Printf("CREATOR   %s\n", show.Creator)
+	fmt.Printf("AUTHORITY %s\n", show.Authority)
+	fmt.Printf("SOL       %s\n", client.FormatSOL(show.VaultSOL))
+	fmt.Printf("LINKED    %d wallet(s)\n", show.LinkedWallets)
+	fmt.Printf("DEPOSITED %s SOL\n", client.FormatSOL(show.TotalDeposited))
+	fmt.Printf("WITHDRAWN %s SOL\n", client.FormatSOL(show.TotalWithdrawn))
+	fmt.Printf("SPENT     %s SOL\n", client.FormatSOL(show.TotalSpent))
+	fmt.Printf("RECEIVED  %s SOL\n", client.FormatSOL(show.TotalReceived))
 	return 0
 }

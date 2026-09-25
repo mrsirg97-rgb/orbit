@@ -231,19 +231,19 @@ func runAgent(args []string) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	cfg, err := client.LoadConfig(os.Getenv)
-	if err != nil {
-		die("%v", err)
-	}
-	tc, err := client.New(cfg)
-	if err != nil {
-		die("%v", err)
-	}
 	ctx := context.Background()
 	idb := identityStore()
 	defer idb.DB.Close()
 	switch *aaction {
 	case "register":
+		cfg, err := client.LoadConfig(os.Getenv)
+		if err != nil {
+			die("%v", err)
+		}
+		tc, err := client.New(cfg)
+		if err != nil {
+			die("%v", err)
+		}
 		role, err := identity.ParseRole(*roleFlag)
 		if err != nil {
 			die("%v", err)
@@ -262,7 +262,7 @@ func runAgent(args []string) int {
 		if err := identity.Upsert(ctx, idb, row); err != nil {
 			die("%v", err)
 		}
-		return ensureJob(ctx, tc, idb, row)
+		return ensureJob(ctx, idb, row)
 	case "refresh":
 		rows, err := identity.List(ctx, idb)
 		if err != nil {
@@ -272,7 +272,7 @@ func runAgent(args []string) int {
 			die("agent: no identity row (register first)")
 		}
 		for _, row := range rows {
-			if code := ensureJobAction(ctx, tc, idb, row, "refresh"); code != 0 {
+			if code := ensureJobAction(ctx, idb, row, "refresh"); code != 0 {
 				return code
 			}
 		}
@@ -310,11 +310,11 @@ func runAgent(args []string) int {
 	return 0
 }
 
-func ensureJob(ctx context.Context, tc *client.TorchClient, idb store.DB, row identity.Row) int {
-	return ensureJobAction(ctx, tc, idb, row, "register")
+func ensureJob(ctx context.Context, idb store.DB, row identity.Row) int {
+	return ensureJobAction(ctx, idb, row, "register")
 }
 
-func ensureJobAction(ctx context.Context, tc *client.TorchClient, idb store.DB, row identity.Row, action string) int {
+func ensureJobAction(ctx context.Context, idb store.DB, row identity.Row, action string) int {
 	// The stored prompt is a stub naming the identity and its role; the live
 	// world block is rebuilt per fire by run-job.
 	d, err := identity.DefaultsFor(identity.Role(row.Role))

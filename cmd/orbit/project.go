@@ -54,7 +54,7 @@ func runProjectCreate(args []string) int {
 	if lamports == 0 {
 		die("project: -treasury must be > 0")
 	}
-	cfg, err := client.LoadConfig(os.Getenv)
+	cfg, err := client.LoadOperatorConfig(os.Getenv)
 	if err != nil {
 		die("project: %v", err)
 	}
@@ -81,15 +81,12 @@ func runProjectCreate(args []string) int {
 }
 
 func runProjectList() int {
-	cfg, err := client.LoadConfig(os.Getenv)
+	cfg, err := client.LoadReadConfig(os.Getenv)
 	if err != nil {
 		die("project: %v", err)
 	}
-	tc, err := client.New(cfg)
-	if err != nil {
-		die("project: %v", err)
-	}
-	rows, err := project.List(context.Background(), tc.API, tc.RPC, tc.ProgramID, 50)
+	rows, err := project.List(context.Background(),
+		client.NewAPI(cfg.Indexer), client.NewJSONRPC(cfg.RPC), cfg.ProgramID, 50)
 	if err != nil {
 		die("project: %v", err)
 	}

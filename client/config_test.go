@@ -143,3 +143,62 @@ func TestDefaultRPCFromIndexer(t *testing.T) {
 		t.Errorf("full endpoint should be used as-is: %q", cfg.RPC)
 	}
 }
+
+// TestLoadReadConfigNeedsNoSigningKey: a read (project list) loads with only
+// the indexer and rpc; a present-but-bad key still fails closed, and the
+// write gate stays off.
+func TestLoadReadConfigNeedsNoSigningKey(t *testing.T) {
+	env := map[string]string{
+		"ORBIT_CONFIG":  filepath.Join(t.TempDir(), "config"),
+		"ORBIT_INDEXER": "https://x",
+		"ORBIT_RPC":     "https://x",
+	}
+	cfg, err := LoadReadConfig(func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AllowWrite {
+		t.Error("read config must keep the write gate off")
+	}
+	if cfg.VaultCreator != "" {
+		t.Errorf("vault creator must not be required for a read: %q", cfg.VaultCreator)
+	}
+	if _, err := LoadReadConfig(func(k string) string {
+		return map[string]string{"ORBIT_CONFIG": filepath.Join(t.TempDir(), "config")}[k]
+	}); err == nil {
+		t.Error("read config without the indexer accepted")
+	}
+	bad := map[string]string{
+		"ORBIT_INDEXER":   "https://x",
+		"ORBIT_RPC":       "https://x",
+		"ORBIT_AGENT_KEY": "1",
+	}
+	if _, err := LoadReadConfig(func(k string) string { return bad[k] }); err == nil {
+		t.Error("read config with a bad agent key accepted")
+	}
+}
+
+// TestLoadOperatorConfigNeedsNoAgentKey: the operator's write path (vault,
+// project create) needs the public creator but not the agent's signing key.
+func TestLoadOperatorConfigNeedsNoAgentKey(t *testing.T) {
+	env := map[string]string{
+		"ORBIT_CONFIG":        filepath.Join(t.TempDir(), "config"),
+		"ORBIT_INDEXER":       "https://x",
+		"ORBIT_RPC":           "https://x",
+		"ORBIT_VAULT_CREATOR": "11111111111111111111111111111111",
+	}
+	cfg, err := LoadOperatorConfig(func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.AllowWrite {
+		t.Error("operator config on devnet must keep the write gate on")
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("operator config must validate: %v", err)
+	}
+	delete(env, "ORBIT_VAULT_CREATOR")
+	if _, err := LoadOperatorConfig(func(k string) string { return env[k] }); err == nil {
+		t.Error("operator config without the vault creator accepted")
+	}
+}

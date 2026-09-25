@@ -29,19 +29,29 @@ Devnet only. The operator's vault authority key never enters the process.
 
 `Config` is loaded from the environment at startup:
 
+Three loaders share one resolver, one required set per mode:
+
+| loader | indexer | rpc | vault creator | agent key | writes |
+|---|---|---|---|---|---|
+| `LoadConfig` (agent runtime) | yes | yes | yes | yes | devnet gate |
+| `LoadOperatorConfig` (vault/project operator) | yes | yes | yes | no | devnet gate |
+| `LoadReadConfig` (project list) | yes | yes | no | no | off |
+
 | env | required | meaning |
 |---|---|---|
 | `ORBIT_INDEXER` | yes | indexer API base URL (e.g. `https://torch-api.example`) |
 | `ORBIT_RPC` | yes | Solana JSON-RPC base URL (may be `<indexer>/rpc`) |
 | `ORBIT_PROGRAM_ID` | no | torch program ID; default = the IDL address |
-| `ORBIT_VAULT_CREATOR` | yes | the vault creator pubkey (operator's identity, public only) |
-| `ORBIT_AGENT_KEY` | yes | base58 64-byte secret key of the agent hot wallet |
+| `ORBIT_VAULT_CREATOR` | operator + agent runtime | the vault creator pubkey (operator's identity, public only) |
+| `ORBIT_AGENT_KEY` | agent runtime only | base58 64-byte secret key of the agent hot wallet |
 
-Missing required env, an unparseable key, or a non-devnet program ID is a
-startup error. "Devnet only" is enforced structurally: `Config` carries an
-explicit `AllowWrite bool` that defaults false; the tools flip it only when
-the program ID equals the devnet IDL address. `ORBIT_AGENT_KEY` is never
-logged or echoed.
+Reads never need a signing key — a stranger browsing projects before
+deciding to join is the case. Missing required env, an unparseable key (a
+present `ORBIT_AGENT_KEY` is validated in every mode), or a non-devnet
+program ID is a startup error. "Devnet only" is enforced structurally:
+`Config` carries an explicit `AllowWrite bool` that defaults false; the
+operator and agent loaders flip it only when the program ID equals the
+devnet IDL address. `ORBIT_AGENT_KEY` is never logged or echoed.
 
 ### 2. The IDL is embedded; instruction bytes are derived, not hand-coded
 
