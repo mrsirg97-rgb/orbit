@@ -269,6 +269,36 @@ func TestOperatorKeyPrecedence(t *testing.T) {
 	}
 }
 
+func TestOperatorKeyPathRecordedInConfig(t *testing.T) {
+	kp := mustKeypair(t)
+	dir := t.TempDir()
+	keyFile := filepath.Join(dir, "operator.json")
+	if err := os.WriteFile(keyFile, []byte(mustSecret(kp)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfgFile := filepath.Join(dir, "config")
+	if err := WriteConfigValue(cfgFile, "ORBIT_OPERATOR_KEY_PATH", keyFile); err != nil {
+		t.Fatal(err)
+	}
+	getenv := func(k string) string {
+		if k == "ORBIT_CONFIG" {
+			return cfgFile
+		}
+		return ""
+	}
+	got, err := OperatorKey(getenv, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PublicBase58() != kpPublic(kp) {
+		t.Errorf("the recorded path should resolve, got %s", got.PublicBase58())
+	}
+	path, err := OperatorPath(getenv, "")
+	if err != nil || path != keyFile {
+		t.Errorf("OperatorPath: %q %v", path, err)
+	}
+}
+
 func TestWriteConfigValue(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config")
 	if err := WriteConfigValue(path, "ORBIT_INDEXER", "https://a"); err != nil {

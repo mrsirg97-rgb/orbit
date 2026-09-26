@@ -1,4 +1,30 @@
 # Changelog
+## [0.2.2] — the wizard splits into moments
+
+`/earn` was one register wizard that needed roles and a goal every run.
+It is now a set of moments:
+
+- **bare `/earn`** prints status when the home is set up, otherwise runs
+  join with one worker.
+- **`/earn join [roles]`** runs the setup (init, vault create, link,
+  deposit) then registers the roles (worker by default).
+- **`/earn roles`** lists the roster; **`/earn roles add|remove <role>`**
+  registers or removes one role and its job.
+- **`/earn goal "<text>"`** sets or changes the architect's goal,
+  registering an architect (and its job) when none exists.
+- **`/earn status|stop|start`** are unchanged.
+
+Before any chain spend the wizard prints one preflight line naming what
+exists and what will happen.
+
+The operator key path is asked once, at the first signing step, and
+remembered as `ORBIT_OPERATOR_KEY_PATH` in the config — the path, never
+the key. A second join after the path is recorded signs with no flag.
+
+Tests: bare `/earn` on a fresh home registers a worker; `roles add
+reviewer` creates one job; `goal` on a home with no architect registers
+one; a second join after the path is recorded signs with no flag.
+
 ## [0.2.1] — the wizard checks before it signs
 
 `/earn` resolved the operator key at the top of the vault create step,
