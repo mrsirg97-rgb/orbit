@@ -14,9 +14,11 @@ written to the orbit home. SPEC_EARN governs.
   dispatches `status`, `stop`, `start`, and the register wizard.
 - **The register wizard**: checks the hot key and the vault link, runs
   `init` when there is no hot key, then the vault steps (create, link,
-  deposit) with the operator key named at the call. Every step is
-  idempotent; one identity row per role is registered, the scheduled jobs
-  start, and the roster prints.
+  deposit) with the operator key named at the call. The key resolves
+  lazily, at the first step that signs — a rerun on a set-up home
+  registers roles with no key. Every step is idempotent; one identity row
+  per role is registered, the scheduled jobs start, and the roster
+  prints.
 - **`status` / `stop` / `start`**: the footer rows, and the pause/resume
   of every identity's scheduled job.
 - **`Rows`** (`status.go`): the footer — projects held, open claims, last

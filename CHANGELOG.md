@@ -1,4 +1,20 @@
 # Changelog
+## [0.2.1] — the wizard checks before it signs
+
+`/earn` resolved the operator key at the top of the vault create step,
+before it checked what needs doing. The wizard now checks the vault
+against the recorded creator first and resolves the operator key only at
+the step that actually signs (create, link, deposit); a rerun where the
+vault, the link and the deposit already exist registers roles with no
+key.
+
+The operator configs also stop reading the agent key file: `create` and
+the read paths never needed the hot key, so a missing `ORBIT_AGENT_KEY_FILE`
+no longer blocks them.
+
+Tests: a wizard run on an existing setup with no `--operator-key-path`
+succeeds and sends nothing.
+
 ## [0.2.0] — the hygiene pass: nine fixes, each with a test
 
 - **Task rows order numerically** — the board window and render were

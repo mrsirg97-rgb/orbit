@@ -66,7 +66,7 @@ import (
 	orbittool "github.com/mrsirg97-rgb/orbit/tool"
 )
 
-const Version = "0.2.0"
+const Version = "0.2.1"
 
 // titleName is the ASCII fallback when the theme's glyphs are not blocks.
 const titleName = "orbit"
