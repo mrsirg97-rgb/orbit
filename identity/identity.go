@@ -292,6 +292,17 @@ func List(ctx context.Context, db store.DB) ([]Row, error) {
 	return out, rows.Err()
 }
 
+func Delete(ctx context.Context, db store.DB, id string) error {
+	res, err := db.DB.ExecContext(ctx, `DELETE FROM identity WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("identity: delete %s: %w", id, err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return fmt.Errorf("identity: no row %s", id)
+	}
+	return nil
+}
+
 func Upsert(ctx context.Context, db store.DB, r Row) error {
 	if r.Name == "" || r.Wallet == "" || r.Model == "" {
 		return fmt.Errorf("identity: name, wallet, and model are required")

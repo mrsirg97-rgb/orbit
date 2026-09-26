@@ -42,7 +42,7 @@ type Command struct {
 func (c *Command) Name() string { return "earn" }
 
 func (c *Command) Description() string {
-	return "join: check the hot key and the vault link, run init and the vault steps when missing, register roles (architect, worker, reviewer) and start the jobs; status, stop, start"
+	return "the wizard: /earn alone prints status when set up, else joins as worker; join [roles] sets up and registers; roles list/add/remove; goal sets the architect's goal; status, stop, start"
 }
 
 func (c *Command) Run(ctx context.Context, args string, env any) (string, error) {
@@ -51,6 +51,14 @@ func (c *Command) Run(ctx context.Context, args string, env any) (string, error)
 		return "", err
 	}
 	switch in.action {
+	case "":
+		return c.auto(ctx, in)
+	case "join":
+		return c.join(ctx, in)
+	case "roles":
+		return c.roles(ctx, in)
+	case "goal":
+		return c.goal(ctx, in)
 	case "status":
 		return c.status(ctx)
 	case "stop":
@@ -58,7 +66,19 @@ func (c *Command) Run(ctx context.Context, args string, env any) (string, error)
 	case "start":
 		return c.stop(ctx, true)
 	}
-	return c.register(ctx, in)
+	return "", fmt.Errorf("earn: unknown action %q", in.action)
+}
+
+func (c *Command) auto(ctx context.Context, in args) (string, error) {
+	plan, err := c.setupPlan(ctx)
+	if err != nil {
+		return "", err
+	}
+	if plan.complete() {
+		return c.status(ctx)
+	}
+	in.roles = []identity.Role{identity.Worker}
+	return c.join(ctx, in)
 }
 
 func (c *Command) status(ctx context.Context) (string, error) {
@@ -111,39 +131,183 @@ func (c *Command) stop(ctx context.Context, resume bool) (string, error) {
 	return "earn: " + verb + "\n" + strings.Join(lines, "\n"), nil
 }
 
-func (c *Command) register(ctx context.Context, in args) (string, error) {
-	if len(in.roles) == 0 {
-		return "", fmt.Errorf("earn: which roles? architect, worker, reviewer (any mix) — e.g. /earn architect worker --goal \"<one paragraph>\" --operator-key-path /path")
+func (c *Command) join(ctx context.Context, in args) (string, error) {
+	roles := in.roles
+	if len(roles) == 0 {
+		roles = []identity.Role{identity.Worker}
 	}
-	for _, role := range in.roles {
-		if role == identity.Architect && strings.TrimSpace(in.goal) == "" {
-			return "", fmt.Errorf("earn: architect needs a goal: add goal \"<one paragraph>\" (the goal rides the brief)")
-		}
+	if err := c.checkRoles(in, roles); err != nil {
+		return "", err
 	}
-	// The model check runs before any chain spend: a run without a model
-	// must not airdrop, create, link, or deposit.
-	model := strings.TrimSpace(in.model)
-	if model == "" && c.Model != nil {
-		model = c.Model()
-	}
+	model := c.resolveModel(in)
 	if model == "" {
 		return "", fmt.Errorf("earn: no model: add --model <model> (or run orbit with one)")
+	}
+	line, err := c.preflight(ctx, roles)
+	if err != nil {
+		return "", err
 	}
 	tc, steps, err := c.ensureSetup(ctx, in)
 	if err != nil {
 		return "", err
 	}
-	var rows []identity.Row
-	var lines []string
-	for _, role := range in.roles {
-		row, err := identity.NewRow(tc.AgentPublic(), role, identity.Overrides{Model: model, Goal: in.goal})
+	lines, err := c.registerRoles(ctx, tc, roles, in.goal, model)
+	if err != nil {
+		return "", err
+	}
+	return c.finish(ctx, tc, line, steps, lines), nil
+}
+
+func (c *Command) roles(ctx context.Context, in args) (string, error) {
+	switch in.sub {
+	case "":
+		return Roster(ctx, c.IdentityDB, c.SchedDB), nil
+	case "add":
+		return c.rolesAdd(ctx, in)
+	case "remove":
+		return c.rolesRemove(ctx, in)
+	}
+	return "", fmt.Errorf("earn: roles: add|remove <role>, or nothing to list")
+}
+
+func (c *Command) rolesAdd(ctx context.Context, in args) (string, error) {
+	if err := c.checkRoles(in, in.roles); err != nil {
+		return "", err
+	}
+	model := c.resolveModel(in)
+	if model == "" {
+		return "", fmt.Errorf("earn: no model: add --model <model> (or run orbit with one)")
+	}
+	line, err := c.preflight(ctx, in.roles)
+	if err != nil {
+		return "", err
+	}
+	tc, steps, err := c.ensureSetup(ctx, in)
+	if err != nil {
+		return "", err
+	}
+	lines, err := c.registerRoles(ctx, tc, in.roles, in.goal, model)
+	if err != nil {
+		return "", err
+	}
+	return c.finish(ctx, tc, line, steps, lines), nil
+}
+
+func (c *Command) rolesRemove(ctx context.Context, in args) (string, error) {
+	role := in.roles[0]
+	rows, err := identity.List(ctx, c.IdentityDB)
+	if err != nil {
+		return "", err
+	}
+	var removed []string
+	for _, row := range rows {
+		if row.Role != string(role) {
+			continue
+		}
+		if id := findJobID(ctx, c.SchedDB, agent.JobName(row.ID)); id != "" {
+			if _, err := sched.Remove(ctx, c.SchedDB, c.Crontab, id, c.Cwd, c.Session); err != nil {
+				return "", fmt.Errorf("earn: remove %s: %w", row.ID, err)
+			}
+		}
+		if err := identity.Delete(ctx, c.IdentityDB, row.ID); err != nil {
+			return "", fmt.Errorf("earn: remove %s: %w", row.ID, err)
+		}
+		removed = append(removed, row.ID)
+	}
+	if len(removed) == 0 {
+		return "", fmt.Errorf("earn: no %s row (register first)", role)
+	}
+	parts := append([]string{"earn: removed " + string(role)}, Roster(ctx, c.IdentityDB, c.SchedDB))
+	return strings.Join(parts, "\n"), nil
+}
+
+func (c *Command) goal(ctx context.Context, in args) (string, error) {
+	goal := strings.TrimSpace(in.goal)
+	if goal == "" {
+		return "", fmt.Errorf("earn: goal needs text: /earn goal \"<one paragraph>\"")
+	}
+	rows, err := identity.List(ctx, c.IdentityDB)
+	if err != nil {
+		return "", err
+	}
+	for i := range rows {
+		row := rows[i]
+		if row.Role != string(identity.Architect) {
+			continue
+		}
+		row.Goal = goal
+		if err := identity.Upsert(ctx, c.IdentityDB, row); err != nil {
+			return "", fmt.Errorf("earn: goal: %w", err)
+		}
+		stub := brief.StubBrief(brief.Identity{Name: row.Name, Bio: row.Bio, Goal: row.Goal})
+		id := findJobID(ctx, c.SchedDB, agent.JobName(row.ID))
+		if id == "" {
+			return "", fmt.Errorf("earn: goal: %s has no job (join first)", row.ID)
+		}
+		reply, err := agent.Refresh(ctx, c.SchedDB, c.Crontab, id, row.ID, stub, c.Session, c.runner())
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("earn: goal: %w", err)
+		}
+		return "earn: goal\n" + fmt.Sprintf("%s: %s", row.ID, reply), nil
+	}
+	model := c.resolveModel(in)
+	if model == "" {
+		return "", fmt.Errorf("earn: no model: add --model <model> (or run orbit with one)")
+	}
+	line, err := c.preflight(ctx, []identity.Role{identity.Architect})
+	if err != nil {
+		return "", err
+	}
+	tc, steps, err := c.ensureSetup(ctx, in)
+	if err != nil {
+		return "", err
+	}
+	lines, err := c.registerRoles(ctx, tc, []identity.Role{identity.Architect}, goal, model)
+	if err != nil {
+		return "", err
+	}
+	return c.finish(ctx, tc, line, steps, lines), nil
+}
+
+func (c *Command) finish(ctx context.Context, tc *client.TorchClient, line string, steps, lines []string) string {
+	parts := append([]string{line}, steps...)
+	parts = append(parts, lines...)
+	parts = append(parts, Roster(ctx, c.IdentityDB, c.SchedDB))
+	if c.SnapshotPath != "" {
+		if rows, err := Status(ctx, tc, c.Board); err == nil {
+			_ = WriteSnapshot(c.SnapshotPath, rows)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func (c *Command) checkRoles(in args, roles []identity.Role) error {
+	for _, role := range roles {
+		if role == identity.Architect && strings.TrimSpace(in.goal) == "" {
+			return fmt.Errorf("earn: architect needs a goal: add goal \"<one paragraph>\" (or /earn goal \"<text>\")")
+		}
+	}
+	return nil
+}
+
+func (c *Command) resolveModel(in args) string {
+	model := strings.TrimSpace(in.model)
+	if model == "" && c.Model != nil {
+		model = c.Model()
+	}
+	return model
+}
+
+func (c *Command) registerRoles(ctx context.Context, tc *client.TorchClient, roles []identity.Role, goal, model string) ([]string, error) {
+	var lines []string
+	for _, role := range roles {
+		row, err := identity.NewRow(tc.AgentPublic(), role, identity.Overrides{Model: model, Goal: goal})
+		if err != nil {
+			return nil, err
 		}
 		if err := identity.Upsert(ctx, c.IdentityDB, row); err != nil {
-			return "", fmt.Errorf("earn: register %s: %w", role, err)
+			return nil, fmt.Errorf("earn: register %s: %w", role, err)
 		}
-		rows = append(rows, row)
 		stub := brief.StubBrief(brief.Identity{Name: row.Name, Bio: row.Bio, Goal: row.Goal})
 		var reply string
 		if id := findJobID(ctx, c.SchedDB, agent.JobName(row.ID)); id != "" {
@@ -151,34 +315,20 @@ func (c *Command) register(ctx context.Context, in args) (string, error) {
 		} else {
 			jobCwd, cerr := c.JobCwd()
 			if cerr != nil {
-				return "", fmt.Errorf("earn: job cwd: %w", cerr)
+				return nil, fmt.Errorf("earn: job cwd: %w", cerr)
 			}
 			reply, err = agent.Register(ctx, c.SchedDB, c.Crontab, row, stub, c.runner(), jobCwd, c.Session)
 		}
 		if err != nil {
-			return "", fmt.Errorf("earn: job %s: %w", row.ID, err)
+			return nil, fmt.Errorf("earn: job %s: %w", row.ID, err)
 		}
 		lines = append(lines, fmt.Sprintf("%s: %s", row.ID, reply))
 	}
-	roster := Roster(ctx, c.IdentityDB, c.SchedDB)
-	parts := append([]string{"earn: registered"}, steps...)
-	parts = append(parts, lines...)
-	parts = append(parts, roster)
-	if c.SnapshotPath != "" {
-		if rows, err := Status(ctx, tc, c.Board); err == nil {
-			if err := WriteSnapshot(c.SnapshotPath, rows); err != nil {
-				return "", err
-			}
-		}
-	}
-	return strings.Join(parts, "\n"), nil
+	return lines, nil
 }
 
 func (c *Command) ensureSetup(ctx context.Context, in args) (*client.TorchClient, []string, error) {
-	getenv := c.Getenv
-	if getenv == nil {
-		getenv = func(string) string { return "" }
-	}
+	getenv := c.getenv()
 	var steps []string
 	cfgMap, err := onboard.Load(getenv)
 	if err != nil {
@@ -225,11 +375,137 @@ func (c *Command) ensureSetup(ctx context.Context, in args) (*client.TorchClient
 	return tc, steps, nil
 }
 
-func (c *Command) vaultCreate(ctx context.Context, in args) (string, error) {
-	getenv := c.Getenv
-	if getenv == nil {
-		getenv = func(string) string { return "" }
+type setupPlan struct {
+	exists []string
+	todo   []string
+}
+
+func (p setupPlan) complete() bool { return len(p.todo) == 0 }
+
+func (c *Command) setupPlan(ctx context.Context) (setupPlan, error) {
+	getenv := c.getenv()
+	cfgMap, err := onboard.Load(getenv)
+	if err != nil {
+		return setupPlan{}, fmt.Errorf("earn: config: %w", err)
 	}
+	p := setupPlan{}
+	hot := c.hotAvailable(cfgMap, getenv)
+	if hot {
+		p.exists = append(p.exists, "hot key")
+	} else {
+		p.todo = append(p.todo, "init")
+	}
+	creator := strings.TrimSpace(cfgMap["ORBIT_VAULT_CREATOR"])
+	deposit := strings.TrimSpace(cfgMap["ORBIT_VAULT_DEPOSITED"]) != ""
+	linkChecked := false
+	if creator != "" {
+		cfg, err := client.LoadOperatorConfig(getenv)
+		if err != nil {
+			return setupPlan{}, fmt.Errorf("earn: preflight: %w", err)
+		}
+		tc, err := c.vaultClient(cfg)
+		if err != nil {
+			return setupPlan{}, fmt.Errorf("earn: preflight: %w", err)
+		}
+		vault, err := tc.RPC.GetAccountInfo(ctx, client.TorchVaultPDA(tc.ProgramID, creator))
+		if err != nil {
+			return setupPlan{}, fmt.Errorf("earn: preflight: %w", err)
+		}
+		if vault.Exists {
+			p.exists = append(p.exists, "vault")
+			if !deposit {
+				rec, err := client.DecodeTorchVault(vault.Data)
+				if err != nil {
+					return setupPlan{}, fmt.Errorf("earn: preflight: vault record: %w", err)
+				}
+				deposit = rec.TotalDeposited > 0
+			}
+		} else {
+			p.todo = append(p.todo, "create vault")
+		}
+		if hot {
+			hotPub, err := c.hotPublic(cfgMap, getenv)
+			if err != nil {
+				return setupPlan{}, fmt.Errorf("earn: preflight: %w", err)
+			}
+			if hotPub != "" {
+				link, err := tc.RPC.GetAccountInfo(ctx, client.VaultWalletLinkPDA(tc.ProgramID, hotPub))
+				if err != nil {
+					return setupPlan{}, fmt.Errorf("earn: preflight: %w", err)
+				}
+				if link.Exists {
+					p.exists = append(p.exists, "link")
+				} else {
+					p.todo = append(p.todo, "link")
+				}
+				linkChecked = true
+			}
+		}
+	}
+	if !linkChecked {
+		p.todo = append(p.todo, "link")
+	}
+	if deposit {
+		p.exists = append(p.exists, "deposit")
+	} else {
+		p.todo = append(p.todo, "deposit")
+	}
+	return p, nil
+}
+
+func (c *Command) preflight(ctx context.Context, roles []identity.Role) (string, error) {
+	plan, err := c.setupPlan(ctx)
+	if err != nil {
+		return "", err
+	}
+	exists := strings.Join(plan.exists, ", ")
+	if exists == "" {
+		exists = "nothing"
+	}
+	roleNames := make([]string, len(roles))
+	for i, role := range roles {
+		roleNames[i] = string(role)
+	}
+	todo := append(append([]string{}, plan.todo...), "register "+strings.Join(roleNames, ", "))
+	return "preflight: " + exists + "; will: " + strings.Join(todo, ", "), nil
+}
+
+func (c *Command) hotAvailable(cfgMap map[string]string, getenv func(string) string) bool {
+	if strings.TrimSpace(getenv("ORBIT_AGENT_KEY")) != "" {
+		return true
+	}
+	keyFile := strings.TrimSpace(cfgMap["ORBIT_AGENT_KEY_FILE"])
+	if keyFile == "" {
+		keyFile = strings.TrimSpace(getenv("ORBIT_AGENT_KEY_FILE"))
+	}
+	return fileExists(keyFile)
+}
+
+func (c *Command) hotPublic(cfgMap map[string]string, getenv func(string) string) (string, error) {
+	secret := strings.TrimSpace(getenv("ORBIT_AGENT_KEY"))
+	if secret == "" {
+		keyFile := strings.TrimSpace(cfgMap["ORBIT_AGENT_KEY_FILE"])
+		if keyFile == "" {
+			keyFile = strings.TrimSpace(getenv("ORBIT_AGENT_KEY_FILE"))
+		}
+		if keyFile == "" {
+			return "", nil
+		}
+		b, err := os.ReadFile(keyFile)
+		if err != nil {
+			return "", err
+		}
+		secret = strings.TrimSpace(string(b))
+	}
+	kp, err := sol.KeypairFromSecret(secret)
+	if err != nil {
+		return "", err
+	}
+	return kp.PublicBase58(), nil
+}
+
+func (c *Command) vaultCreate(ctx context.Context, in args) (string, error) {
+	getenv := c.getenv()
 	cfg, err := client.LoadOperatorCreateConfig(getenv)
 	if err != nil {
 		return "", fmt.Errorf("earn: vault create: %w", err)
@@ -331,10 +607,7 @@ func (c *Command) vaultLink(ctx context.Context, tc *client.TorchClient, in args
 }
 
 func (c *Command) vaultDeposit(ctx context.Context, tc *client.TorchClient, in args) (string, error) {
-	getenv := c.Getenv
-	if getenv == nil {
-		getenv = func(string) string { return "" }
-	}
+	getenv := c.getenv()
 	cfgMap, err := onboard.Load(getenv)
 	if err != nil {
 		return "", fmt.Errorf("earn: vault deposit: %w", err)
@@ -342,8 +615,6 @@ func (c *Command) vaultDeposit(ctx context.Context, tc *client.TorchClient, in a
 	if strings.TrimSpace(cfgMap["ORBIT_VAULT_DEPOSITED"]) != "" {
 		return "", nil
 	}
-	// The deposit gate is the recorded setup marker or the vault record's
-	// total_deposited, never the running balance (which the board spends).
 	info, err := tc.RPC.GetAccountInfo(ctx, client.TorchVaultPDA(tc.ProgramID, tc.VaultCreator))
 	if err != nil {
 		return "", fmt.Errorf("earn: vault deposit: %w", err)
@@ -405,7 +676,30 @@ func (c *Command) operatorKey(in args) (sol.Keypair, error) {
 	if op == nil {
 		return sol.Keypair{}, fmt.Errorf("earn: operator key required (named at the call, never stored): -operator-key, -operator-key-path, or ORBIT_OPERATOR_KEY(_PATH)")
 	}
-	return op(in.operatorKey, in.operatorKeyPath)
+	getenv := c.getenv()
+	path, err := onboard.OperatorPath(getenv, in.operatorKeyPath)
+	if err != nil {
+		return sol.Keypair{}, err
+	}
+	kp, err := op(in.operatorKey, path)
+	if err != nil {
+		return kp, err
+	}
+	if path != "" && strings.TrimSpace(in.operatorKey) == "" && strings.TrimSpace(getenv("ORBIT_OPERATOR_KEY")) == "" {
+		if err := c.rememberOperatorPath(path); err != nil {
+			return kp, err
+		}
+	}
+	return kp, nil
+}
+
+func (c *Command) rememberOperatorPath(path string) error {
+	getenv := c.getenv()
+	cfgPath, err := onboard.ConfigPath(getenv)
+	if err != nil {
+		return err
+	}
+	return onboard.WriteConfigValue(cfgPath, "ORBIT_OPERATOR_KEY_PATH", path)
 }
 
 func (c *Command) client(ctx context.Context) (*client.TorchClient, error) {
@@ -426,6 +720,13 @@ func (c *Command) runner() string {
 	return agent.RunnerCommand(c.Self)
 }
 
+func (c *Command) getenv() func(string) string {
+	if c.Getenv != nil {
+		return c.Getenv
+	}
+	return func(string) string { return "" }
+}
+
 func fileExists(path string) bool {
 	if path == "" {
 		return false
@@ -436,6 +737,7 @@ func fileExists(path string) bool {
 
 type args struct {
 	action          string
+	sub             string
 	roles           []identity.Role
 	goal            string
 	operatorKey     string
@@ -448,17 +750,35 @@ func parseArgs(s string) (args, error) {
 	if err != nil {
 		return args{}, err
 	}
-	out := args{}
+	if len(tokens) == 0 {
+		return args{}, nil
+	}
+	switch tokens[0] {
+	case "status", "stop", "start":
+		if len(tokens) != 1 {
+			return args{}, fmt.Errorf("earn: %s takes no arguments", tokens[0])
+		}
+		return args{action: tokens[0]}, nil
+	case "join":
+		return parseJoin(tokens[1:])
+	case "roles":
+		return parseRoles(tokens[1:])
+	case "goal":
+		if len(tokens) != 2 {
+			return args{}, fmt.Errorf("earn: goal needs one quoted text: /earn goal \"<one paragraph>\"")
+		}
+		return args{action: "goal", goal: tokens[1]}, nil
+	default:
+		return args{}, fmt.Errorf("earn: unknown command %q (join, roles, goal, status, stop, start)", tokens[0])
+	}
+}
+
+func parseJoin(tokens []string) (args, error) {
+	out := args{action: "join"}
 	seen := map[identity.Role]bool{}
 	for i := 0; i < len(tokens); i++ {
 		tok := tokens[i]
 		switch tok {
-		case "status", "stop", "start":
-			if i != 0 || len(tokens) != 1 {
-				return args{}, fmt.Errorf("earn: %s takes no arguments", tok)
-			}
-			out.action = tok
-			continue
 		case "--goal":
 			v, ok := valueAt(tokens, i+1)
 			if !ok {
@@ -500,6 +820,25 @@ func parseArgs(s string) (args, error) {
 		}
 	}
 	return out, nil
+}
+
+func parseRoles(tokens []string) (args, error) {
+	if len(tokens) == 0 {
+		return args{action: "roles"}, nil
+	}
+	switch tokens[0] {
+	case "add", "remove":
+		if len(tokens) != 2 {
+			return args{}, fmt.Errorf("earn: roles %s needs a role (architect, worker, reviewer)", tokens[0])
+		}
+		role, err := identity.ParseRole(tokens[1])
+		if err != nil {
+			return args{}, err
+		}
+		return args{action: "roles", sub: tokens[0], roles: []identity.Role{role}}, nil
+	default:
+		return args{}, fmt.Errorf("earn: roles: add|remove <role>, or nothing to list")
+	}
 }
 
 func valueAt(tokens []string, i int) (string, bool) {

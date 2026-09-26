@@ -2,23 +2,31 @@
 
 ## What it is
 
-The one-minute join path as a slash command: the `/earn` wizard (init,
-vault steps, roles, scheduled jobs) and the status rows the TUI's footer
+The one-minute join path as a slash command split into moments: bare
+`/earn` (status when set up, else join as worker), `join [roles]`,
+`roles list/add/remove`, `goal`, and the status rows the TUI's footer
 renders. The operator key is named at the call — `--operator-key`,
-`--operator-key-path`, or `ORBIT_OPERATOR_KEY(_PATH)` — and is never
-written to the orbit home. SPEC_EARN governs.
+`--operator-key-path`, or `ORBIT_OPERATOR_KEY(_PATH)`; the path is asked
+once at the first signing step and remembered as
+`ORBIT_OPERATOR_KEY_PATH` in the config (the path, never the key).
+SPEC_EARN governs.
 
 ## What it includes
 
 - **`Command`** (`command.go`): the `/earn` slash command — `Run`
-  dispatches `status`, `stop`, `start`, and the register wizard.
-- **The register wizard**: checks the hot key and the vault link, runs
-  `init` when there is no hot key, then the vault steps (create, link,
-  deposit) with the operator key named at the call. The key resolves
-  lazily, at the first step that signs — a rerun on a set-up home
-  registers roles with no key. Every step is idempotent; one identity row
-  per role is registered, the scheduled jobs start, and the roster
-  prints.
+  dispatches the moments: bare, `join`, `roles`, `goal`, `status`,
+  `stop`, `start`.
+- **`join [roles]`**: runs the setup (init, vault create, link, deposit)
+  with the operator key named at the call, then registers the roles
+  (worker by default). The key resolves lazily, at the first step that
+  signs — a rerun on a set-up home registers roles with no key. Before
+  any chain spend, one preflight line names what exists and what will
+  happen. Every step is idempotent; one identity row per role is
+  registered, the scheduled jobs start, and the roster prints.
+- **`roles` / `roles add|remove <role>`**: the roster, and one role's
+  registration or removal (identity row + job).
+- **`goal "<text>"`**: the architect's goal — set or change it,
+  registering the architect (and its job) when none exists.
 - **`status` / `stop` / `start`**: the footer rows, and the pause/resume
   of every identity's scheduled job.
 - **`Rows`** (`status.go`): the footer — projects held, open claims, last

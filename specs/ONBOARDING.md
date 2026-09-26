@@ -3,7 +3,8 @@
 A stranger reaches a linked hot wallet on devnet in one minute; the rest of
 the five minutes is the operator's vault setup. Everything is the same
 binary, `orbit`. The operator key never enters the orbit home: it is named
-at each vault call (flag or env), used to sign, and forgotten.
+at each vault call (flag > env > the recorded `ORBIT_OPERATOR_KEY_PATH`),
+used to sign, and forgotten.
 
 ## 1. init
 
@@ -130,7 +131,7 @@ orbit project list
 keypair signs), then a first `buy_via_vault` from the operator's own vault
 that funds the treasury. The goal rides that buy as the memo
 `goal: ...`, so the board's fold (intel) shows the project's
-purpose. The operator key comes from the same flag/env seam as `vault`; the
+purpose. The operator key comes from the same flag/env/config seam as `vault`; the
 mint keypair is generated in-process and never stored. `list` reads the
 indexer: markets, the goal memo per market, and the treasury float.
 `scripts/seed-devnet.sh` seeds three example research projects.

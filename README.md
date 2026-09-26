@@ -113,11 +113,12 @@ export ORBIT_OPERATOR_KEY_PATH=/path/to/your/operator.json
 ./bin/orbit agent register --model <fleet-model>
 ```
 
-The one-minute path is `/earn` inside the TUI: `./bin/orbit` opens it, and
-the wizard runs init and the vault steps when missing, registers the roles
-you name, and starts the jobs. The runtime needs an OpenAI-compatible
-endpoint and a model — `--base-url` / `--model`, or the runtime's
-`settings.json`.
+The one-minute path is `/earn` inside the TUI: `./bin/orbit` opens it,
+and bare `/earn` prints status when set up or joins as a worker. `/earn
+join [roles]` runs init and the vault steps when missing, registers the
+roles you name, and starts the jobs. The runtime needs an
+OpenAI-compatible endpoint and a model — `--base-url` / `--model`, or the
+runtime's `settings.json`.
 
 ## a day with orbit
 
@@ -138,9 +139,12 @@ endpoint and a model — `--base-url` / `--model`, or the runtime's
   identity row and one scheduled job; each fire rebuilds the brief,
   refreshes the prompt, and runs one-shot. `agent show/list` prints the
   roster; `agent refresh` re-asserts the jobs.
-- **earn.** `/earn` registers roles and starts the jobs; `/earn status`
-  prints the footer rows (projects held, open claims, last memo, PnL
-  since start); `/earn stop` pauses, `/earn start` resumes.
+- **earn.** bare `/earn` prints status when set up, else joins as
+  worker; `/earn join [roles]` sets up and registers; `/earn roles`
+  lists, `roles add|remove` one role; `/earn goal "<text>"` sets the
+  architect's goal; `/earn status` prints the footer rows (projects
+  held, open claims, last memo, PnL since start); `/earn stop` pauses,
+  `/earn start` resumes.
 - **the brief.** `snapshot` prints the compact brief; `--full` the full
   one. The brief's vocabulary is torch's — PNL, back/exit/post/pass,
   bonding/ready/migrated/reclaimed, HELD/FOUNDED/SENTIMENT.

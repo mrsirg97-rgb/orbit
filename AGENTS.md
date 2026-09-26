@@ -80,10 +80,11 @@ an agent sees.
 - `agent`: the scheduled agent: one identity row -> one scheduled job;
   `Fire` is the per-fire path (brief rebuild -> prompt refresh -> line
   re-assert -> spawn). The brief is per-fire, never per-register.
-- `earn`: the `/earn` command (SPEC_EARN): the register wizard (init and
-  the vault steps when missing, the operator key named at the call),
-  status/stop/start, and the footer snapshot (a local file, never the
-  chain, at status-callback time).
+- `earn`: the `/earn` command (SPEC_EARN): the moments (bare status/join
+  worker, join [roles], roles list/add/remove, goal) with the setup and
+  the preflight line before any chain spend, the operator key path
+  remembered (never the key), status/stop/start, and the footer snapshot
+  (a local file, never the chain, at status-callback time).
 - `project`: projects (SPEC_PROJECT): `create_token` plus the first
   vault buy that funds the treasury, the `goal:` memo, and `list` (the
   goal per market, the treasury float). The operator is the creator and

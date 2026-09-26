@@ -149,6 +149,33 @@ type earnHarness struct {
 	tc  *client.TorchClient
 }
 
+func writeAgentKey(t *testing.T, dir string) string {
+	t.Helper()
+	agent, err := sol.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyFile := filepath.Join(dir, "key")
+	if err := os.WriteFile(keyFile, []byte(sol.Encode(agent.Secret)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return keyFile
+}
+
+func writeFreshConfig(t *testing.T, dir string) string {
+	t.Helper()
+	keyFile := writeAgentKey(t, dir)
+	cfgFile := filepath.Join(dir, "config")
+	cfg := "ORBIT_INDEXER=https://indexer.example\n" +
+		"ORBIT_RPC=https://rpc.example\n" +
+		"ORBIT_PROGRAM_ID=" + client.DevnetProgramID + "\n" +
+		"ORBIT_AGENT_KEY_FILE=" + keyFile + "\n"
+	if err := os.WriteFile(cfgFile, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return cfgFile
+}
+
 func newHarness(t *testing.T, getenv func(string) string) *earnHarness {
 	t.Helper()
 	dir := t.TempDir()
@@ -233,12 +260,28 @@ func (f *failInstallCrontab) Install(text string) error {
 }
 
 func TestParseArgs(t *testing.T) {
-	in, err := parseArgs(`architect worker --goal "Research briefs." --operator-key-path /k --model dsv4`)
+	in, err := parseArgs(`join architect worker --goal "Research briefs." --operator-key-path /k --model dsv4`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(in.roles) != 2 || in.goal != "Research briefs." || in.operatorKeyPath != "/k" || in.model != "dsv4" {
+	if in.action != "join" || len(in.roles) != 2 || in.goal != "Research briefs." || in.operatorKeyPath != "/k" || in.model != "dsv4" {
 		t.Errorf("args: %+v", in)
+	}
+	bare, err := parseArgs("")
+	if err != nil || bare.action != "" {
+		t.Errorf("bare earn: %+v %v", bare, err)
+	}
+	roles, err := parseArgs("roles")
+	if err != nil || roles.action != "roles" || roles.sub != "" {
+		t.Errorf("roles: %+v %v", roles, err)
+	}
+	add, err := parseArgs("roles add reviewer")
+	if err != nil || add.action != "roles" || add.sub != "add" || len(add.roles) != 1 || add.roles[0] != identity.Reviewer {
+		t.Errorf("roles add: %+v %v", add, err)
+	}
+	goal, err := parseArgs(`goal "Research briefs."`)
+	if err != nil || goal.action != "goal" || goal.goal != "Research briefs." {
+		t.Errorf("goal: %+v %v", goal, err)
 	}
 	for _, tok := range []string{"status", "stop", "start"} {
 		got, err := parseArgs(tok)
@@ -246,35 +289,75 @@ func TestParseArgs(t *testing.T) {
 			t.Errorf("parseArgs(%s): %+v %v", tok, got, err)
 		}
 	}
-	if _, err := parseArgs("worker worker"); err == nil || !strings.Contains(err.Error(), "duplicate") {
+	if _, err := parseArgs("join worker worker"); err == nil || !strings.Contains(err.Error(), "duplicate") {
 		t.Errorf("duplicate role: %v", err)
 	}
-	if _, err := parseArgs(`--goal "unterminated`); err == nil || !strings.Contains(err.Error(), "quote") {
+	if _, err := parseArgs("roles add"); err == nil || !strings.Contains(err.Error(), "needs a role") {
+		t.Errorf("roles add without a role: %v", err)
+	}
+	if _, err := parseArgs("goal"); err == nil || !strings.Contains(err.Error(), "goal needs") {
+		t.Errorf("goal without text: %v", err)
+	}
+	if _, err := parseArgs(`join --goal "unterminated`); err == nil || !strings.Contains(err.Error(), "quote") {
 		t.Errorf("unterminated quote: %v", err)
 	}
 }
 
-func TestRegisterAsksForRolesAndGoal(t *testing.T) {
-	h := newHarness(t, nil)
+func TestBareEarnFreshHomeRegistersWorker(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := writeFreshConfig(t, dir)
+	h := newHarness(t, func(k string) string {
+		if k == "ORBIT_CONFIG" {
+			return cfgFile
+		}
+		return ""
+	})
 	defer h.idb.DB.Close()
 	defer h.sdb.DB.Close()
-	if _, err := h.cmd.Run(context.Background(), "", nil); err == nil || !strings.Contains(err.Error(), "which roles") || !strings.Contains(err.Error(), "--goal") {
-		t.Errorf("missing roles hint: %v", err)
-	}
-	if _, err := h.cmd.Run(context.Background(), "architect", nil); err == nil || !strings.Contains(err.Error(), "goal") {
-		t.Errorf("architect without goal: %v", err)
-	}
-}
-
-func TestRegisterWizardRegistersRolesAndJobs(t *testing.T) {
-	h := newHarness(t, nil)
-	defer h.idb.DB.Close()
-	defer h.sdb.DB.Close()
-	out, err := h.cmd.Run(context.Background(), `architect worker --goal "Research briefs."`, nil)
+	out, err := h.cmd.Run(context.Background(), "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"earn: registered", "-architect", "-worker", "ROSTER", "dsv4", "0 12 * * *", "0 */2 * * *"} {
+	for _, want := range []string{"preflight:", "vault: created", "-worker", "ROSTER"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+	rows, err := identity.List(context.Background(), h.idb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Role != string(identity.Worker) {
+		t.Fatalf("identity rows: %+v, want one worker", rows)
+	}
+	if h.rpc.sends != 1 {
+		t.Errorf("sendTransaction calls: %d, want 1 (the vault create)", h.rpc.sends)
+	}
+}
+
+func TestBareEarnSetUpPrintsStatus(t *testing.T) {
+	h := newHarness(t, nil)
+	defer h.idb.DB.Close()
+	defer h.sdb.DB.Close()
+	out, err := h.cmd.Run(context.Background(), "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(out, "\n")
+	if len(lines) != 4 || !strings.HasPrefix(lines[0], "projects held:") {
+		t.Fatalf("bare earn on a set-up home must print status:\n%s", out)
+	}
+}
+
+func TestJoinRegistersRolesAndJobs(t *testing.T) {
+	h := newHarness(t, nil)
+	defer h.idb.DB.Close()
+	defer h.sdb.DB.Close()
+	out, err := h.cmd.Run(context.Background(), `join architect worker --goal "Research briefs."`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"preflight:", "-architect", "-worker", "ROSTER", "dsv4", "0 12 * * *", "0 */2 * * *"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}
@@ -288,7 +371,21 @@ func TestRegisterWizardRegistersRolesAndJobs(t *testing.T) {
 	}
 }
 
-func TestRegisterWizardRunsInitWhenKeyMissing(t *testing.T) {
+func TestPreflightNamesWhatExistsAndWillHappen(t *testing.T) {
+	h := newHarness(t, nil)
+	defer h.idb.DB.Close()
+	defer h.sdb.DB.Close()
+	out, err := h.cmd.Run(context.Background(), "join worker", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := strings.Split(out, "\n")[0]
+	if first != "preflight: hot key, vault, link, deposit; will: register worker" {
+		t.Errorf("preflight line: %q", first)
+	}
+}
+
+func TestJoinRunsInitWhenKeyMissing(t *testing.T) {
 	dir := t.TempDir()
 	h := newHarness(t, func(k string) string {
 		if k == "ORBIT_CONFIG" {
@@ -307,7 +404,7 @@ func TestRegisterWizardRunsInitWhenKeyMissing(t *testing.T) {
 		initCalled = true
 		return onboard.InitResult{Pubkey: "hot", Balance: 1}, nil
 	}
-	if _, err := h.cmd.Run(context.Background(), "worker", nil); err != nil {
+	if _, err := h.cmd.Run(context.Background(), "join worker", nil); err != nil {
 		t.Fatal(err)
 	}
 	if !initCalled {
@@ -315,24 +412,9 @@ func TestRegisterWizardRunsInitWhenKeyMissing(t *testing.T) {
 	}
 }
 
-func TestRegisterWizardCreatesVaultWhenCreatorMissing(t *testing.T) {
+func TestJoinCreatesVaultWhenCreatorMissing(t *testing.T) {
 	dir := t.TempDir()
-	keyFile := filepath.Join(dir, "key")
-	agent, err := sol.GenerateKeypair()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(keyFile, []byte(sol.Encode(agent.Secret)+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfgFile := filepath.Join(dir, "config")
-	cfg := "ORBIT_INDEXER=https://indexer.example\n" +
-		"ORBIT_RPC=https://rpc.example\n" +
-		"ORBIT_PROGRAM_ID=" + client.DevnetProgramID + "\n" +
-		"ORBIT_AGENT_KEY_FILE=" + keyFile + "\n"
-	if err := os.WriteFile(cfgFile, []byte(cfg), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	cfgFile := writeFreshConfig(t, dir)
 	h := newHarness(t, func(k string) string {
 		if k == "ORBIT_CONFIG" {
 			return cfgFile
@@ -343,10 +425,11 @@ func TestRegisterWizardCreatesVaultWhenCreatorMissing(t *testing.T) {
 	defer h.sdb.DB.Close()
 	var operator sol.Keypair
 	h.cmd.Operator = func(flagKey, flagPath string) (sol.Keypair, error) {
+		var err error
 		operator, err = sol.GenerateKeypair()
 		return operator, err
 	}
-	out, err := h.cmd.Run(context.Background(), "worker", nil)
+	out, err := h.cmd.Run(context.Background(), "join worker", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,24 +448,9 @@ func TestRegisterWizardCreatesVaultWhenCreatorMissing(t *testing.T) {
 	}
 }
 
-func TestRegisterWizardRecordsExistingVaultWithoutSending(t *testing.T) {
+func TestJoinRecordsExistingVaultWithoutSending(t *testing.T) {
 	dir := t.TempDir()
-	keyFile := filepath.Join(dir, "key")
-	agent, err := sol.GenerateKeypair()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(keyFile, []byte(sol.Encode(agent.Secret)+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfgFile := filepath.Join(dir, "config")
-	cfg := "ORBIT_INDEXER=https://indexer.example\n" +
-		"ORBIT_RPC=https://rpc.example\n" +
-		"ORBIT_PROGRAM_ID=" + client.DevnetProgramID + "\n" +
-		"ORBIT_AGENT_KEY_FILE=" + keyFile + "\n"
-	if err := os.WriteFile(cfgFile, []byte(cfg), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	cfgFile := writeFreshConfig(t, dir)
 	h := newHarness(t, func(k string) string {
 		if k == "ORBIT_CONFIG" {
 			return cfgFile
@@ -396,13 +464,11 @@ func TestRegisterWizardRecordsExistingVaultWithoutSending(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.cmd.Operator = func(flagKey, flagPath string) (sol.Keypair, error) { return operator, nil }
-	// The vault for the derived creator already exists on chain (a previous
-	// run sent it but crashed before recording the creator).
 	h.rpc.accounts[client.TorchVaultPDA(client.DevnetProgramID, operator.PublicBase58())] = client.AccountInfo{
 		Exists: true, Lamports: 1_000_000_000,
 		Data: vaultRecordData(operator.PublicBase58(), 0),
 	}
-	out, err := h.cmd.Run(context.Background(), "worker", nil)
+	out, err := h.cmd.Run(context.Background(), "join worker", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,11 +487,11 @@ func TestRegisterWizardRecordsExistingVaultWithoutSending(t *testing.T) {
 	}
 }
 
-func TestRegisterWizardRerunSendsNothing(t *testing.T) {
+func TestJoinRerunSendsNothing(t *testing.T) {
 	h := newHarness(t, nil)
 	defer h.idb.DB.Close()
 	defer h.sdb.DB.Close()
-	if _, err := h.cmd.Run(context.Background(), "worker", nil); err != nil {
+	if _, err := h.cmd.Run(context.Background(), "join worker", nil); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(h.cmd.Getenv("ORBIT_CONFIG"))
@@ -435,7 +501,7 @@ func TestRegisterWizardRerunSendsNothing(t *testing.T) {
 	if !strings.Contains(string(b), "ORBIT_VAULT_DEPOSITED=1") {
 		t.Errorf("setup marker not recorded after the first run:\n%s", b)
 	}
-	if _, err := h.cmd.Run(context.Background(), "worker", nil); err != nil {
+	if _, err := h.cmd.Run(context.Background(), "join worker", nil); err != nil {
 		t.Fatal(err)
 	}
 	if h.rpc.sends != 0 {
@@ -443,14 +509,14 @@ func TestRegisterWizardRerunSendsNothing(t *testing.T) {
 	}
 }
 
-func TestRegisterWizardExistingSetupNeedsNoOperatorKey(t *testing.T) {
+func TestJoinExistingSetupNeedsNoOperatorKey(t *testing.T) {
 	h := newHarness(t, nil)
 	defer h.idb.DB.Close()
 	defer h.sdb.DB.Close()
 	h.cmd.Operator = func(flagKey, flagPath string) (sol.Keypair, error) {
 		return sol.Keypair{}, errors.New("operator key required: -operator-key, -operator-key-path, or ORBIT_OPERATOR_KEY(_PATH)")
 	}
-	if _, err := h.cmd.Run(context.Background(), "worker", nil); err != nil {
+	if _, err := h.cmd.Run(context.Background(), "join worker", nil); err != nil {
 		t.Fatalf("a wizard run on an existing setup must not resolve the operator key: %v", err)
 	}
 	if h.rpc.sends != 0 {
@@ -458,24 +524,205 @@ func TestRegisterWizardExistingSetupNeedsNoOperatorKey(t *testing.T) {
 	}
 }
 
-func TestRegisterWizardFailedAfterDepositRerunsWithoutDeposit(t *testing.T) {
+func TestSecondJoinAfterPathRecordedSignsWithNoFlag(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := writeFreshConfig(t, dir)
+	h := newHarness(t, func(k string) string {
+		if k == "ORBIT_CONFIG" {
+			return cfgFile
+		}
+		return ""
+	})
+	defer h.idb.DB.Close()
+	defer h.sdb.DB.Close()
+	operator, err := sol.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seenPath string
+	h.cmd.Operator = func(flagKey, flagPath string) (sol.Keypair, error) {
+		seenPath = flagPath
+		return operator, nil
+	}
+	opPath := filepath.Join(dir, "operator")
+	if _, err := h.cmd.Run(context.Background(), "join worker --operator-key-path "+opPath, nil); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "ORBIT_OPERATOR_KEY_PATH="+opPath) {
+		t.Fatalf("the operator path must be remembered, never the key:\n%s", b)
+	}
+	if strings.Contains(string(b), sol.Encode(operator.Secret)) {
+		t.Fatalf("the operator key must never be written:\n%s", b)
+	}
+	h.rpc.accounts[client.TorchVaultPDA(client.DevnetProgramID, operator.PublicBase58())] = client.AccountInfo{
+		Exists: true, Lamports: 1_000_000_000,
+		Data: vaultRecordData(operator.PublicBase58(), 1_000_000_000),
+	}
+	delete(h.rpc.accounts, client.VaultWalletLinkPDA(client.DevnetProgramID, h.tc.AgentPublic()))
+	seenPath = ""
+	if _, err := h.cmd.Run(context.Background(), "join worker", nil); err != nil {
+		t.Fatal(err)
+	}
+	if seenPath != opPath {
+		t.Errorf("second join signed with path %q, want the remembered %q", seenPath, opPath)
+	}
+	if h.rpc.sends != 2 {
+		t.Errorf("sendTransaction calls: %d, want 2 (the link on the second join)", h.rpc.sends)
+	}
+}
+
+func TestRolesAddReviewerCreatesOneJob(t *testing.T) {
 	h := newHarness(t, nil)
 	defer h.idb.DB.Close()
 	defer h.sdb.DB.Close()
-	// The vault exists but has never been deposited: the wizard must send it.
+	out, err := h.cmd.Run(context.Background(), "roles add reviewer", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "-reviewer") {
+		t.Errorf("roles add output missing the reviewer row:\n%s", out)
+	}
+	rows, err := identity.List(context.Background(), h.idb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Role != string(identity.Reviewer) {
+		t.Fatalf("identity rows: %+v, want one reviewer", rows)
+	}
+	var n int
+	if err := h.sdb.DB.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM jobs`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("jobs: %d, want 1", n)
+	}
+}
+
+func TestRolesListAndRemove(t *testing.T) {
+	h := newHarness(t, nil)
+	defer h.idb.DB.Close()
+	defer h.sdb.DB.Close()
+	if _, err := h.cmd.Run(context.Background(), "join worker", nil); err != nil {
+		t.Fatal(err)
+	}
+	out, err := h.cmd.Run(context.Background(), "roles", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "-worker") || !strings.Contains(out, "ROSTER") {
+		t.Errorf("roles list:\n%s", out)
+	}
+	rows, err := identity.List(context.Background(), h.idb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerID := rows[0].ID
+	out, err = h.cmd.Run(context.Background(), "roles remove worker", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "removed worker") {
+		t.Errorf("roles remove output:\n%s", out)
+	}
+	rows, err = identity.List(context.Background(), h.idb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Errorf("identity rows after remove: %+v, want none", rows)
+	}
+	var jobID string
+	if err := h.sdb.DB.QueryRowContext(context.Background(), `SELECT id FROM jobs WHERE name = ? ORDER BY rowid DESC LIMIT 1`, agent.JobName(workerID)).Scan(&jobID); err != nil {
+		t.Fatalf("job %s not found: %v", agent.JobName(workerID), err)
+	}
+	bound, tx, err := h.sdb.TxReadOnly(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	job, err := scheddomain.NewJobDomain().GetJob(bound, jobID).Row()
+	if err != nil || job == nil {
+		t.Fatalf("job %s: %v", jobID, err)
+	}
+	if job.State != "removed" {
+		t.Errorf("job state after remove: %q, want removed", job.State)
+	}
+	if _, err := h.cmd.Run(context.Background(), "roles remove worker", nil); err == nil || !strings.Contains(err.Error(), "no worker row") {
+		t.Errorf("removing a missing role: %v", err)
+	}
+}
+
+func TestGoalRegistersArchitectWhenNone(t *testing.T) {
+	h := newHarness(t, nil)
+	defer h.idb.DB.Close()
+	defer h.sdb.DB.Close()
+	out, err := h.cmd.Run(context.Background(), `goal "Research briefs."`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "-architect") {
+		t.Errorf("goal output missing the architect row:\n%s", out)
+	}
+	rows, err := identity.List(context.Background(), h.idb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Role != string(identity.Architect) || rows[0].Goal != "Research briefs." {
+		t.Fatalf("identity rows: %+v, want one architect with the goal", rows)
+	}
+}
+
+func TestGoalUpdatesExistingArchitect(t *testing.T) {
+	h := newHarness(t, nil)
+	defer h.idb.DB.Close()
+	defer h.sdb.DB.Close()
+	if _, err := h.cmd.Run(context.Background(), `goal "Research briefs."`, nil); err != nil {
+		t.Fatal(err)
+	}
+	out, err := h.cmd.Run(context.Background(), `goal "Verdict the week."`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "updated") {
+		t.Errorf("goal update output:\n%s", out)
+	}
+	rows, err := identity.List(context.Background(), h.idb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Goal != "Verdict the week." {
+		t.Fatalf("identity rows: %+v, want the goal changed", rows)
+	}
+	var n int
+	if err := h.sdb.DB.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM jobs`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("jobs: %d, want 1 (an update refreshes, never duplicates)", n)
+	}
+}
+
+func TestJoinFailedAfterDepositRerunsWithoutDeposit(t *testing.T) {
+	h := newHarness(t, nil)
+	defer h.idb.DB.Close()
+	defer h.sdb.DB.Close()
 	h.rpc.accounts[client.TorchVaultPDA(h.tc.ProgramID, h.tc.VaultCreator)] = client.AccountInfo{
 		Exists: true, Lamports: 1_000_000_000,
 		Data: vaultRecordData(h.tc.VaultCreator, 0),
 	}
 	h.cmd.Crontab = &failInstallCrontab{}
-	if _, err := h.cmd.Run(context.Background(), "worker", nil); err == nil || !strings.Contains(err.Error(), "crontab") {
+	if _, err := h.cmd.Run(context.Background(), "join worker", nil); err == nil || !strings.Contains(err.Error(), "crontab") {
 		t.Fatalf("first run must fail at the job after the deposit: %v", err)
 	}
 	if h.rpc.sends != 1 {
 		t.Fatalf("sendTransaction calls: %d, want 1 (the deposit)", h.rpc.sends)
 	}
 	h.cmd.Crontab = &fakeCrontab{text: "SHELL=/bin/bash\n"}
-	if _, err := h.cmd.Run(context.Background(), "worker", nil); err != nil {
+	if _, err := h.cmd.Run(context.Background(), "join worker", nil); err != nil {
 		t.Fatal(err)
 	}
 	if h.rpc.sends != 1 {
@@ -483,14 +730,14 @@ func TestRegisterWizardFailedAfterDepositRerunsWithoutDeposit(t *testing.T) {
 	}
 }
 
-func TestRegisterWizardAddsRoleToExistingSetup(t *testing.T) {
+func TestJoinAddsRoleToExistingSetup(t *testing.T) {
 	h := newHarness(t, nil)
 	defer h.idb.DB.Close()
 	defer h.sdb.DB.Close()
-	if _, err := h.cmd.Run(context.Background(), "worker", nil); err != nil {
+	if _, err := h.cmd.Run(context.Background(), "join worker", nil); err != nil {
 		t.Fatal(err)
 	}
-	out, err := h.cmd.Run(context.Background(), `architect worker --goal "Research briefs."`, nil)
+	out, err := h.cmd.Run(context.Background(), `join architect worker --goal "Research briefs."`, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -509,24 +756,9 @@ func TestRegisterWizardAddsRoleToExistingSetup(t *testing.T) {
 	}
 }
 
-func TestRegisterModelCheckBeforeChainSpend(t *testing.T) {
+func TestJoinModelCheckBeforeChainSpend(t *testing.T) {
 	dir := t.TempDir()
-	keyFile := filepath.Join(dir, "key")
-	agent, err := sol.GenerateKeypair()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(keyFile, []byte(sol.Encode(agent.Secret)+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfgFile := filepath.Join(dir, "config")
-	cfg := "ORBIT_INDEXER=https://indexer.example\n" +
-		"ORBIT_RPC=https://rpc.example\n" +
-		"ORBIT_PROGRAM_ID=" + client.DevnetProgramID + "\n" +
-		"ORBIT_AGENT_KEY_FILE=" + keyFile + "\n"
-	if err := os.WriteFile(cfgFile, []byte(cfg), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	cfgFile := writeFreshConfig(t, dir)
 	h := newHarness(t, func(k string) string {
 		if k == "ORBIT_CONFIG" {
 			return cfgFile
@@ -536,7 +768,7 @@ func TestRegisterModelCheckBeforeChainSpend(t *testing.T) {
 	defer h.idb.DB.Close()
 	defer h.sdb.DB.Close()
 	h.cmd.Model = nil
-	if _, err := h.cmd.Run(context.Background(), "worker", nil); err == nil || !strings.Contains(err.Error(), "no model") {
+	if _, err := h.cmd.Run(context.Background(), "join worker", nil); err == nil || !strings.Contains(err.Error(), "no model") {
 		t.Fatalf("missing model: %v", err)
 	}
 	if h.rpc.sends != 0 {
@@ -555,7 +787,7 @@ func TestStopAndStart(t *testing.T) {
 	h := newHarness(t, nil)
 	defer h.idb.DB.Close()
 	defer h.sdb.DB.Close()
-	if _, err := h.cmd.Run(context.Background(), "worker", nil); err != nil {
+	if _, err := h.cmd.Run(context.Background(), "join worker", nil); err != nil {
 		t.Fatal(err)
 	}
 	out, err := h.cmd.Run(context.Background(), "stop", nil)
@@ -643,11 +875,11 @@ func TestRowsFromBriefNoChainCalls(t *testing.T) {
 	}
 }
 
-func TestRegisterPinsJobCwdToOrbitHome(t *testing.T) {
+func TestJoinPinsJobCwdToOrbitHome(t *testing.T) {
 	h := newHarness(t, nil)
 	defer h.idb.DB.Close()
 	defer h.sdb.DB.Close()
-	if _, err := h.cmd.Run(context.Background(), `architect worker --goal "Research briefs."`, nil); err != nil {
+	if _, err := h.cmd.Run(context.Background(), `join architect worker --goal "Research briefs."`, nil); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := identity.List(context.Background(), h.idb)

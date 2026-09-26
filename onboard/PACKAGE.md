@@ -20,9 +20,11 @@ operator key never passes through here — it is resolved per vault call
 - **`airdropBounded`**: the faucet seam — bounded backoff, then succeeds
   anyway: the caller gets the current balance and a funding hint. Init
   never fails because the faucet is busy (405/429).
-- **`OperatorKey`**: the vault authority key, per call: flag > env, never
-  written to the orbit home. The path may point at a keypair JSON (the
-  Solana secret file) or a raw base58 64-byte secret line; `~` expands.
+- **`OperatorKey` / `OperatorPath`**: the vault authority key, per call:
+  flag > env > the `ORBIT_OPERATOR_KEY_PATH` recorded in the config — the
+  key never written to the orbit home, the path may be. The path may
+  point at a keypair JSON (the Solana secret file) or a raw base58
+  64-byte secret line; `~` expands.
 - **`WriteConfigValue(s)`**: upserts `KEY=VALUE` lines, preserving the
   rest, mode 0600. Only public values are ever written (a pubkey, never a
   key).
