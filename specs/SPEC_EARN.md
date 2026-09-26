@@ -14,22 +14,29 @@ natives, the `/earn` command beside `command.All()`, and the orbit title
   WithStatus(orbitStatusIn))`. The status function adds the earn rows
   under the footer: projects held, open claims, last memo, PnL since
   start. The same rows are what `/earn status` prints.
-- **/earn** (register wizard): checks the hot key and the vault link,
-  runs init and the vault steps when missing (the operator key is named
-  at the call via `--operator-key` / `--operator-key-path` /
-  `ORBIT_OPERATOR_KEY(_PATH)`, never stored), asks which roles to
-  register (architect, worker, reviewer, any mix) and the goal for an
-  architect, registers one identity row per (wallet, role), starts the
-  scheduled jobs, and prints the roster. The wizard is safe to rerun:
-  create checks `TorchVaultPDA(creator)` on chain against the recorded
-  creator and records the creator without sending when the vault exists,
-  link and deposit confirm the signature before returning, and deposit is
-  gated on the recorded `ORBIT_VAULT_DEPOSITED` marker or the vault
-  record's `total_deposited` (never the running balance). The operator
-  key is resolved lazily, at the first step that signs — a rerun where
-  the vault, the link and the deposit already exist registers roles with
-  no key. The model check runs before any chain spend; a role whose job
-  exists is refreshed, otherwise created.
+- **bare /earn** (the wizard's door): prints status when the home is set
+  up (hot key, vault, link, deposit), otherwise runs join with one
+  worker.
+- **/earn join [roles]**: runs the setup (init when there is no hot key,
+  then the vault steps) and registers the roles (worker by default). The
+  operator key is named at the call via `--operator-key` /
+  `--operator-key-path` / `ORBIT_OPERATOR_KEY(_PATH)`; at the first
+  signing step the path is asked once and remembered as
+  `ORBIT_OPERATOR_KEY_PATH` in the config — the path, never the key.
+  Before any chain spend, one preflight line names what exists and what
+  will happen. The setup is safe to rerun: create checks
+  `TorchVaultPDA(creator)` on chain against the recorded creator and
+  records the creator without sending when the vault exists, link and
+  deposit confirm the signature before returning, and deposit is gated
+  on the recorded `ORBIT_VAULT_DEPOSITED` marker or the vault record's
+  `total_deposited` (never the running balance). The model check runs
+  before any chain spend; a role whose job exists is refreshed, otherwise
+  created.
+- **/earn roles**: lists the roster. **/earn roles add|remove <role>**:
+  registers one role and its job, or removes the role's identity row and
+  job.
+- **/earn goal "<text>"**: sets or changes the architect's goal,
+  registering an architect (and its job) when none exists.
 - **/earn status**: prints the footer rows. **/earn stop**: pauses the
   jobs. **/earn start**: resumes them.
 - **Reads stay keyless**: project list, agent list, and vault show load

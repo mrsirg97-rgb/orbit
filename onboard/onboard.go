@@ -191,6 +191,26 @@ func airdropBounded(ctx context.Context, rpc Airdrop, pubkey string, lamports ui
 	}
 }
 
+// OperatorPath resolves the operator key file: flag > env >
+// ORBIT_OPERATOR_KEY_PATH recorded in the config (the path, never the key).
+func OperatorPath(getenv func(string) string, flagPath string) (string, error) {
+	if getenv == nil {
+		getenv = func(string) string { return "" }
+	}
+	path := strings.TrimSpace(flagPath)
+	if path == "" {
+		path = strings.TrimSpace(getenv("ORBIT_OPERATOR_KEY_PATH"))
+	}
+	if path == "" {
+		cfg, err := Load(getenv)
+		if err != nil {
+			return "", fmt.Errorf("operator key path: %w", err)
+		}
+		path = strings.TrimSpace(cfg["ORBIT_OPERATOR_KEY_PATH"])
+	}
+	return path, nil
+}
+
 func OperatorKey(getenv func(string) string, flagKey, flagPath string) (sol.Keypair, error) {
 	if getenv == nil {
 		getenv = func(string) string { return "" }
@@ -199,9 +219,9 @@ func OperatorKey(getenv func(string) string, flagKey, flagPath string) (sol.Keyp
 	if secret == "" {
 		secret = strings.TrimSpace(getenv("ORBIT_OPERATOR_KEY"))
 	}
-	path := strings.TrimSpace(flagPath)
-	if path == "" {
-		path = strings.TrimSpace(getenv("ORBIT_OPERATOR_KEY_PATH"))
+	path, err := OperatorPath(getenv, flagPath)
+	if err != nil {
+		return sol.Keypair{}, err
 	}
 	if secret == "" && path != "" {
 		if strings.HasPrefix(path, "~") {
