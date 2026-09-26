@@ -8,6 +8,7 @@ import (
 
 	"github.com/mrsirg97-rgb/orbit/board"
 	"github.com/mrsirg97-rgb/orbit/client"
+	solpkg "github.com/mrsirg97-rgb/orbit/sol"
 )
 
 type Board struct {
@@ -80,7 +81,7 @@ func (b *Board) resolveMint(ctx context.Context, input string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if len(input) == 44 {
+	if decoded, err := solpkg.Decode(input); err == nil && len(decoded) == 32 {
 		if _, err := b.Store.Market(ctx, input); err == nil {
 			return input, nil
 		}

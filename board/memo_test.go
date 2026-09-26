@@ -140,3 +140,24 @@ func TestMemoCapRefusesOverlong(t *testing.T) {
 		t.Errorf("cap-bound memo refused: %v", err)
 	}
 }
+
+func TestMemoControlCharactersRejected(t *testing.T) {
+	for _, memo := range []string{
+		"task 1: line one\nline two",
+		"task 1: tab\there",
+		"task 1: escape\x1b[31mred",
+		"task 1: nul\x00byte",
+		"task 1: del\x7fbyte",
+		"task 1: \r\n",
+	} {
+		if _, ok := ParseMemo(memo); ok {
+			t.Errorf("ParseMemo accepted control characters: %q", memo)
+		}
+	}
+	if _, err := MemoFor(Shape{Verb: "task", ID: 1, Text: "line one\nline two"}); err == nil {
+		t.Error("MemoFor must refuse a memo with a newline")
+	}
+	if _, ok := ParseMemo("task 1: clean text"); !ok {
+		t.Error("ParseMemo rejected a clean memo")
+	}
+}

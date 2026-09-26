@@ -93,7 +93,7 @@ func holdingsRaw(ctx context.Context, c *client.TorchClient, mint string) uint64
 func pnlFor(pnl *client.PnlSummary, mint string, value float64) float64 {
 	for _, m := range pnl.ByMint {
 		if m.Mint == mint {
-			unreal := value - float64(m.CostBasisRemaining)/1e6
+			unreal := value - float64(m.CostBasisRemaining)/1e9
 			return float64(m.RealizedPnl)/1e9 + unreal
 		}
 	}

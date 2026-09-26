@@ -12,7 +12,9 @@ import (
 
 	"github.com/mrsirg97-rgb/rig/store"
 	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
+	scheddomain "github.com/mrsirg97-rgb/rig/store/scheduler/domain"
 
+	"github.com/mrsirg97-rgb/orbit/agent"
 	"github.com/mrsirg97-rgb/orbit/board"
 	"github.com/mrsirg97-rgb/orbit/brief"
 	"github.com/mrsirg97-rgb/orbit/client"
@@ -177,6 +179,9 @@ func newHarness(t *testing.T, getenv func(string) string) *earnHarness {
 		getenv = func(k string) string {
 			if k == "ORBIT_CONFIG" {
 				return cfgFile
+			}
+			if k == "RIG_HOME" {
+				return dir
 			}
 			return ""
 		}
@@ -620,5 +625,42 @@ func TestRowsFromBriefNoChainCalls(t *testing.T) {
 	}
 	if rpc.calls != 0 {
 		t.Errorf("RowsFromBrief hit the RPC %d times", rpc.calls)
+	}
+}
+
+func TestRegisterPinsJobCwdToOrbitHome(t *testing.T) {
+	h := newHarness(t, nil)
+	defer h.idb.DB.Close()
+	defer h.sdb.DB.Close()
+	if _, err := h.cmd.Run(context.Background(), `architect worker --goal "Research briefs."`, nil); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := identity.List(context.Background(), h.idb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobKey := agent.JobName(rows[0].ID)
+	bound, tx, err := h.sdb.TxReadOnly(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	var jobID string
+	if err := tx.QueryRowContext(bound, `SELECT id FROM jobs WHERE name = ? ORDER BY rowid DESC LIMIT 1`, jobKey).Scan(&jobID); err != nil {
+		t.Fatalf("job %s: %v", jobKey, err)
+	}
+	job, err := scheddomain.NewJobDomain().GetJob(bound, jobID).Row()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job == nil {
+		t.Fatalf("job %s not found", jobKey)
+	}
+	home, err := client.Home(h.cmd.Getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Cwd != home {
+		t.Errorf("job cwd %q, want the orbit home %q (not the TUI's cwd)", job.Cwd, home)
 	}
 }

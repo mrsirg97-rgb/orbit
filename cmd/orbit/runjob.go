@@ -71,7 +71,7 @@ func runJobFire(args []string) int {
 			StateDir:  filepath.Join(mustOrbitHome(), "sessions"),
 		})
 	}
-	if err := agent.Fire(ctx, sdb, sched.RealCrontab(""), args[0], row.ID, text, self+" run-job", run); err != nil {
+	if err := agent.Fire(ctx, sdb, sched.RealCrontab(""), args[0], row.ID, text, agent.RunnerCommand(self), run); err != nil {
 		fmt.Fprintln(os.Stderr, "orbit:", err)
 		return 1
 	}

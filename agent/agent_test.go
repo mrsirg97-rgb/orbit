@@ -351,3 +351,31 @@ func TestOverridesWin(t *testing.T) {
 		t.Errorf("name %s, want the override", row.Name)
 	}
 }
+
+func TestRunnerCommandQuotesExecutable(t *testing.T) {
+	if got := RunnerCommand("/x/orbit bin"); got != `'/x/orbit bin' run-job` {
+		t.Errorf("runner command %q, want the path quoted", got)
+	}
+	if got := RunnerCommand("/x/it's"); got != `'/x/it'\''s' run-job` {
+		t.Errorf("runner command %q, want the embedded quote escaped", got)
+	}
+}
+
+func TestRegisterCronLineQuotesRunner(t *testing.T) {
+	home := t.TempDir()
+	db := openSched(t, home)
+	defer db.DB.Close()
+	ct := &fakeCrontab{text: "SHELL=/bin/bash\n"}
+	row := identity.Row{
+		ID: "@AP2B3A", Name: "Torch Agent", Wallet: "So11111111111111111111111111111111111111112",
+		Bio:     "A torch market agent.",
+		Cadence: "0 */8 * * *", Model: "dsv4", BlockSize: "compact",
+	}
+	stub := brief.StubBrief(brief.Identity{Name: row.Name, Bio: row.Bio})
+	if _, err := Register(context.Background(), db, ct, row, stub, RunnerCommand("/x/orbit bin"), t.TempDir(), "sess-agent"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ct.text, `'/x/orbit bin' run-job`) {
+		t.Errorf("the cron line must quote the executable path:\n%s", ct.text)
+	}
+}

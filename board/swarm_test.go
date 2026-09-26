@@ -658,3 +658,36 @@ func TestOpenMigratesV1Cache(t *testing.T) {
 		t.Fatalf("migrated cache rejects the funder column: %v", err)
 	}
 }
+
+func TestBoardTaskRowsOrderNumerically(t *testing.T) {
+	ctx := context.Background()
+	rpc := newBoardFakeRPC(t, testMint)
+	tc := boardClientFor(t, testMint, "orbit-board-swarm-seed-00000000", rpc)
+	db, st := openBoardStoreWith(t, tc)
+	defer db.DB.Close()
+	base := time.Now().UTC().Add(-10 * time.Minute).Format(time.RFC3339)
+	seedRecordedLog(t, db, testMint, []client.MessageRow{
+		{Mint: testMint, MessageID: 1, Sender: "walletA", MemoText: "task 1: First", Slot: 1, Signature: "sigT1", CreatedAt: base},
+		{Mint: testMint, MessageID: 2, Sender: "walletA", MemoText: "task 10: Tenth", Slot: 2, Signature: "sigT10", CreatedAt: base},
+		{Mint: testMint, MessageID: 3, Sender: "walletA", MemoText: "task 2: Second", Slot: 3, Signature: "sigT2", CreatedAt: base},
+	})
+	board, err := st.Board(ctx, Project{Mint: testMint, Label: "torch test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pos := func(sub string) int {
+		for i, line := range strings.Split(board, "\n") {
+			if strings.Contains(line, sub) {
+				return i
+			}
+		}
+		return -1
+	}
+	p1, p2, p10 := pos("t1 pending First"), pos("t2 pending Second"), pos("t10 pending Tenth")
+	if p1 < 0 || p2 < 0 || p10 < 0 {
+		t.Fatalf("the board lost a task:\n%s", board)
+	}
+	if !(p1 < p2 && p2 < p10) {
+		t.Errorf("task rows must order numerically (t1, t2, t10), got t1@%d t2@%d t10@%d:\n%s", p1, p2, p10, board)
+	}
+}

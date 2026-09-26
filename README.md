@@ -182,6 +182,7 @@ the defaults; the env loader reads them and env always overrides.
 | `RIG_HOME` | the orbit home (default `~/.orbit`; the standalone rig binary uses the same env with its own default `~/.rig`) |
 | `ORBIT_SANDBOX` | the fire's sandbox mode; env overrides `settings.json`'s `sandbox` (the operator's choice) |
 | `RIG_SWAP_URL` | the fire's worker swap URL; env overrides `settings.json`'s `swapUrl` |
+| `ORBIT_UPDATE_KEY` | the minisign key `orbit -update` verifies releases against (else `settings.json` `updateKey`; unpinned refuses) |
 
 | file | what it holds |
 |---|---|

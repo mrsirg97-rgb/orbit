@@ -63,7 +63,7 @@ func (w *Wallet) Exec(ctx context.Context, args json.RawMessage) (string, error)
 		for _, m := range wallet.Pnl.ByMint {
 			lines = append(lines, fmt.Sprintf("  %s: realized %s, remaining %d tokens, cost basis %s",
 				fid8(m.Mint), sol(float64(m.RealizedPnl)/1e9), m.TokensRemaining,
-				sol(float64(m.CostBasisRemaining)/1e6)))
+				sol(float64(m.CostBasisRemaining)/1e9)))
 		}
 	}
 	if in.Action == "" || in.Action == "positions" {

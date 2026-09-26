@@ -8,6 +8,7 @@ import (
 
 	"github.com/mrsirg97-rgb/orbit/brief"
 	"github.com/mrsirg97-rgb/orbit/client"
+	solpkg "github.com/mrsirg97-rgb/orbit/sol"
 )
 
 type Market struct {
@@ -132,7 +133,7 @@ func (m *Market) treasurySOL(ctx context.Context, tc *client.TorchClient, mint s
 }
 
 func resolveMint(ctx context.Context, c *client.TorchClient, input string) (string, error) {
-	if len(input) == 44 {
+	if decoded, err := solpkg.Decode(input); err == nil && len(decoded) == 32 {
 
 		if _, err := c.API.Market(ctx, input); err == nil {
 			return input, nil

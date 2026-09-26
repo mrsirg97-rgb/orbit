@@ -106,7 +106,7 @@ func (d *taskDomain) WindowTaskByProject(ctx context.Context, project string, fr
 		return l
 	}
 	rows, err := tx.QueryContext(ctx,
-		`SELECT "project", "id", "accepted_by", "brief", "claimed_at", "completed_at", "created_at", "funder", "owner", "rejected_by", "status", "title", "updated_at" FROM "tasks" WHERE "project" = $1 AND "id" >= $2 AND "id" < $3 ORDER BY "project", "id" LIMIT $4`,
+		`SELECT "project", "id", "accepted_by", "brief", "claimed_at", "completed_at", "created_at", "funder", "owner", "rejected_by", "status", "title", "updated_at" FROM "tasks" WHERE "project" = $1 AND "id" >= $2 AND "id" < $3 ORDER BY "project", CAST("id" AS INTEGER) LIMIT $4`,
 		project,
 		from, to, limit,
 	)
@@ -140,7 +140,7 @@ func (d *taskDomain) PageTaskByProject(ctx context.Context, project string, afte
 		return l
 	}
 	rows, err := tx.QueryContext(ctx,
-		`SELECT "project", "id", "accepted_by", "brief", "claimed_at", "completed_at", "created_at", "funder", "owner", "rejected_by", "status", "title", "updated_at" FROM "tasks" WHERE "project" = $1 AND "id" > $2 ORDER BY "project", "id" LIMIT $3`,
+		`SELECT "project", "id", "accepted_by", "brief", "claimed_at", "completed_at", "created_at", "funder", "owner", "rejected_by", "status", "title", "updated_at" FROM "tasks" WHERE "project" = $1 AND "id" > $2 ORDER BY "project", CAST("id" AS INTEGER) LIMIT $3`,
 		project,
 		after, limit,
 	)
