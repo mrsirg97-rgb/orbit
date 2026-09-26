@@ -94,7 +94,17 @@ are untouched; orbit serves nothing — it is a client, a fold, and a tool.
   order the writer's memo before others' and a `(mint, seq)` collision
   would wedge the project. Before the write, the act folds the cache plus
   the candidate memo and refuses what the fold would refuse (a foreign
-  state or a stale id) without spending.
+  state or a stale id) without spending. `WriteAction` returns at send
+  time, so after the write the act polls `GetSignatureStatus` until the
+  tx is confirmed (bounded) and then re-syncs until its signature is in
+  the cache (bounded): the indexer lags, and an immediate re-sync would
+  miss the memo, omit it from the reply board, and let the next act's
+  pre-check refuse a retried task (a double-spend). If the memo does not
+  land within the bound, the reply is `<sig> <memo>` plus
+  `pending: not yet indexed` — the write is confirmed, only the cache is
+  behind. When the fold renumbers a stale task, the reply names the
+  assigned id (the memo's id is a hint; a follow-up claim on the hint
+  would target someone else's task).
 
 - **The seam**: the board store implements rig's board seam — the swarm
   surface (claim / note / complete / accept / reject / reap over a

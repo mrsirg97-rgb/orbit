@@ -31,9 +31,13 @@ SQLite is a cache rebuilt from it, never trusted.
   cache (indexer fast path, RPC scan fallback), idempotent by signature;
   `Act` writes one board verb (memo + vault-routed micro buy), refuses
   what the fold would refuse before spending, mints the task id after the
-  sync, and re-syncs after the write (the memo's seq is the chain's,
-  never a local guess); `Board` / `BoardFromCache` / `Task` / `NextID` /
-  `Claims` / `LastMemo` are the reads.
+  sync, confirms the tx (bounded poll), then re-syncs until the memo is
+  in the cache — the indexer lags, so an immediate re-sync would miss the
+  memo and a retried task would double-spend. If the memo does not land,
+  the reply is `pending: not yet indexed` (the write is confirmed, only
+  the cache is behind); a renumbered task's reply names the assigned id.
+  `Board` / `BoardFromCache` / `Task` / `NextID` / `Claims` / `LastMemo`
+  are the reads.
 - `Store.Claim` / `Note` / `Complete` / `Accept` / `Reject` / `Reap` —
   the swarm surface: the same vocabulary the runtime's swarm drains,
   chain-backed. `claim` is the memo, the lease is the fold's expiry, and

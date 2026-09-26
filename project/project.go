@@ -168,7 +168,7 @@ func Create(ctx context.Context, tc *client.TorchClient, operator sol.Keypair, n
 	if err != nil {
 		return CreateResult{}, fmt.Errorf("project: send create_token: %w", err)
 	}
-	if err := waitConfirmed(ctx, tc.RPC, createSig, 30*time.Second); err != nil {
+	if err := client.WaitConfirmed(ctx, tc.RPC, createSig, 30*time.Second); err != nil {
 		return CreateResult{}, fmt.Errorf("project: create %s: %w", createSig, err)
 	}
 	market, err := waitMarket(ctx, tc.API, mint.PublicBase58(), 30*time.Second)
@@ -243,28 +243,6 @@ func spendable(acct client.AccountInfo) uint64 {
 		return 0
 	}
 	return acct.Lamports - client.RentExemptZeroData
-}
-
-func waitConfirmed(ctx context.Context, rpc client.RPC, signature string, budget time.Duration) error {
-	deadline := time.Now().Add(budget)
-	for time.Now().Before(deadline) {
-		st, err := rpc.GetSignatureStatus(ctx, signature)
-		if err != nil {
-			return fmt.Errorf("status: %w", err)
-		}
-		if st.Exists && st.Err != "" {
-			return fmt.Errorf("tx failed: %s", st.Err)
-		}
-		if st.Exists && st.Confirmed {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(time.Second):
-		}
-	}
-	return errors.New("not confirmed in time (the tx may still land; check before retrying)")
 }
 
 func waitMarket(ctx context.Context, api client.API, mint string, budget time.Duration) (client.MarketRow, error) {

@@ -369,25 +369,10 @@ func (c *Command) recordDeposited(getenv func(string) string) error {
 }
 
 func (c *Command) confirmVaultTx(ctx context.Context, tc *client.TorchClient, kind, sig string) error {
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		st, err := tc.RPC.GetSignatureStatus(ctx, sig)
-		if err != nil {
-			return fmt.Errorf("earn: vault %s: %w", kind, err)
-		}
-		if st.Exists && st.Err != "" {
-			return fmt.Errorf("earn: vault %s: tx failed: %s", kind, st.Err)
-		}
-		if st.Exists && st.Confirmed {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(time.Second):
-		}
+	if err := client.WaitConfirmed(ctx, tc.RPC, sig, 30*time.Second); err != nil {
+		return fmt.Errorf("earn: vault %s: %w", kind, err)
 	}
-	return fmt.Errorf("earn: vault %s: %s not confirmed (the tx may still land; check before retrying)", kind, sig)
+	return nil
 }
 
 func (c *Command) operatorKey(in args) (sol.Keypair, error) {

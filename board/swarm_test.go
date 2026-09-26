@@ -23,13 +23,16 @@ import (
 const testMint = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
 
 type boardFakeRPC struct {
-	accounts map[string]client.AccountInfo
-	sent     []string
-	sig      int
-	msgs     []client.SignatureInfo
-	txs      map[string]*client.Transaction
-	now      func() time.Time
-	visible  int // -1 = all sent messages; else only the first N (indexer lag)
+	accounts  map[string]client.AccountInfo
+	sent      []string
+	sig       int
+	msgs      []client.SignatureInfo
+	txs       map[string]*client.Transaction
+	now       func() time.Time
+	visible   int // -1 = all sent messages; else only the first N
+	lag       int // a sent message is revealed after N more scan calls
+	syncCalls int
+	sentAt    map[string]int
 }
 
 func (f *boardFakeRPC) GetLatestBlockhash(context.Context) (string, error) {
@@ -50,7 +53,11 @@ func (f *boardFakeRPC) SendTransaction(ctx context.Context, signed []byte) (stri
 	if f.txs == nil {
 		f.txs = map[string]*client.Transaction{}
 	}
+	if f.sentAt == nil {
+		f.sentAt = map[string]int{}
+	}
 	f.txs[sig] = tx
+	f.sentAt[sig] = f.syncCalls
 	f.msgs = append(f.msgs, client.SignatureInfo{Signature: sig, BlockTime: &at})
 	return sig, nil
 }
@@ -68,10 +75,18 @@ func (f *boardFakeRPC) RequestAirdrop(context.Context, string, uint64) (string, 
 	return "", nil
 }
 func (f *boardFakeRPC) GetSignaturesForAddress(context.Context, string, int) ([]client.SignatureInfo, error) {
-	if f.visible >= 0 && f.visible < len(f.msgs) {
-		return f.msgs[:f.visible], nil
+	f.syncCalls++
+	out := make([]client.SignatureInfo, 0, len(f.msgs))
+	for i, m := range f.msgs {
+		if f.visible >= 0 && i >= f.visible {
+			continue
+		}
+		if f.lag > 0 && f.syncCalls < f.sentAt[m.Signature]+f.lag {
+			continue
+		}
+		out = append(out, m)
 	}
-	return f.msgs, nil
+	return out, nil
 }
 func (f *boardFakeRPC) GetTransaction(ctx context.Context, sig string) (*client.Transaction, error) {
 	tx, ok := f.txs[sig]
@@ -489,8 +504,13 @@ func TestTwoClientsFoldContestedVerdictAgree(t *testing.T) {
 		t.Fatalf("accept: %v", err)
 	}
 	rpc.visible = 0
-	if _, err := stB.Reject(ctx, project, "1", "No proof"); err != nil {
+	stB.WaitBudget = 100 * time.Millisecond
+	rejectReply, err := stB.Reject(ctx, project, "1", "No proof")
+	if err != nil {
 		t.Fatalf("reject: %v", err)
+	}
+	if !strings.Contains(rejectReply, "pending: not yet indexed") {
+		t.Errorf("a memo the cache has not seen yet must reply pending:\n%s", rejectReply)
 	}
 	rpc.visible = -1
 	boardA, err := stA.Board(ctx, project)
@@ -524,8 +544,12 @@ func TestActStaleTaskGetsFreshID(t *testing.T) {
 	})
 	project := Project{Mint: testMint, Label: "torch test"}
 	// The caller minted id 6 from a cache that predates the sync above.
-	if _, err := st.Act(ctx, project, Shape{Verb: "task", ID: 6, Text: "Stale cache task"}); err != nil {
+	reply, err := st.Act(ctx, project, Shape{Verb: "task", ID: 6, Text: "Stale cache task"})
+	if err != nil {
 		t.Fatalf("act: %v", err)
+	}
+	if !strings.Contains(reply, "assigned id 7") {
+		t.Errorf("the reply does not name the assigned id:\n%s", reply)
 	}
 	board, err := st.BoardFromCache(ctx, project)
 	if err != nil {
@@ -536,6 +560,45 @@ func TestActStaleTaskGetsFreshID(t *testing.T) {
 	}
 	if !strings.Contains(board, "t7 pending") || !strings.Contains(board, "Stale cache task") {
 		t.Errorf("the stale task did not get a fresh id:\n%s", board)
+	}
+}
+
+func TestActTaskThenClaimWithLagSucceeds(t *testing.T) {
+	ctx := context.Background()
+	rpc := newBoardFakeRPC(t, testMint)
+	rpc.lag = 2 // a sent memo becomes visible after two more scans
+	tc := boardClientFor(t, testMint, "orbit-board-swarm-seed-00000000", rpc)
+	db, st := openBoardStoreWith(t, tc)
+	defer db.DB.Close()
+	project := Project{Mint: testMint, Label: "torch test"}
+
+	reply, err := st.Act(ctx, project, Shape{Verb: "task", ID: 0, Text: "Lag task"})
+	if err != nil {
+		t.Fatalf("task: %v", err)
+	}
+	if !strings.Contains(reply, "t1 pending") {
+		t.Errorf("task reply must show the act once the memo lands:\n%s", reply)
+	}
+	reply, err = st.Claim(ctx, project)
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if !strings.Contains(reply, "t1 active") {
+		t.Errorf("claim reply must show the claim:\n%s", reply)
+	}
+	if len(rpc.sent) != 2 {
+		t.Errorf("sent txs: %d, want 2 (one task + one claim, no retry double-spend)", len(rpc.sent))
+	}
+	taskMemos := 0
+	for _, m := range rpc.msgs {
+		for _, ix := range rpc.txs[m.Signature].Ixs {
+			if ix.ProgramID == client.MemoProgram && strings.HasPrefix(string(ix.Data), "task ") {
+				taskMemos++
+			}
+		}
+	}
+	if taskMemos != 1 {
+		t.Errorf("task memos on chain: %d, want 1 (the lagged memo must not be re-written)", taskMemos)
 	}
 }
 

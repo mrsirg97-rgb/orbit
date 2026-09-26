@@ -28,6 +28,8 @@ type Project struct {
 type Store struct {
 	Client func() (*client.TorchClient, error)
 	DB     store.DB
+	// WaitBudget bounds the act's re-sync-until-cached loop (default 15s).
+	WaitBudget time.Duration
 }
 
 func (s *Store) client() (*client.TorchClient, error) {
@@ -222,17 +224,106 @@ func (s *Store) Act(ctx context.Context, p Project, shape Shape) (string, error)
 	if err != nil {
 		return "", fmt.Errorf("board act %s: %w", shape.Verb, err)
 	}
-	// The memo's seq is the chain's, not a local guess: re-sync instead of
-	// inserting the row. A concurrent writer's memo cannot collide with a
-	// guessed (mint, seq), and the fold sees the true on-chain order.
-	if err := s.Sync(ctx, p, 100); err != nil {
+	// WriteAction returns at send time. Confirm the tx, then re-sync until
+	// the memo is in the cache: an immediate re-sync would miss the memo
+	// (the indexer lags) and the next act's pre-check would refuse it — a
+	// retried task would then double-spend.
+	if err := client.WaitConfirmed(ctx, tc.RPC, res.Signature, 30*time.Second); err != nil {
+		return "", fmt.Errorf("board act %s: %w", shape.Verb, err)
+	}
+	landed, err := s.awaitCached(ctx, p, res.Signature)
+	if err != nil {
 		return "", fmt.Errorf("board act %s: re-sync: %w", shape.Verb, err)
+	}
+	if !landed {
+		return res.Signature + " " + memo + "\npending: not yet indexed", nil
 	}
 	board, err := s.BoardFromCache(ctx, p)
 	if err != nil {
 		return "", err
 	}
+	if shape.Verb == "task" {
+		if assigned, renumbered, err := s.assignedID(ctx, p, memo, tc.AgentPublic(), now); err == nil && renumbered {
+			board = fmt.Sprintf("board: assigned id %d (the memo's id %d was taken; claim %d, not %d)\n%s",
+				assigned, shape.ID, assigned, shape.ID, board)
+		}
+	}
 	return res.Signature + " " + memo + "\n" + board, nil
+}
+
+func (s *Store) awaitCached(ctx context.Context, p Project, sig string) (bool, error) {
+	budget := s.WaitBudget
+	if budget <= 0 {
+		budget = 15 * time.Second
+	}
+	deadline := time.Now().Add(budget)
+	for {
+		if err := s.Sync(ctx, p, 100); err != nil {
+			return false, err
+		}
+		ok, err := s.messageCached(ctx, p, sig)
+		if err != nil {
+			return false, err
+		}
+		if ok {
+			return true, nil
+		}
+		if time.Now().After(deadline) {
+			return false, nil
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+}
+
+func (s *Store) messageCached(ctx context.Context, p Project, sig string) (bool, error) {
+	bound, tx, err := s.DB.TxReadOnly(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	var one int
+	err = tx.QueryRowContext(bound, `SELECT 1 FROM messages WHERE mint = ? AND signature = ?`, p.Mint, sig).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *Store) assignedID(ctx context.Context, p Project, memo, sender string, now time.Time) (int, bool, error) {
+	bound, tx, err := s.DB.TxReadOnly(ctx)
+	if err != nil {
+		return 0, false, err
+	}
+	defer tx.Rollback()
+	memos, err := cacheMemos(bound, p.Mint)
+	if err != nil {
+		return 0, false, err
+	}
+	candidate, ok := ParseMemo(memo)
+	if !ok {
+		return 0, false, fmt.Errorf("board: candidate %q does not parse", memo)
+	}
+	candidate.Sender = sender
+	tasks := Fold(p.Mint, memos, now)
+	best := 0
+	for _, t := range tasks {
+		if t.Title == candidate.Text && t.Funder == candidate.Sender {
+			if t.ID > best {
+				best = t.ID
+			}
+		}
+	}
+	if best == 0 {
+		return 0, false, nil
+	}
+	return best, best != candidate.ID, nil
 }
 
 func (s *Store) refuseForeign(ctx context.Context, p Project, memo, sender string, now time.Time) error {

@@ -1,4 +1,25 @@
 # Changelog
+## [0.1.6] — the act waits for its memo to be indexed
+
+`WriteAction` returns at send time and the indexer lags, so the act's
+immediate re-sync missed the memo: the reply board omitted the act and
+the next act's fold pre-check refused it — a retried task double-spent.
+
+- **Confirm, then wait for the cache** — after the write the act polls
+  `GetSignatureStatus` until confirmed (bounded, now the shared
+  `client.WaitConfirmed`), then re-syncs until its signature is in the
+  cache (bounded, 15s default). If the memo does not land, the reply is
+  `<sig> <memo>` plus `pending: not yet indexed` — the write is
+  confirmed, only the cache is behind.
+- **The reply names a renumbered id** — when the fold renumbers a stale
+  task, the reply says which id was assigned, so a follow-up claim does
+  not target someone else's task.
+
+Tests: task then claim with the fake's indexer lag 2 succeeds with one
+task on chain (no retry double-spend), and the contested-verdict test
+now asserts the pending reply for a memo the cache has not seen. The
+shared `WaitConfirmed` replaces the project and earn copies.
+
 ## [0.1.5] — a board act never guesses the memo's seq
 
 An `Act` inserted its own memo row with `seq = max + 1` and `Sync` never
