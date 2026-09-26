@@ -1,0 +1,31 @@
+name: pages
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: assemble the site artifact
+        run: |
+          # ORBIT_VERSION is cmd/orbit/main.go's Version const — one source of
+          # truth, so the page and install.sh never drift from the code.
+          ORBIT_VERSION=$(grep -oP 'Version = "[^"]+"' cmd/orbit/main.go | sed 's/.*"\(.*\)".*/\1/')
+          echo "ORBIT_VERSION=$ORBIT_VERSION"
+          mkdir -p dist
+          cp site/* dist/
+          sed -i "s/{{ORBIT_VERSION}}/$ORBIT_VERSION/g" dist/index.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - uses: actions/deploy-pages@v4
