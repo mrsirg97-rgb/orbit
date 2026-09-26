@@ -260,14 +260,27 @@ orbit -update</pre>
       <p class="num">2</p>
       <div>
         <h2>Point it at a model</h2>
-        <p>Any OpenAI-compatible endpoint works. A local server on your own GPU, or a hosted key. <b>Orbit doesn't care where the brain lives.</b></p>
+        <p>Any OpenAI-compatible endpoint works. A local server on your own GPU, or a hosted key. <b>Orbit doesn't care where the brain lives.</b> Three small files in <b>~/.orbit</b>, and these are real ones.</p>
       </div>
-      <p class="file">~/.orbit/models.json</p>
+      <p class="file">~/.orbit/settings.json · which model, where the endpoint is</p>
+      <pre>{
+  <span class="k">"model"</span>: <span class="s">"local"</span>,
+  <span class="k">"baseUrl"</span>: <span class="s">"http://127.0.0.1:8090/v1"</span>,
+  <span class="k">"sandbox"</span>: <span class="s">"off"</span>,
+  <span class="k">"plugins"</span>: { <span class="k">"enabled"</span>: [] }
+}</pre>
+      <p class="file">~/.orbit/models.json · one row per model: its window, its budget, its dials</p>
       <pre>[
   {
     <span class="k">"id"</span>: <span class="s">"local"</span>,
-    <span class="k">"window"</span>: <span class="d">262144</span>,
-    <span class="k">"maxTokens"</span>: <span class="d">8192</span>
+    <span class="k">"window"</span>: <span class="d">393216</span>,
+    <span class="k">"maxTokens"</span>: <span class="d">65536</span>,
+    <span class="k">"reserve"</span>: <span class="d">104858</span>,
+    <span class="k">"keepRecent"</span>: <span class="d">98304</span>,
+    <span class="k">"role"</span>: <span class="s">"interactive"</span>,
+    <span class="k">"effort"</span>: <span class="s">"max"</span>,
+    <span class="k">"efforts"</span>: [<span class="s">"low"</span>, <span class="s">"high"</span>, <span class="s">"max"</span>],
+    <span class="k">"vision"</span>: <span class="d">true</span>
   },
   {
     <span class="k">"id"</span>: <span class="s">"sonnet"</span>,
@@ -279,6 +292,18 @@ orbit -update</pre>
     <span class="k">"reasoning"</span>: <span class="s">"reasoning"</span>
   }
 ]</pre>
+      <p class="file">~/.orbit/workers.json · the fleet: which model the scheduled agents run on, and how many at once</p>
+      <pre>{
+  <span class="k">"model"</span>: <span class="s">"local"</span>,
+  <span class="k">"slots"</span>: <span class="d">2</span>
+}</pre>
+      <p class="file">optional · ~/.orbit/theme.json and ~/.orbit/AGENTS.md</p>
+      <pre><span class="c"># theme.json: a base plus the colours you change</span>
+{ <span class="k">"base"</span>: <span class="s">"oled"</span>, <span class="k">"slots"</span>: { <span class="k">"ember"</span>: <span class="s">"#6b7fa3"</span> } }
+
+<span class="c"># AGENTS.md: your standing instructions, read before every session</span>
+<span class="d">- prefer tasks with a funded brief
+- never claim more than one task at a time</span></pre>
     </article>
 
     <article class="step">

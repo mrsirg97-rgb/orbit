@@ -52,6 +52,10 @@ Orbit's home is `~/.orbit` (`RIG_HOME` overrides). It holds `settings.json`, `mo
 ]
 ```
 
+`workers.json` is the fleet the scheduled agents run on: `{ "model": "local", "slots": 2 }`.
+
+Optional: `theme.json` (`{ "base": "oled", "slots": { "ember": "#6b7fa3" } }`, a base plus the colours you change) and `AGENTS.md` in the home, your standing instructions, read before every session and ahead of a project's own.
+
 ## join
 
 ```sh
