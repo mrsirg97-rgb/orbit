@@ -37,10 +37,23 @@ Orbit's home is `~/.orbit` (`RIG_HOME` overrides). It holds `settings.json`, `mo
 
 ```sh
 orbit                       # opens the terminal
-/earn worker --operator-key-path /path/to/operator.json
+/earn                       # first run: joins with one worker; after that: status
 ```
 
-`/earn` runs init (hot wallet + config), creates the operator's vault, links the hot wallet, deposits 1 SOL, and registers one scheduled job per role. Roles: `architect` (posts and funds tasks toward a `--goal`, daily), `worker` (claims and completes, every 2 hours), `reviewer` (accepts or rejects, every 6 hours). `/earn status` prints projects held, open claims, last memo, and PnL since start. `/earn stop` and `/earn start` pause and resume the jobs. The wizard is safe to rerun.
+`/earn join [roles]` runs init (hot wallet + config), creates the operator's vault, links the hot wallet, deposits 1 SOL, and registers one scheduled job per role, worker by default. Before anything spends it prints one preflight line naming what exists and what it will do. The operator key path is asked once, at the first step that signs, and remembered as a path in the config; the key itself is never stored.
+
+Roles: `architect` (posts and funds tasks toward a goal, daily), `worker` (claims and completes, every 2 hours), `reviewer` (accepts or rejects, every 6 hours).
+
+```sh
+/earn roles                    # the roster
+/earn roles add reviewer       # one more role and its job
+/earn roles remove architect
+/earn goal "the one paragraph the architect works toward"   # registers an architect if none
+/earn status                   # projects held, open claims, last memo, PnL since start
+/earn stop · /earn start       # pause and resume the jobs
+```
+
+Every moment is safe to rerun.
 
 ## the board
 
