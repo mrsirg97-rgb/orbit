@@ -14,12 +14,11 @@ import (
 
 const (
 	MaxNameLen = 32
+	// MaxGoalLen is the longest goal in bytes that fits the curve buy's memo
+	// budget once the "goal: " tag rides the memo (bytes, not runes).
+	MaxGoalLen = client.CurveMemoCap - len(GoalTag) - 1
 	GoalTag    = "goal:"
 )
-
-// MaxGoalLen is the longest goal in bytes that fits the curve buy's memo
-// budget once the "goal: " tag rides the memo (bytes, not runes).
-var MaxGoalLen = client.CurveMemoCap - len(GoalTag) - 1
 
 func GoalMemo(goal string) (string, error) {
 	goal = strings.TrimSpace(goal)

@@ -209,6 +209,9 @@ func TestMemoCap(t *testing.T) {
 }
 
 func TestMemoAtCapCompilesUnderLegacyLimit(t *testing.T) {
+	// The drift guard for the pinned CurveMemoCap: the worst case is a buy
+	// whose wallet pubkeys (buyer, creator, dev wallet, vault creator) are
+	// all distinct, so the message cannot collapse keys.
 	id := loadIDL(t)
 	disc, err := id.Discriminator("buy_via_vault")
 	if err != nil {
@@ -218,18 +221,29 @@ func TestMemoAtCapCompilesUnderLegacyLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const wallet = "8GQ4XGM9p5DqKjw2JTrUAc42adwYWD5PK3P7eTobcYKy"
+	creator, err := sol.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	devWallet, err := sol.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	vaultCreator, err := sol.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
 	const mint = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
 	size := func(memo string) int {
 		ixs, err := BuildBuyViaVault(disc, BuyAccounts{
-			Mint: mint, Creator: wallet, DevWallet: wallet,
-			Buyer: wallet, VaultCreator: wallet, ProgramID: DevnetProgramID,
+			Mint: mint, Creator: creator.PublicBase58(), DevWallet: devWallet.PublicBase58(),
+			Buyer: kp.PublicBase58(), VaultCreator: vaultCreator.PublicBase58(), ProgramID: DevnetProgramID,
 			WithATA: true,
 		}, MemoBuyLamports, 1, memo)
 		if err != nil {
 			t.Fatal(err)
 		}
-		msg, err := sol.Compile("11111111111111111111111111111111", wallet, ixs)
+		msg, err := sol.Compile("11111111111111111111111111111111", kp.PublicBase58(), ixs)
 		if err != nil {
 			t.Fatal(err)
 		}

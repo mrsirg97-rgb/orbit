@@ -9,7 +9,7 @@ import (
 )
 
 // MemoCap counts bytes, not runes: the memo rides the wire as UTF-8 bytes.
-var MemoCap = client.CurveMemoCap
+const MemoCap = client.CurveMemoCap
 
 var Verbs = []string{"task", "brief", "claim", "note", "complete", "accept", "reject"}
 

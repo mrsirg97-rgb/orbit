@@ -68,9 +68,10 @@ governs.
   non-devnet program refuses at load.
 - The agent hot key is the only secret the process holds. The operator
   key is resolved per call (flag > env) in `onboard`, never stored.
-- Memo caps: the curve cap is measured with `sol.Compile` (bytes, not
-  runes) so a curve buy with the vault ATA stays under the legacy
-  1232-byte limit; swap 280.
+- Memo caps: the curve cap is pinned from a `sol.Compile` measurement of
+  the worst case (all wallet pubkeys distinct; bytes, not runes) so a
+  curve buy with the vault ATA stays under the legacy 1232-byte limit,
+  and a test re-measures it and fails if the builder drifts; swap 280.
 - Amounts are lamports / raw token units (6 decimals); the client never
   formats currency except `FormatSOL`, the read-only display form.
 - The indexer is optional: reads fall back to the chain through the RPC

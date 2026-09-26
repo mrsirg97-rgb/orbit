@@ -25,9 +25,10 @@ are untouched; orbit serves nothing — it is a client, a fold, and a tool.
 
   Task ids are positive integers, minted per project by the fold (next =
   max + 1); the writer reads the board before it writes, so the id it
-  quotes is the fold's. Every shape fits the curve memo cap (measured
-  bytes, not runes, from `sol.Compile` against the 1232-byte legacy
-  limit); `goal` is the project create's first buy and is not a board act.
+  quotes is the fold's. Every shape fits the curve memo cap (pinned bytes
+  from a `sol.Compile` measurement against the 1232-byte legacy limit;
+  a test re-measures and fails if the builder drifts); `goal` is the
+  project create's first buy and is not a board act.
 
 - **The fold**: `Fold(rows, now) → tasks` is a pure function of the
   project's message log in log order (seq). Each memo is parsed

@@ -14,9 +14,10 @@ The first `/earn` runs after the vault fix found two rerun and wire bugs.
   not `{"value": ...}`; `getSignatureStatuses` uses `confirmationStatus`
   (confirmed/finalized), with `confirmations` null once finalized.
 - **The memo cap** — `CurveMemoCap` was 500 and overflowed the 1232-byte
-  legacy limit on a curve buy with an ATA. It is now measured with
-  `sol.Compile` (bytes, not runes), and the board and project goal caps
-  count bytes.
+  legacy limit on a curve buy with an ATA. It is now pinned from a
+  `sol.Compile` measurement of the worst case (295 bytes, not runes; a
+  test re-measures and fails if the builder drifts, so no startup cost),
+  and the board and project goal caps count bytes.
 
 ## [0.1.3] — the board lease expires only the live claim
 
