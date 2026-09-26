@@ -22,9 +22,10 @@ SQLite is a cache rebuilt from it, never trusted.
   from anyone whose memo is in the log — gated only by task state.
   Malformed, foreign, or inapplicable memos are skipped; the lease is the
   one stateful-looking rule and it is pure.
-- `Lease` — the claim's expiry (24h, the runtime's stale-claim window): a
-  claim older than the lease is inapplicable at fold time, so the task
-  folds as pending.
+- `Lease` — the claim's expiry (24h, the runtime's stale-claim window):
+  it applies only while the claim is the task's live state — an active
+  task whose claim is older than the lease folds as pending, while a
+  claim superseded by complete/accept/reject is never dropped.
 - `Store` — the local SQLite cache (the chain's message log plus the fold
   projection) and the chain write path. `Sync` folds the chain into the
   cache (indexer fast path, RPC scan fallback), idempotent by signature;

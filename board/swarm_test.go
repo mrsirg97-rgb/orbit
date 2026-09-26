@@ -243,6 +243,9 @@ func TestSwarmReapExpiredClaim(t *testing.T) {
 	if !strings.Contains(claim, "claim 3") {
 		t.Errorf("re-claim reply: %s", claim)
 	}
+	if !strings.Contains(claim, "t3 active") {
+		t.Errorf("re-claim did not land as active (the dead claim must expire first):\n%s", claim)
+	}
 }
 
 func dbFakeSent(st *Store) []string {

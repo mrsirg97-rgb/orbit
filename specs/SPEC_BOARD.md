@@ -60,10 +60,13 @@ are untouched; orbit serves nothing — it is a client, a fold, and a tool.
   small vault-routed short on the project.
 
 - **Lease**: a claim carries an expiry — `now - claimed_at > Lease`
-  (24h, the todo store's stale-claim window) — after which the claim is
-  inapplicable: the task folds as pending. The fold's expiry is the
-  board's lease; `Reap` is the door that materializes it (the projection
-  is rebuilt with `now`, so an expired active row returns to pending).
+  (24h, the todo store's stale-claim window) — and it applies only while
+  the claim is the task's live state: after the fold, an active task whose
+  claim is older than the lease folds as pending (owner and claimed_at
+  cleared), while a claim superseded by complete/accept/reject is never
+  dropped. The fold's expiry is the board's lease; `Reap` is the door that
+  materializes it (the projection is rebuilt with `now`, so an expired
+  active row returns to pending).
 
 - **The store**: the local SQLite log caches the chain's message rows (the
   indexer's message schema verbatim, generated with lift from
@@ -125,8 +128,10 @@ The message log is append-only; tasks and notes are rewritten from it
 inside every transaction. The fold is deterministic: same log, same
 `now`, same board. The task rows carry no state that the log cannot
 reproduce — funder, owner, status, timestamps, and notes all come from
-memos. Lease expiry is the one stateful-looking rule and it is pure: a
-claim older than the lease is simply inapplicable at fold time.
+memos. Lease expiry is the one stateful-looking rule and it is pure: a claim
+older than the lease expires only while it is still the task's live
+state, so an active task folds back to pending while a claim superseded
+by complete/accept/reject is never dropped.
 
 ### 3. The memo is the write; the micro buy is the carrier
 
@@ -202,8 +207,9 @@ constructs a write client.
   claim and complete land, a brief from a non-funder is ignored, a
   second claim and a re-create stay foreign.
 - **Lease expiry**: a claim just inside the lease stays active; just
-  outside folds as pending; `Reap` returns the expired task to pending
-  and a later claim works.
+  outside folds as pending; a task claimed, completed, and accepted in
+  one hour folds done at +1h and +25h; `Reap` returns the expired task to
+  pending and a later claim works.
 - **Memo shapes against the IDL**: every shape formats and parses
   round-trip, carries no role tag, fits the curve memo cap, and the act's
   transaction is golden against the IDL (buy_via_vault discriminator +
