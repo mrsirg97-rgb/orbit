@@ -47,6 +47,9 @@ func MemoFor(s Shape) (string, error) {
 	default:
 		return "", fmt.Errorf("memo: unknown verb %q", s.Verb)
 	}
+	if controlChar(body) {
+		return "", fmt.Errorf("memo: %s: control characters are not allowed (a raw memo would break the board's one-line render)", s.Verb)
+	}
 	if len(body) > MemoCap {
 		return "", fmt.Errorf("memo: %s over the %d-byte cap", s.Verb, MemoCap)
 	}
@@ -62,7 +65,21 @@ func validVerb(v string) bool {
 	return false
 }
 
+// controlChar rejects anything that would break the one-line-per-task
+// render: newlines, tabs, escapes, and the other C0/DEL bytes.
+func controlChar(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x20 || s[i] == 0x7f {
+			return true
+		}
+	}
+	return false
+}
+
 func ParseMemo(memo string) (Memo, bool) {
+	if controlChar(memo) {
+		return Memo{}, false
+	}
 	rest := strings.TrimSpace(memo)
 	verb, tail, ok := strings.Cut(rest, " ")
 	if !ok {

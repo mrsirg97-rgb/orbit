@@ -64,22 +64,23 @@ func readConfigFile(path string) (map[string]string, error) {
 	return values, nil
 }
 
-func loadEnvFile(getenv func(string) string) error {
+func readEnvFile(getenv func(string) string) (map[string]string, error) {
 	path := strings.TrimSpace(getenv("ORBIT_ENVFILE"))
 	if path == "" {
 		h, err := Home(getenv)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		path = filepath.Join(h, "env")
 	}
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		return map[string]string{}, nil
 	}
 	if err != nil {
-		return fmt.Errorf("config: env file %s: %w", path, err)
+		return nil, fmt.Errorf("config: env file %s: %w", path, err)
 	}
+	values := map[string]string{}
 	for _, line := range strings.Split(string(b), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -89,9 +90,9 @@ func loadEnvFile(getenv func(string) string) error {
 		if !ok || strings.TrimSpace(k) == "" {
 			continue
 		}
-		os.Setenv(strings.TrimSpace(k), strings.TrimSpace(v))
+		values[strings.TrimSpace(k)] = strings.TrimSpace(v)
 	}
-	return nil
+	return values, nil
 }
 
 func LoadConfig(getenv func(string) string) (Config, error) {
@@ -140,25 +141,26 @@ func loadConfig(getenv func(string) string, req requirements) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	envFile, err := readEnvFile(getenv)
+	if err != nil {
+		return Config{}, err
+	}
 
+	// Precedence: live env > the legacy env file > the config file. The env
+	// file is read into the map — never into the process (no os.Setenv).
 	value := func(k string) string {
 		if v := strings.TrimSpace(getenv(k)); v != "" {
 			return v
 		}
-		return strings.TrimSpace(defaults[k])
-	}
-	if value("ORBIT_INDEXER") == "" || (req.agentKey && value("ORBIT_AGENT_KEY") == "" && value("ORBIT_AGENT_KEY_FILE") == "") {
-		if err := loadEnvFile(getenv); err != nil {
-			return Config{}, err
+		if v := strings.TrimSpace(envFile[k]); v != "" {
+			return v
 		}
+		return strings.TrimSpace(defaults[k])
 	}
 	indexer := value("ORBIT_INDEXER")
 	rpc := value("ORBIT_RPC")
 	if rpc == "" && indexer != "" {
 		rpc = strings.TrimSuffix(indexer, "/") + "/rpc"
-	}
-	if rpc != "" && isHostOnly(rpc) {
-		rpc = strings.TrimSuffix(rpc, "/") + "/rpc"
 	}
 	creator := value("ORBIT_VAULT_CREATOR")
 	prog := value("ORBIT_PROGRAM_ID")
@@ -217,15 +219,6 @@ func loadConfig(getenv func(string) string, req requirements) (Config, error) {
 		cfg.AllowWrite = true
 	}
 	return cfg, nil
-}
-
-func isHostOnly(endpoint string) bool {
-	slash := strings.Index(endpoint, "://")
-	rest := endpoint
-	if slash >= 0 {
-		rest = endpoint[slash+3:]
-	}
-	return !strings.Contains(rest, "/")
 }
 
 func (c Config) Validate() error {

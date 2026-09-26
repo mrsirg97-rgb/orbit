@@ -40,6 +40,17 @@ func Register(ctx context.Context, db scheduler.DB, ct scheduler.Crontab, row id
 	}, sessionCwd, session, runnerCmd, time.Now)
 }
 
+// RunnerCommand builds the cron runner command with the executable shell-
+// quoted: a path with spaces or shell metacharacters must not break the
+// crontab line.
+func RunnerCommand(executable string) string {
+	return shellQuote(executable) + " run-job"
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 func Refresh(ctx context.Context, db scheduler.DB, ct scheduler.Crontab, jobID, rowID, brief, session, runnerCmd string) (string, error) {
 	if brief == "" {
 		return "", fmt.Errorf("agent: brief required")

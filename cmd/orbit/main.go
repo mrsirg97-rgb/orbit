@@ -56,6 +56,7 @@ import (
 	viewtool "github.com/mrsirg97-rgb/rig/tool/view"
 	webtool "github.com/mrsirg97-rgb/rig/tool/web"
 
+	"github.com/mrsirg97-rgb/orbit/agent"
 	"github.com/mrsirg97-rgb/orbit/board"
 	"github.com/mrsirg97-rgb/orbit/client"
 	"github.com/mrsirg97-rgb/orbit/earn"
@@ -65,7 +66,7 @@ import (
 	orbittool "github.com/mrsirg97-rgb/orbit/tool"
 )
 
-const Version = "0.1.7"
+const Version = "0.2.0"
 
 // titleName is the ASCII fallback when the theme's glyphs are not blocks.
 const titleName = "orbit"
@@ -819,10 +820,26 @@ func main() {
 	sessionID := flag.String("session-id", "", "set the fresh session identity (worker use)")
 	tuiMode := flag.String("tui", "auto", "the terminal frontend: auto (default; when stdout is a terminal), true (force it), false (the piped CLI)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
+	updateFlag := flag.Bool("update", false, "update the binary to the latest release and exit")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Printf("orbit %s (rig %s)\n", Version, rigModuleVersion())
+		return
+	}
+
+	if *updateFlag {
+		cfg, err := defaultUpdateCfg()
+		if err == nil {
+			cfg.key, err = updateKey(os.Getenv)
+			if err == nil {
+				err = update(context.Background(), cfg)
+			}
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "orbit:", err)
+			os.Exit(1)
+		}
 		return
 	}
 
@@ -1097,7 +1114,7 @@ func main() {
 	}
 
 	if workers := cfg.Workers; workers != nil {
-		r.tools["scheduler"] = schedapi.New(scdb, sched.RealCrontab(""), self+" run-job", workers.Model, cfgDir)
+		r.tools["scheduler"] = schedapi.New(scdb, sched.RealCrontab(""), agent.RunnerCommand(self), workers.Model, cfgDir)
 		r.tools["delegate"] = delegate.New(delegate.Opts{
 			DB:           scdb,
 			Home:         schedHome,

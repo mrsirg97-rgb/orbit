@@ -127,19 +127,16 @@ func ensureJobAction(ctx context.Context, idb store.DB, row identity.Row, action
 	}
 	sdb := schedStore()
 	defer sdb.DB.Close()
-	cwd, err := os.Getwd()
-	if err != nil {
-		die("%v", err)
-	}
+	cwd := mustOrbitHome()
 	var reply string
 	if action == "refresh" {
 		jobID := findJobID(ctx, sdb, agent.JobName(row.ID))
 		if jobID == "" {
 			die("agent: job: no existing job %s (register first)", agent.JobName(row.ID))
 		}
-		reply, err = agent.Refresh(ctx, sdb, sched.RealCrontab(""), jobID, row.ID, block, "orbit-agent", self+" run-job")
+		reply, err = agent.Refresh(ctx, sdb, sched.RealCrontab(""), jobID, row.ID, block, "orbit-agent", agent.RunnerCommand(self))
 	} else {
-		reply, err = agent.Register(ctx, sdb, sched.RealCrontab(""), row, block, self+" run-job", cwd, "orbit-agent")
+		reply, err = agent.Register(ctx, sdb, sched.RealCrontab(""), row, block, agent.RunnerCommand(self), cwd, "orbit-agent")
 	}
 	if err != nil {
 		die("agent: job: %v", err)

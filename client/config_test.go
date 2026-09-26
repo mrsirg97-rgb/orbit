@@ -36,8 +36,8 @@ func TestConfigPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Indexer != "https://file.indexer" || cfg.RPC != "https://file.rpc/rpc" {
-		t.Errorf("file defaults (rpc should be host + /rpc): %+v", cfg)
+	if cfg.Indexer != "https://file.indexer" || cfg.RPC != "https://file.rpc" {
+		t.Errorf("file defaults (a user-set ORBIT_RPC is verbatim): %+v", cfg)
 	}
 	if cfg.AgentKey.PublicBase58() != kp.PublicBase58() {
 		t.Errorf("key file not resolved: %s", cfg.AgentKey.PublicBase58())
@@ -124,8 +124,8 @@ func TestDefaultRPCFromIndexer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.RPC != "https://other.node/rpc" {
-		t.Errorf("host-only RPC should be normalized: %q", cfg.RPC)
+	if cfg.RPC != "https://other.node" {
+		t.Errorf("a user-set ORBIT_RPC is verbatim: %q", cfg.RPC)
 	}
 	env["ORBIT_RPC"] = "https://api.torchmarket.dev/rpc"
 	cfg, err = LoadConfig(func(k string) string { return env[k] })
@@ -281,5 +281,35 @@ func TestHomeHonorsRigHome(t *testing.T) {
 	}
 	if home != "/x/rig-home" {
 		t.Errorf("home %s, want /x/rig-home", home)
+	}
+}
+
+func TestEnvFileLowestPrecedenceNoMutation(t *testing.T) {
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, "env")
+	if err := os.WriteFile(envFile, []byte(
+		"ORBIT_INDEXER=https://file.indexer\n"+
+			"ORBIT_RPC=https://file.rpc\n"+
+			"ORBIT_PROGRAM_ID="+DevnetProgramID+"\n"+
+			"ORBIT_VAULT_CREATOR=11111111111111111111111111111111\n"+
+			"ORBIT_AGENT_KEY="+sol.Encode(mustKeypairSecret(t))+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ORBIT_RPC", "https://live.rpc")
+	t.Setenv("ORBIT_ENVFILE", envFile)
+	t.Setenv("ORBIT_CONFIG", filepath.Join(dir, "config"))
+
+	cfg, err := LoadConfig(os.Getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RPC != "https://live.rpc" {
+		t.Errorf("the live env must win over the env file: %q", cfg.RPC)
+	}
+	if cfg.Indexer != "https://file.indexer" {
+		t.Errorf("the env file must supply keys the live env lacks: %q", cfg.Indexer)
+	}
+	if got := os.Getenv("ORBIT_RPC"); got != "https://live.rpc" {
+		t.Errorf("the env file mutated the process env: %q", got)
 	}
 }

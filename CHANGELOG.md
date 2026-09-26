@@ -1,4 +1,34 @@
 # Changelog
+## [0.2.0] — the hygiene pass: nine fixes, each with a test
+
+- **Task rows order numerically** — the board window and render were
+  sorted by the task id as text (t1, t10, t2); the window now orders by
+  the numeric id.
+- **Memo text renders raw — control characters rejected at parse** —
+  newlines, tabs, escapes, and the other C0/DEL bytes never become a
+  board memo (parse and the write side refuse).
+- **resolveMint accepts only real mints** — a 44-character input must
+  decode with `sol.Decode` to 32 bytes before it is treated as a mint
+  (board and market); an invalid base58 string resolves by FID instead.
+- **The legacy env file has the lowest precedence** — it is read into the
+  map (live env > env file > config file), never into the process
+  (`os.Setenv` is gone).
+- **A user-set ORBIT_RPC is used verbatim** — only the indexer-derived
+  RPC gets `/rpc` appended; a bare-host ORBIT_RPC no longer gains one.
+- **The cron command is shell-quoted** — `RunnerCommand` quotes the
+  executable path in the crontab line (spaces and metacharacters are
+  safe); all run-job registration sites use it.
+- **The job cwd is pinned to the orbit home** — agent jobs no longer
+  follow the TUI's cwd.
+- **Cost basis is one unit** — the brief and the tools both treat
+  `cost_basis_remaining` as lamports (the tools convert to SOL with
+  `/1e9`, not `/1e6`).
+- **`orbit -update`** — ported from rig's updater: fetches the latest
+  `mrsirg97-rgb/orbit` release, verifies `checksums.txt` against the
+  pinned minisign key (`ORBIT_UPDATE_KEY` or `settings.json updateKey`;
+  unpinned refuses — the rig embedded key is not orbit's), replaces the
+  running binary in place, and prints old and new versions.
+
 ## [0.1.7] — the fire's brief carries the goal; the sandbox comes from settings
 
 `run-job` built the fire's brief from the agent row's `Name` and `Bio`

@@ -149,7 +149,11 @@ func (c *Command) register(ctx context.Context, in args) (string, error) {
 		if id := findJobID(ctx, c.SchedDB, agent.JobName(row.ID)); id != "" {
 			reply, err = agent.Refresh(ctx, c.SchedDB, c.Crontab, id, row.ID, stub, c.Session, c.runner())
 		} else {
-			reply, err = agent.Register(ctx, c.SchedDB, c.Crontab, row, stub, c.runner(), c.Cwd, c.Session)
+			jobCwd, cerr := c.JobCwd()
+			if cerr != nil {
+				return "", fmt.Errorf("earn: job cwd: %w", cerr)
+			}
+			reply, err = agent.Register(ctx, c.SchedDB, c.Crontab, row, stub, c.runner(), jobCwd, c.Session)
 		}
 		if err != nil {
 			return "", fmt.Errorf("earn: job %s: %w", row.ID, err)
@@ -398,7 +402,7 @@ func (c *Command) runner() string {
 	if c.Self == "" {
 		return "orbit run-job"
 	}
-	return c.Self + " run-job"
+	return agent.RunnerCommand(c.Self)
 }
 
 func fileExists(path string) bool {
@@ -555,4 +559,10 @@ func jobState(ctx context.Context, db sched.DB, id string) string {
 		return "?"
 	}
 	return job.State
+}
+
+// JobCwd pins the agent jobs to the orbit home: a job's cwd must not
+// follow the TUI's cwd (the sessions and caches live under the home).
+func (c *Command) JobCwd() (string, error) {
+	return client.Home(c.Getenv)
 }
