@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/mrsirg97-rgb/orbit/client"
 )
 
+// MemoCap counts bytes, not runes: the memo rides the wire as UTF-8 bytes.
 const MemoCap = client.CurveMemoCap
 
 var Verbs = []string{"task", "brief", "claim", "note", "complete", "accept", "reject"}
@@ -47,8 +47,8 @@ func MemoFor(s Shape) (string, error) {
 	default:
 		return "", fmt.Errorf("memo: unknown verb %q", s.Verb)
 	}
-	if utf8.RuneCountInString(body) > MemoCap {
-		return "", fmt.Errorf("memo: %s over the %d-char cap", s.Verb, MemoCap)
+	if len(body) > MemoCap {
+		return "", fmt.Errorf("memo: %s over the %d-byte cap", s.Verb, MemoCap)
 	}
 	return body, nil
 }

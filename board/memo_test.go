@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"strings"
 	"testing"
-	"unicode/utf8"
 
 	"github.com/mrsirg97-rgb/orbit/client"
 	"github.com/mrsirg97-rgb/orbit/idl"
@@ -99,8 +98,8 @@ func TestMemoShapesAgainstIDL(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", c.Verb, err)
 		}
-		if utf8.RuneCountInString(memo) > MemoCap {
-			t.Errorf("%s: memo %d chars, cap %d", c.Verb, utf8.RuneCountInString(memo), MemoCap)
+		if len(memo) > MemoCap {
+			t.Errorf("%s: memo %d bytes, cap %d", c.Verb, len(memo), MemoCap)
 		}
 		args, err := id.BorshArgs("buy_via_vault", map[string]any{
 			"sol_amount":     uint64(client.MemoBuyLamports),

@@ -2,9 +2,11 @@ package client
 
 import (
 	"encoding/hex"
+	"strings"
 	"testing"
 
 	"github.com/mrsirg97-rgb/orbit/idl"
+	"github.com/mrsirg97-rgb/orbit/sol"
 )
 
 func loadIDL(t *testing.T) *idl.IDL {
@@ -203,6 +205,55 @@ func TestMemoCap(t *testing.T) {
 	}
 	if _, err := BuildMemo("wallet", string(long)); err != nil {
 		t.Fatalf("memo builder must not cap (the callers enforce the path cap): %v", err)
+	}
+}
+
+func TestMemoAtCapCompilesUnderLegacyLimit(t *testing.T) {
+	// The drift guard for the pinned CurveMemoCap: the worst case is a buy
+	// whose wallet pubkeys (buyer, creator, dev wallet, vault creator) are
+	// all distinct, so the message cannot collapse keys.
+	id := loadIDL(t)
+	disc, err := id.Discriminator("buy_via_vault")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kp, err := sol.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	creator, err := sol.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	devWallet, err := sol.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	vaultCreator, err := sol.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const mint = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
+	size := func(memo string) int {
+		ixs, err := BuildBuyViaVault(disc, BuyAccounts{
+			Mint: mint, Creator: creator.PublicBase58(), DevWallet: devWallet.PublicBase58(),
+			Buyer: kp.PublicBase58(), VaultCreator: vaultCreator.PublicBase58(), ProgramID: DevnetProgramID,
+			WithATA: true,
+		}, MemoBuyLamports, 1, memo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		msg, err := sol.Compile("11111111111111111111111111111111", kp.PublicBase58(), ixs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(sol.SignVersionedTx(msg, kp))
+	}
+	if got := size(strings.Repeat("x", CurveMemoCap)); got > legacyTxLimit {
+		t.Errorf("memo at the cap: tx %d bytes, want <= %d", got, legacyTxLimit)
+	}
+	if got := size(strings.Repeat("x", CurveMemoCap+1)); got <= legacyTxLimit {
+		t.Errorf("memo over the cap: tx %d bytes, want > %d", got, legacyTxLimit)
 	}
 }
 

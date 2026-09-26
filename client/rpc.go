@@ -33,10 +33,9 @@ type TokenAccount struct {
 }
 
 type SignatureStatus struct {
-	Exists        bool
-	Confirmed     bool
-	Err           string
-	Confirmations *uint64
+	Exists    bool
+	Confirmed bool
+	Err       string
 }
 
 type SignatureInfo struct {
@@ -253,13 +252,11 @@ func (r *JSONRPC) RequestAirdrop(ctx context.Context, pubkey string, lamports ui
 	if err != nil {
 		return "", err
 	}
-	var out struct {
-		Value string `json:"value"`
-	}
-	if err := json.Unmarshal(raw, &out); err != nil {
+	var sig string
+	if err := json.Unmarshal(raw, &sig); err != nil {
 		return "", fmt.Errorf("rpc requestAirdrop %s: %w", pubkey, err)
 	}
-	return out.Value, nil
+	return sig, nil
 }
 
 func (r *JSONRPC) GetBalance(ctx context.Context, pubkey string) (uint64, error) {
@@ -283,9 +280,10 @@ func (r *JSONRPC) GetSignatureStatus(ctx context.Context, signature string) (Sig
 	}
 	var out struct {
 		Value []*struct {
-			Err           any     `json:"err"`
-			Confirmations *uint64 `json:"confirmations"`
-			Confirmation  *string `json:"confirmation"`
+			Err any `json:"err"`
+			// confirmations is null once the tx is finalized; the
+			// confirmationStatus field is the real signal.
+			ConfirmationStatus *string `json:"confirmationStatus"`
 		} `json:"value"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
@@ -299,11 +297,7 @@ func (r *JSONRPC) GetSignatureStatus(ctx context.Context, signature string) (Sig
 	if v.Err != nil {
 		st.Err = fmt.Sprintf("%v", v.Err)
 	}
-	if v.Confirmations != nil && *v.Confirmations > 0 {
-		st.Confirmed = true
-		st.Confirmations = v.Confirmations
-	}
-	if v.Confirmation != nil && *v.Confirmation == "finalized" {
+	if v.ConfirmationStatus != nil && (*v.ConfirmationStatus == "confirmed" || *v.ConfirmationStatus == "finalized") {
 		st.Confirmed = true
 	}
 	return st, nil

@@ -9,8 +9,17 @@ import (
 )
 
 const (
-	CurveMemoCap = 500
-	SwapMemoCap  = 280
+	// CurveMemoCap is the longest memo in bytes (not runes) that fits the
+	// legacy 1232-byte limit on a curve buy with the vault ATA instruction.
+	// The value is pinned from a sol.Compile measurement of the worst case
+	// (all wallet pubkeys distinct); when the builder drifts,
+	// TestMemoAtCapCompilesUnderLegacyLimit fails and the cap is re-pinned
+	// here.
+	CurveMemoCap = 295
+	// SwapMemoCap is the swap path's memo cap.
+	SwapMemoCap = 280
+	// legacyTxLimit is the 1232-byte serialized-transaction ceiling.
+	legacyTxLimit = 1232
 )
 
 func BuildMemo(signer, memo string) (sol.Instruction, error) {

@@ -174,6 +174,7 @@ the defaults; the env loader reads them and env always overrides.
 | `ORBIT_RPC` | JSON-RPC base URL (defaults to `{indexer}/rpc`; a host-only value gets `/rpc` appended) |
 | `ORBIT_PROGRAM_ID` | torch program ID; default = the devnet IDL address (a non-devnet ID refuses every write) |
 | `ORBIT_VAULT_CREATOR` | the operator's vault creator pubkey (public only) |
+| `ORBIT_VAULT_DEPOSITED` | the wizard's setup marker for the vault deposit (recorded after the confirmed deposit, or when the vault record's `total_deposited` is already > 0) |
 | `ORBIT_AGENT_KEY` | the agent hot wallet: base58 64-byte secret |
 | `ORBIT_AGENT_KEY_FILE` | or the key file path (`init` writes the key and this value) |
 | `ORBIT_OPERATOR_KEY(_PATH)` | the operator's authority key, per call — flag > env, never stored |

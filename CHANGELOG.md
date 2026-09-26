@@ -1,4 +1,24 @@
 # Changelog
+## [0.1.4] — the wizard is safe to rerun; the RPC decoders match a real node
+
+The first `/earn` runs after the vault fix found two rerun and wire bugs.
+
+- **earn wizard rerun safety** — deposit is gated on the recorded
+  `ORBIT_VAULT_DEPOSITED` marker or the vault record's `total_deposited`
+  (never the running balance), link and deposit confirm the signature
+  before returning, vault create checks `TorchVaultPDA(creator)` on chain
+  and records the creator without sending when the vault exists, a role
+  whose job exists is refreshed instead of created, and the model check
+  runs before any chain spend.
+- **RPC decoders** — `requestAirdrop` returns a bare string signature,
+  not `{"value": ...}`; `getSignatureStatuses` uses `confirmationStatus`
+  (confirmed/finalized), with `confirmations` null once finalized.
+- **The memo cap** — `CurveMemoCap` was 500 and overflowed the 1232-byte
+  legacy limit on a curve buy with an ATA. It is now pinned from a
+  `sol.Compile` measurement of the worst case (295 bytes, not runes; a
+  test re-measures and fails if the builder drifts, so no startup cost),
+  and the board and project goal caps count bytes.
+
 ## [0.1.3] — the board lease expires only the live claim
 
 The fold's claim case skipped any claim older than the lease
