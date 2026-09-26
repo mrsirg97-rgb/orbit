@@ -78,8 +78,10 @@ are untouched; orbit serves nothing — it is a client, a fold, and a tool.
 - **The store**: the local SQLite log caches the chain's message rows (the
   indexer's message schema verbatim, generated with lift from
   `board/metadata`): `messages` keyed `(mint, seq)`, `tasks` keyed
-  `(project, id)`, `notes` keyed `(project, task, seq)`, `meta` for the
-  schema version. The reads are schema-shaped and primary-key-seek only —
+  `(project, id)`, `notes` keyed `(project, task, seq)`,
+  `project_sources` keyed `(project)` — the source that numbers the
+  project's messages (`indexer` or `scan`) — and `meta` for the schema
+  version. The reads are schema-shaped and primary-key-seek only —
   `GetTask(project, id)`, `WindowTaskByProject`, `GetMessage(mint, seq)`,
   `WindowMessageByMint` — no index, no scan, no seek beyond the key. The
   one index is `messages (mint, signature)` unique: the write-side
@@ -206,6 +208,24 @@ tool never retries a failed write. A board read is a read: it loads
 config in read mode (ORBIT_RPC only, no vault creator, no key) and never
 constructs a write client.
 
+### 8. The message source is recorded and sticky per project
+
+A project's messages are numbered by exactly one source: the indexer
+(`message_id`, the chain's order) or the RPC scan (the local rowid,
+continuing from the cache's max seq). `project_sources` records it, and a
+mint's source never changes while its rows exist. The fallback to the
+scan applies only to a mint with no recorded source (connect error, 5xx,
+timeout — never a 4xx), prints one line naming the switch, and records
+the source. An outage on a recorded-indexer mint inserts nothing: the
+board read serves the cache with one line `indexer unreachable: board
+may be stale` and acts are refused. A mint first synced by scan stays on
+scan until the cache is rebuilt, even when the indexer comes back —
+re-sourcing through the indexer would renumber the log and wedge the
+fold's task ids. The one source change by config (the indexer unset on a
+recorded-indexer mint) wipes the mint's messages, tasks, and notes in the
+same transaction and re-syncs under the new source, so the cache never
+holds rows under two numberings at once.
+
 ## layout
 
 - `board/memo.go` — shapes: format/parse per verb, the cap
@@ -247,6 +267,12 @@ constructs a write client.
   swarm surface with a fake RPC, assert the memos written and the final
   board state; a dead worker's claim is reaped and the task is claimed
   again.
+- **The indexer fallback**: indexer down (5xx) on an unrecorded mint →
+  the scan serves the sync and the source is recorded; a recovered
+  indexer does not re-source a scanned mint; a 404 never falls back and
+  records nothing; an outage on a warm indexer mint inserts nothing and
+  refuses acts; unsetting the indexer wipes and rewalks; the
+  mixed-source case is impossible.
 - **Board read without a key**: `orbit board <mint> read` loads config in
   read mode — ORBIT_RPC only, no indexer, no vault creator, no agent key
   (the config test pins the loader; the RPC scan fixture pins the read).

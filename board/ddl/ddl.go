@@ -36,6 +36,11 @@ func Statements() []string {
   "text" TEXT NOT NULL,
   PRIMARY KEY ("project", "task_id", "seq")
 )`,
+		`CREATE TABLE IF NOT EXISTS "project_sources" (
+  "project" TEXT NOT NULL,
+  "source" TEXT NOT NULL,
+  PRIMARY KEY ("project")
+)`,
 		`CREATE TABLE IF NOT EXISTS "tasks" (
   "project" TEXT NOT NULL,
   "id" TEXT NOT NULL,

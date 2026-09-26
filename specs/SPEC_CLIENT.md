@@ -42,8 +42,8 @@ Six loaders share one resolver, one required set per mode:
 
 | env | required | meaning |
 |---|---|---|
-| `ORBIT_INDEXER` | yes | indexer API base URL (e.g. `https://torch-api.example`) |
-| `ORBIT_RPC` | yes | Solana JSON-RPC base URL (may be `<indexer>/rpc`) |
+| `ORBIT_INDEXER` | board loaders no; others yes | indexer API base URL (e.g. `https://torch-api.example`); unset = scan only |
+| `ORBIT_RPC` | yes | Solana JSON-RPC base URL (may be `<indexer>/rpc`; a user-set value is verbatim) |
 | `ORBIT_PROGRAM_ID` | no | torch program ID; default = the IDL address |
 | `ORBIT_VAULT_CREATOR` | operator + agent runtime | the vault creator pubkey (operator's identity, public only) |
 | `ORBIT_AGENT_KEY` | agent runtime only | base58 64-byte secret key of the agent hot wallet |
@@ -144,7 +144,33 @@ wallet is linked, and the vault has SOL (`vault_sol` lamports − rent ≥
 `amount_in`); a missing link or an empty vault fails with a named error and
 the client never retries blindly.
 
-### 8. The websocket is a typed stream, resync is a sentinel
+### 8. Indexer message reads fall back to the RPC scan; the source is sticky per mint
+
+Message reads go to the indexer first. When the indexer is unreachable —
+a transport error (connect failure, DNS), a timeout (the client's 30s or
+the caller's context), or a 5xx — the read falls back to `ScanMessages`
+over the RPC seam. A 4xx never falls back: the indexer answered, and its
+answer is authoritative (a 404 names a mint the indexer does not know,
+not a service that is down). `IndexerUnreachable` is the classifier; a
+decode error is not unreachable and never falls back.
+
+The fallback is per mint and sticky: the board cache records the source
+that numbers a mint's messages (`project_sources`: `indexer` or `scan`),
+and a mint's source never changes while its rows exist. The fallback
+applies only to a mint with no recorded source — an outage on a
+recorded-indexer mint never falls back (scan rows would land beside
+indexer rows); the sync inserts nothing, the board read serves the cache
+with the one line `indexer unreachable: board may be stale`, and acts are
+refused. A mint first synced by scan stays on scan until the cache is
+rebuilt, even when the indexer comes back, and each fallback prints one
+line naming the switch. A source change by config (the indexer is unset
+on a recorded-indexer mint) wipes the mint's messages, tasks, and notes
+in the same transaction and re-syncs under the new source — the cache
+never holds rows under two numberings at once.
+`ORBIT_INDEXER` unset means scan only; a user-set `ORBIT_RPC` is
+verbatim.
+
+### 9. The websocket is a typed stream, resync is a sentinel
 
 `Events` connects to `/events`, subscribes to one room per connection
 (`all` or `market:<mint>`; a second room refuses by name rather than being
@@ -180,5 +206,10 @@ frame instead of skipping it.
 - Write path with a fake RPC: signed tx bytes contain the expected keys and
   the memo instruction; the reply carries the signature + memo.
 - Config: missing env, bad key, non-devnet program ID → named failures.
+- Indexer fallback: unreachable (connect error, 5xx, timeout) → the scan
+  serves the read and the source is recorded; a recovered indexer does
+  not re-source a scanned mint; a 404 never falls back; an outage on a
+  warm indexer mint inserts nothing and refuses acts; unsetting the
+  indexer wipes and rewalks; the mixed-source case is impossible.
 - WS decode: every `kind` frame + resync, from a fixture; a malformed frame
   fails loudly.

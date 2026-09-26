@@ -3,10 +3,12 @@ package board
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/mrsirg97-rgb/rig/store"
@@ -18,7 +20,7 @@ import (
 	"github.com/mrsirg97-rgb/orbit/client"
 )
 
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 type Project struct {
 	Mint  string
@@ -33,6 +35,10 @@ type Store struct {
 	// OnAct is called after every act with the final shape (the minted or
 	// assigned task id); the fire path uses it to refresh the footer.
 	OnAct func(context.Context, Shape)
+	// mu serializes Sync: the source decision, the read, and the cache
+	// write are one critical section per process, so a project's source
+	// never flips under a concurrent sync.
+	mu sync.Mutex
 }
 
 func (s *Store) client() (*client.TorchClient, error) {
@@ -73,25 +79,73 @@ func StorePath(home string) string {
 	return filepath.Join(home, "board.sqlite")
 }
 
+var ErrIndexerUnreachable = errors.New("indexer unreachable: board may be stale")
+
 func (s *Store) Sync(ctx context.Context, p Project, limit int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	tc, err := s.client()
 	if err != nil {
 		return err
 	}
-	var rows []client.MessageRow
-	if tc.Indexer != "" {
-		msgs, err := tc.API.Messages(ctx, client.Q("mint", p.Mint, "limit", fmt.Sprint(limit)))
-		if err != nil {
-			return fmt.Errorf("board sync %s: indexer: %w", p.Mint, err)
-		}
-		rows = msgs
-	} else {
-		msgs, err := client.ScanMessages(ctx, tc.RPC, tc.ProgramID, p.Mint, limit)
+	source, recorded, err := s.sourceOf(ctx, p.Mint, tc)
+	if err != nil {
+		return err
+	}
+	if source == client.SourceIndexer && tc.Indexer == "" {
+		rows, err := tc.Messages(ctx, p.Mint, limit, client.SourceScan)
 		if err != nil {
 			return fmt.Errorf("board sync %s: rpc scan: %w", p.Mint, err)
 		}
-		rows = msgs
+		return s.cacheRows(ctx, p, rows, client.SourceScan, true)
 	}
+	rows, err := tc.Messages(ctx, p.Mint, limit, source)
+	if err != nil {
+		if source == client.SourceIndexer && client.IndexerUnreachable(err) {
+			if recorded {
+				return fmt.Errorf("board sync %s: %w", p.Mint, ErrIndexerUnreachable)
+			}
+			fmt.Printf("board sync %s: source switched from indexer to RPC scan (indexer unreachable)\n", p.Mint)
+			rows, err = tc.Messages(ctx, p.Mint, limit, client.SourceScan)
+			if err != nil {
+				return fmt.Errorf("board sync %s: rpc scan: %w", p.Mint, err)
+			}
+			return s.cacheRows(ctx, p, rows, client.SourceScan, false)
+		}
+		if source == client.SourceIndexer {
+			return fmt.Errorf("board sync %s: indexer: %w", p.Mint, err)
+		}
+		return fmt.Errorf("board sync %s: rpc scan: %w", p.Mint, err)
+	}
+	return s.cacheRows(ctx, p, rows, source, false)
+}
+
+func (s *Store) sourceOf(ctx context.Context, mint string, tc *client.TorchClient) (client.Source, bool, error) {
+	bound, tx, err := s.DB.TxReadOnly(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	defer tx.Rollback()
+	var recorded string
+	err = tx.QueryRowContext(bound, `SELECT source FROM project_sources WHERE project = ?`, mint).Scan(&recorded)
+	switch {
+	case err == sql.ErrNoRows:
+		if tc.Indexer == "" {
+			return client.SourceScan, false, nil
+		}
+		return client.SourceIndexer, false, nil
+	case err != nil:
+		return "", false, err
+	case recorded == string(client.SourceIndexer):
+		return client.SourceIndexer, true, nil
+	case recorded == string(client.SourceScan):
+		return client.SourceScan, true, nil
+	default:
+		return "", false, fmt.Errorf("board sync %s: unknown message source %q", mint, recorded)
+	}
+}
+
+func (s *Store) cacheRows(ctx context.Context, p Project, rows []client.MessageRow, source client.Source, wipe bool) error {
 	bound, tx, err := s.DB.Tx(ctx)
 	if err != nil {
 		return err
@@ -101,6 +155,23 @@ func (s *Store) Sync(ctx context.Context, p Project, limit int) error {
 	if err != nil {
 		return err
 	}
+	if wipe {
+		if _, err := txr.ExecContext(ctx, `DELETE FROM messages WHERE mint = ?`, p.Mint); err != nil {
+			return fmt.Errorf("board sync %s: wipe: %w", p.Mint, err)
+		}
+		if _, err := txr.ExecContext(ctx, `DELETE FROM notes WHERE project = ?`, p.Mint); err != nil {
+			return fmt.Errorf("board sync %s: wipe: %w", p.Mint, err)
+		}
+		if _, err := txr.ExecContext(ctx, `DELETE FROM tasks WHERE project = ?`, p.Mint); err != nil {
+			return fmt.Errorf("board sync %s: wipe: %w", p.Mint, err)
+		}
+	}
+	if _, err := txr.ExecContext(ctx,
+		`INSERT INTO project_sources (project, source) VALUES (?, ?)
+		 ON CONFLICT(project) DO UPDATE SET source = excluded.source`,
+		p.Mint, string(source)); err != nil {
+		return fmt.Errorf("board sync %s: source: %w", p.Mint, err)
+	}
 	var maxSeq int64
 	if err := txr.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM messages WHERE mint = ?`, p.Mint).Scan(&maxSeq); err != nil {
 		return fmt.Errorf("board sync %s: %w", p.Mint, err)
@@ -108,7 +179,7 @@ func (s *Store) Sync(ctx context.Context, p Project, limit int) error {
 	next := maxSeq
 	for _, r := range rows {
 		seq := int64(r.MessageID)
-		if tc.Indexer == "" {
+		if source == client.SourceScan {
 			seq = next + 1
 			next = seq
 		}
@@ -408,10 +479,19 @@ func (s *Store) Market(ctx context.Context, mint string) (client.MarketRow, erro
 }
 
 func (s *Store) Board(ctx context.Context, p Project) (string, error) {
-	if err := s.Sync(ctx, p, 100); err != nil {
+	err := s.Sync(ctx, p, 100)
+	stale := errors.Is(err, ErrIndexerUnreachable)
+	if err != nil && !stale {
 		return "", err
 	}
-	return s.BoardFromCache(ctx, p)
+	board, err := s.BoardFromCache(ctx, p)
+	if err != nil {
+		return "", err
+	}
+	if stale {
+		board += "\nindexer unreachable: board may be stale"
+	}
+	return board, nil
 }
 
 func (s *Store) BoardFromCache(ctx context.Context, p Project) (string, error) {

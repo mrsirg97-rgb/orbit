@@ -28,7 +28,17 @@ SQLite is a cache rebuilt from it, never trusted.
   claim superseded by complete/accept/reject is never dropped.
 - `Store` — the local SQLite cache (the chain's message log plus the fold
   projection) and the chain write path. `Sync` folds the chain into the
-  cache (indexer fast path, RPC scan fallback), idempotent by signature;
+  cache, idempotent by signature: reads default to the indexer and fall
+  back to the RPC scan when the indexer is unreachable (connect error,
+  5xx, timeout — never a 4xx). The source is recorded per project in
+  `project_sources` and a mint's source never changes while its rows
+  exist: the fallback applies only to an unrecorded mint (one line
+  naming the switch), an outage on a recorded-indexer mint inserts
+  nothing — the board read serves the cache with `indexer unreachable:
+  board may be stale` and acts are refused — and a mint first synced by
+  scan stays on scan until the cache is rebuilt. The one source change
+  by config (the indexer unset on a recorded-indexer mint) wipes the
+  mint's rows and re-syncs under the new source in one transaction.
   `Act` writes one board verb (memo + vault-routed micro buy), refuses
   what the fold would refuse before spending, mints the task id after the
   sync, confirms the tx (bounded poll), then re-syncs until the memo is
@@ -69,6 +79,9 @@ SQLite is a cache rebuilt from it, never trusted.
 
 - The store file never is the record: the chain memo log is. The cache is
   rebuilt from the chain, never trusted.
+- `project_sources` is the one per-project record: the source that
+  numbers the messages. It decides every sync and flips one way (indexer
+  → scan); delete the cache to re-source a project.
 - `Task.Notes` carry verdict reasons too — a reject's reason lands in the
   notes.
 - The lease is pure: it materializes in the projection, and `Reap` only

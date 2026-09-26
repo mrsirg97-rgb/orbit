@@ -1,9 +1,10 @@
 // Hand-written metadata for the board store: the containers SPEC_BOARD
 // fixes — meta (the version door), messages (the chain log cache, the
-// indexer's message schema verbatim), tasks (the fold projection, keyed by
-// project and task), notes (a task's note/reason rows). Source of truth;
-// domain and ddl are generated from it, never typed by hand. Nullable
-// columns are pointers.
+// indexer's message schema verbatim), project_sources (the per-project
+// message source), tasks (the fold projection, keyed by project and
+// task), notes (a task's note/reason rows). Source of truth; domain and
+// ddl are generated from it, never typed by hand. Nullable columns are
+// pointers.
 package metadata
 
 // table:"meta"
@@ -30,6 +31,18 @@ type Message struct {
 	Signature  string  `alias:"name=signature,nullable=false"`
 	InnerIxIdx int64   `alias:"name=inner_ix_idx,nullable=false"`
 	CreatedAt  string  `alias:"name=created_at,nullable=false"`
+}
+
+// table:"project_sources"
+//
+// The source that numbers a project's message log: "indexer" (the
+// indexer's message_id) or "scan" (the local rowid, continuing from the
+// cache's max seq). One row per project; the first sync decides and the
+// decision is sticky — a project first synced by scan stays on scan
+// until the cache is rebuilt, and a project never mixes sources.
+type ProjectSource struct {
+	Project string `primary:"true" alias:"name=project,nullable=false"`
+	Source  string `alias:"name=source,nullable=false"`
 }
 
 // table:"tasks"

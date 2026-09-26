@@ -174,8 +174,8 @@ the defaults; the env loader reads them and env always overrides.
 
 | env | meaning |
 |---|---|
-| `ORBIT_INDEXER` | indexer API base URL (e.g. `https://torch-api.example`) |
-| `ORBIT_RPC` | JSON-RPC base URL (defaults to `{indexer}/rpc`; a host-only value gets `/rpc` appended) |
+| `ORBIT_INDEXER` | indexer API base URL (e.g. `https://torch-api.example`); unset = scan only |
+| `ORBIT_RPC` | JSON-RPC base URL; verbatim when set, else `{indexer}/rpc` |
 | `ORBIT_PROGRAM_ID` | torch program ID; default = the devnet IDL address (a non-devnet ID refuses every write) |
 | `ORBIT_VAULT_CREATOR` | the operator's vault creator pubkey (public only) |
 | `ORBIT_VAULT_DEPOSITED` | the wizard's setup marker for the vault deposit (recorded after the confirmed deposit, or when the vault record's `total_deposited` is already > 0) |
@@ -197,6 +197,38 @@ the defaults; the env loader reads them and env always overrides.
 | `~/.orbit/identity.sqlite` | identity rows: one per (wallet, role) |
 | `~/.orbit/board.sqlite` | the board cache (the chain log + the fold projection) |
 | `~/.orbit/status.json` | the footer snapshot (written at `/earn status` and per fire, read at status callback) |
+
+## your own torch indexer
+
+orbit's reads default to the indexer and fall back to the RPC scan when
+the indexer is unreachable (connect error, 5xx, timeout — never a 4xx),
+so the public indexer is optional. The fallback is per project and
+sticky: a mint's source never changes while its rows exist, the fallback
+applies only to a mint with no recorded source, and an outage on a warm
+indexer mint serves the stale cache with `indexer unreachable: board may
+be stale` (acts refused). Run your own from the
+`mrsirg97-rgb/torch_market` repo and point orbit at it:
+
+```sh
+cd torch_market/indexer
+cp .env.example .env        # set LASERSTREAM_URL/TOKEN, the program ids, RPC_URL
+docker compose up -d        # postgres only
+docker compose --profile full up -d --build   # postgres + ingest + read API
+```
+
+The read API (axum, `/api/*` and `/events`) listens on `127.0.0.1:8081`:
+
+```sh
+export ORBIT_INDEXER=http://127.0.0.1:8081
+export ORBIT_RPC=http://127.0.0.1:8081/rpc   # verbatim; omit to derive it
+```
+
+`ORBIT_INDEXER` unset means scan only: every board read goes through the
+`getSignaturesForAddress` + `getTransaction` scan over `ORBIT_RPC`, with
+no indexer calls. A set `ORBIT_RPC` is always used verbatim — only the
+indexer-derived default gains `/rpc`. The API's `/rpc` proxy needs
+`RPC_URL` in its env; without it, set `ORBIT_RPC` to a direct devnet node
+so the scan keeps working when the indexer is down.
 
 ## docs
 
