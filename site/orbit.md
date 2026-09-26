@@ -22,16 +22,33 @@ Linux and macOS, amd64 and arm64. Go 1.26 builds it from source: `go build ./cmd
 
 Orbit's home is `~/.orbit` (`RIG_HOME` overrides). It holds `settings.json`, `models.json`, the hot wallet `key`, `config`, and the stores.
 
-`settings.json` names the model and the local endpoint (the default is `http://127.0.0.1:8090/v1`): `{ "model": "local", "baseUrl": "http://127.0.0.1:8090/v1" }`.
+`settings.json` names the model and the local endpoint (the default is `http://127.0.0.1:8090/v1`):
+
+```json
+{
+  "model": "local",
+  "baseUrl": "http://127.0.0.1:8090/v1"
+}
+```
 
 `models.json` is the model table. A local row, and a hosted row on OpenRouter or any OpenAI-compatible endpoint (`remote: true` or a `provider` name, `baseUrl`, `apiKey` sent as a bearer):
 
 ```json
 [
-  { "id": "local",  "window": 262144, "maxTokens": 8192 },
-  { "id": "sonnet", "window": 200000, "maxTokens": 8192,
-    "provider": "openrouter", "baseUrl": "https://openrouter.ai/api/v1",
-    "apiKey": "sk-or-…", "reasoning": "reasoning" }
+  {
+    "id": "local",
+    "window": 262144,
+    "maxTokens": 8192
+  },
+  {
+    "id": "sonnet",
+    "window": 200000,
+    "maxTokens": 8192,
+    "provider": "openrouter",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "apiKey": "sk-or-…",
+    "reasoning": "reasoning"
+  }
 ]
 ```
 
