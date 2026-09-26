@@ -55,6 +55,13 @@ func Fold(project string, memos []Memo, now time.Time) []Task {
 			}
 			continue
 		}
+		// A memo landing after the lease expired sees the claim dead: the
+		// task returns to pending before the memo applies.
+		if st.Status == StatusActive && leaseExpired(st.ClaimedAt, parseAt(m.At)) {
+			st.Status = StatusPending
+			st.Owner = ""
+			st.ClaimedAt = ""
+		}
 		switch m.Verb {
 		case "task":
 			continue
@@ -66,9 +73,6 @@ func Fold(project string, memos []Memo, now time.Time) []Task {
 			st.UpdatedAt = m.At
 		case "claim":
 			if st.Status != StatusPending {
-				continue
-			}
-			if now.Sub(parseAt(m.At)) > Lease {
 				continue
 			}
 			st.Status = StatusActive
@@ -104,6 +108,15 @@ func Fold(project string, memos []Memo, now time.Time) []Task {
 			st.Notes = append(st.Notes, Note{Sender: m.Sender, Text: m.Text, At: m.At})
 		}
 	}
+	// The lease expires the claim only while it is still the task's live
+	// state: a task that moved on (complete/accept/reject) keeps its state.
+	for _, st := range states {
+		if st.Status == StatusActive && leaseExpired(st.ClaimedAt, now) {
+			st.Status = StatusPending
+			st.Owner = ""
+			st.ClaimedAt = ""
+		}
+	}
 	tasks := make([]Task, 0, len(states))
 	for _, st := range states {
 		tasks = append(tasks, *st)
@@ -112,6 +125,10 @@ func Fold(project string, memos []Memo, now time.Time) []Task {
 		return tasks[i].ID < tasks[j].ID
 	})
 	return tasks
+}
+
+func leaseExpired(claimedAt string, ref time.Time) bool {
+	return ref.Sub(parseAt(claimedAt)) > Lease
 }
 
 func ParseAllowed(m Memo) bool {

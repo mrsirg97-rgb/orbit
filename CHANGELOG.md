@@ -1,4 +1,13 @@
 # Changelog
+## [0.1.3] — the board lease expires only the live claim
+
+The fold's claim case skipped any claim older than the lease
+unconditionally, so a task claimed, completed, and accepted in one hour
+folded as done today and pending tomorrow. The lease now applies only
+while the claim is the task's live state: after the fold, an active task
+whose claim is older than the lease returns to pending, and a claim
+superseded by complete/accept/reject is never dropped.
+
 ## [0.1.2] — the TUI title follows rig's letterforms
 
 The `orbit` art rows didn't match rig's letterforms: `o` had no counter,

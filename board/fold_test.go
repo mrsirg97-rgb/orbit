@@ -204,6 +204,65 @@ func TestFoldLeaseExpiry(t *testing.T) {
 	}
 }
 
+func TestFoldClaimLifecycleSurvivesLease(t *testing.T) {
+	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	memos := []Memo{
+		Memo{Verb: "task", ID: 1, Text: "Context compaction", Sender: arch, At: base.Format(time.RFC3339)},
+		Memo{Verb: "claim", ID: 1, Sender: workA, At: base.Add(10 * time.Minute).Format(time.RFC3339)},
+		Memo{Verb: "complete", ID: 1, Sender: workA, At: base.Add(20 * time.Minute).Format(time.RFC3339)},
+		Memo{Verb: "accept", ID: 1, Sender: arch, At: base.Add(30 * time.Minute).Format(time.RFC3339)},
+	}
+	for _, h := range []time.Duration{time.Hour, 25 * time.Hour} {
+		tasks := Fold("p", memos, base.Add(h))
+		if len(tasks) != 1 {
+			t.Fatalf("fold at +%s: tasks %d, want 1", h, len(tasks))
+		}
+		t1 := tasks[0]
+		if t1.Status != StatusDone {
+			t.Errorf("fold at +%s: status %s, want done (complete/accept must not be dropped)", h, t1.Status)
+		}
+		if t1.Owner != workA || t1.AcceptedBy != arch {
+			t.Errorf("fold at +%s: owner/accepted %q %q", h, t1.Owner, t1.AcceptedBy)
+		}
+	}
+}
+
+func TestFoldClaimAloneExpiresAtTwentyFiveHours(t *testing.T) {
+	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	memos := []Memo{
+		Memo{Verb: "task", ID: 1, Text: "Context compaction", Sender: arch, At: base.Format(time.RFC3339)},
+		Memo{Verb: "claim", ID: 1, Sender: workA, At: base.Add(10 * time.Minute).Format(time.RFC3339)},
+	}
+	tasks := Fold("p", memos, base.Add(25*time.Hour))
+	if len(tasks) != 1 {
+		t.Fatalf("tasks: %d, want 1", len(tasks))
+	}
+	t1 := tasks[0]
+	if t1.Status != StatusPending {
+		t.Errorf("status %s, want pending (the claim alone is expired)", t1.Status)
+	}
+	if t1.Owner != "" || t1.ClaimedAt != "" {
+		t.Errorf("expired claim kept owner %q claimed_at %q", t1.Owner, t1.ClaimedAt)
+	}
+}
+
+func TestFoldReclaimAfterLeaseExpiry(t *testing.T) {
+	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	memos := []Memo{
+		Memo{Verb: "task", ID: 1, Text: "Context compaction", Sender: arch, At: base.Format(time.RFC3339)},
+		Memo{Verb: "claim", ID: 1, Sender: workA, At: base.Add(10 * time.Minute).Format(time.RFC3339)},
+		Memo{Verb: "claim", ID: 1, Sender: workB, At: base.Add(26 * time.Hour).Format(time.RFC3339)},
+	}
+	tasks := Fold("p", memos, base.Add(26*time.Hour))
+	if len(tasks) != 1 {
+		t.Fatalf("tasks: %d, want 1", len(tasks))
+	}
+	t1 := tasks[0]
+	if t1.Status != StatusActive || t1.Owner != workB {
+		t.Errorf("reclaim after expiry: %s %q, want active by %s", t1.Status, t1.Owner, workB)
+	}
+}
+
 func readGolden(t *testing.T, name string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("testdata", "golden", name))
