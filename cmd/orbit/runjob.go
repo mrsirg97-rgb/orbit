@@ -5,13 +5,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/mrsirg97-rgb/orbit/agent"
 	"github.com/mrsirg97-rgb/orbit/board"
 	"github.com/mrsirg97-rgb/orbit/brief"
 	"github.com/mrsirg97-rgb/orbit/client"
 	"github.com/mrsirg97-rgb/orbit/earn"
+	"github.com/mrsirg97-rgb/orbit/identity"
 	orbittool "github.com/mrsirg97-rgb/orbit/tool"
+	rigconfig "github.com/mrsirg97-rgb/rig/config"
 	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
 )
 
@@ -37,19 +40,10 @@ func runJobFire(args []string) int {
 	if err != nil {
 		die("run-job: %v", err)
 	}
-	snap, err := orbittool.Snapshot(ctx, tc, brief.Identity{Name: row.Name, Bio: row.Bio})
+	snap, text, err := fireBrief(ctx, tc, row)
 	if err != nil {
 		die("run-job: brief: %v", err)
 	}
-	size := brief.Compact
-	if row.BlockSize == "full" {
-		size = brief.Full
-	}
-	text, err := brief.Build(snap, size)
-	if err != nil {
-		die("run-job: brief: %v", err)
-	}
-
 	writeStatusSnapshot(ctx, tc, snap)
 	self, err := os.Executable()
 	if err != nil {
@@ -60,13 +54,9 @@ func runJobFire(args []string) int {
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		die("%v", err)
 	}
-	swapURL := os.Getenv("RIG_SWAP_URL")
-	if swapURL == "" {
-		swapURL = "http://127.0.0.1:8090"
-	}
-	sandbox := os.Getenv("ORBIT_SANDBOX")
-	if sandbox == "" {
-		sandbox = "off"
+	sandbox, swapURL, err := fireSandboxSwap(os.Getenv)
+	if err != nil {
+		die("run-job: settings: %v", err)
 	}
 	run := func(ctx context.Context) error {
 		return sched.RunJob(args[0], sched.RunOpts{
@@ -86,6 +76,52 @@ func runJobFire(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+func fireBrief(ctx context.Context, tc *client.TorchClient, row identity.Row) (brief.ReadState, string, error) {
+	// The architect's goal rides the live brief: Name and Bio alone drop it.
+	snap, err := orbittool.Snapshot(ctx, tc, brief.Identity{Name: row.Name, Bio: row.Bio, Goal: row.Goal})
+	if err != nil {
+		return brief.ReadState{}, "", err
+	}
+	size := brief.Compact
+	if row.BlockSize == "full" {
+		size = brief.Full
+	}
+	text, err := brief.Build(snap, size)
+	if err != nil {
+		return brief.ReadState{}, "", err
+	}
+	return snap, text, nil
+}
+
+func fireSandboxSwap(getenv func(string) string) (string, string, error) {
+	// The sandbox and the worker swap URL come from settings.json like main
+	// reads them; env overrides. Neither is hardcoded here.
+	home, err := client.Home(getenv)
+	if err != nil {
+		return "", "", err
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", "", err
+	}
+	cfg, err := rigconfig.Load(home, cwd)
+	if err != nil {
+		return "", "", err
+	}
+	sandbox := cfg.Settings.Sandbox
+	if v := strings.TrimSpace(getenv("ORBIT_SANDBOX")); v != "" {
+		sandbox = v
+	}
+	if sandbox == "" {
+		sandbox = "off"
+	}
+	swapURL := cfg.Settings.SwapURL
+	if v := strings.TrimSpace(getenv("RIG_SWAP_URL")); v != "" {
+		swapURL = v
+	}
+	return sandbox, swapURL, nil
 }
 
 func writeStatusSnapshot(ctx context.Context, tc *client.TorchClient, read brief.ReadState) {
