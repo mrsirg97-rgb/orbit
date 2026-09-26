@@ -180,7 +180,8 @@ the defaults; the env loader reads them and env always overrides.
 | `ORBIT_OPERATOR_KEY(_PATH)` | the operator's authority key, per call — flag > env, never stored |
 | `ORBIT_CONFIG` / `ORBIT_ENVFILE` | the config file, the legacy env file (defaults under the orbit home) |
 | `RIG_HOME` | the orbit home (default `~/.orbit`; the standalone rig binary uses the same env with its own default `~/.rig`) |
-| `ORBIT_SANDBOX` | the fire's sandbox mode (off by default — the operator's choice) |
+| `ORBIT_SANDBOX` | the fire's sandbox mode; env overrides `settings.json`'s `sandbox` (the operator's choice) |
+| `RIG_SWAP_URL` | the fire's worker swap URL; env overrides `settings.json`'s `swapUrl` |
 
 | file | what it holds |
 |---|---|

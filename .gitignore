@@ -16,3 +16,4 @@ bin/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+/orbit

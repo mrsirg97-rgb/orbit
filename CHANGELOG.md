@@ -1,4 +1,22 @@
 # Changelog
+## [0.1.7] — the fire's brief carries the goal; the sandbox comes from settings
+
+`run-job` built the fire's brief from the agent row's `Name` and `Bio`
+only — the architect's `Goal` never appeared in a live brief. The fire
+now builds the brief from `Name`, `Bio`, and `Goal`, so the `GOAL:` line
+is in every fire's brief.
+
+The sandbox and the worker swap URL came from `ORBIT_SANDBOX` /
+`RIG_SWAP_URL` env only, with the swap URL hardcoded to
+`http://127.0.0.1:8090` in the run-job path. The fire now reads
+`settings.json` the way main does (`config.Load`) and the env overrides:
+`ORBIT_SANDBOX` > `settings.json sandbox` > off, `RIG_SWAP_URL` >
+`settings.json swapUrl`. No hardcoded swap URL.
+
+Tests: a fire from a row with a goal prints the `GOAL:` line, and a fire
+with `settings.json` sandbox on passes the sandbox to the runner (env
+overrides both settings keys).
+
 ## [0.1.6] — the act waits for its memo to be indexed
 
 `WriteAction` returns at send time and the indexer lags, so the act's
