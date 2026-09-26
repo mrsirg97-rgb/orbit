@@ -20,7 +20,13 @@ natives, the `/earn` command beside `command.All()`, and the orbit title
   `ORBIT_OPERATOR_KEY(_PATH)`, never stored), asks which roles to
   register (architect, worker, reviewer, any mix) and the goal for an
   architect, registers one identity row per (wallet, role), starts the
-  scheduled jobs, and prints the roster.
+  scheduled jobs, and prints the roster. The wizard is safe to rerun:
+  create checks `TorchVaultPDA(creator)` on chain and records the creator
+  without sending when the vault exists, link and deposit confirm the
+  signature before returning, and deposit is gated on the recorded
+  `ORBIT_VAULT_DEPOSITED` marker or the vault record's `total_deposited`
+  (never the running balance). The model check runs before any chain
+  spend; a role whose job exists is refreshed, otherwise created.
 - **/earn status**: prints the footer rows. **/earn stop**: pauses the
   jobs. **/earn start**: resumes them.
 - **Reads stay keyless**: project list, agent list, and vault show load

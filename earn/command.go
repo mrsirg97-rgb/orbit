@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/mrsirg97-rgb/rig/store"
 	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
@@ -119,16 +120,18 @@ func (c *Command) register(ctx context.Context, in args) (string, error) {
 			return "", fmt.Errorf("earn: architect needs a goal: add goal \"<one paragraph>\" (the goal rides the brief)")
 		}
 	}
-	tc, steps, err := c.ensureSetup(ctx, in)
-	if err != nil {
-		return "", err
-	}
+	// The model check runs before any chain spend: a run without a model
+	// must not airdrop, create, link, or deposit.
 	model := strings.TrimSpace(in.model)
 	if model == "" && c.Model != nil {
 		model = c.Model()
 	}
 	if model == "" {
 		return "", fmt.Errorf("earn: no model: add --model <model> (or run orbit with one)")
+	}
+	tc, steps, err := c.ensureSetup(ctx, in)
+	if err != nil {
+		return "", err
 	}
 	var rows []identity.Row
 	var lines []string
@@ -142,7 +145,12 @@ func (c *Command) register(ctx context.Context, in args) (string, error) {
 		}
 		rows = append(rows, row)
 		stub := brief.StubBrief(brief.Identity{Name: row.Name, Bio: row.Bio, Goal: row.Goal})
-		reply, err := agent.Register(ctx, c.SchedDB, c.Crontab, row, stub, c.runner(), c.Cwd, c.Session)
+		var reply string
+		if id := findJobID(ctx, c.SchedDB, agent.JobName(row.ID)); id != "" {
+			reply, err = agent.Refresh(ctx, c.SchedDB, c.Crontab, id, row.ID, stub, c.Session, c.runner())
+		} else {
+			reply, err = agent.Register(ctx, c.SchedDB, c.Crontab, row, stub, c.runner(), c.Cwd, c.Session)
+		}
 		if err != nil {
 			return "", fmt.Errorf("earn: job %s: %w", row.ID, err)
 		}
@@ -238,6 +246,24 @@ func (c *Command) vaultCreate(ctx context.Context, in args) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("earn: vault create: %w", err)
 	}
+	cfgPath, err := onboard.ConfigPath(getenv)
+	if err != nil {
+		return "", fmt.Errorf("earn: vault create: %w", err)
+	}
+	recordCreator := func() error {
+		return onboard.WriteConfigValue(cfgPath, "ORBIT_VAULT_CREATOR", creator)
+	}
+	vault := client.TorchVaultPDA(tc.ProgramID, creator)
+	info, err := tc.RPC.GetAccountInfo(ctx, vault)
+	if err != nil {
+		return "", fmt.Errorf("earn: vault create: %w", err)
+	}
+	if info.Exists {
+		if err := recordCreator(); err != nil {
+			return "", fmt.Errorf("earn: vault create: %w", err)
+		}
+		return fmt.Sprintf("vault: exists %s (recorded %s)", vault, creator), nil
+	}
 	ix, err := client.VaultCreateIx(tc.ProgramID, creator, tc.IDL)
 	if err != nil {
 		return "", fmt.Errorf("earn: vault create: %w", err)
@@ -246,14 +272,10 @@ func (c *Command) vaultCreate(ctx context.Context, in args) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("earn: vault create: %w", err)
 	}
-	cfgPath, err := onboard.ConfigPath(getenv)
-	if err != nil {
+	if err := recordCreator(); err != nil {
 		return "", fmt.Errorf("earn: vault create: %w", err)
 	}
-	if err := onboard.WriteConfigValue(cfgPath, "ORBIT_VAULT_CREATOR", creator); err != nil {
-		return "", fmt.Errorf("earn: vault create: %w", err)
-	}
-	return fmt.Sprintf("vault: created %s (%s)", client.TorchVaultPDA(tc.ProgramID, creator), sig), nil
+	return fmt.Sprintf("vault: created %s (%s)", vault, sig), nil
 }
 
 func (c *Command) vaultLink(ctx context.Context, tc *client.TorchClient, in args) (string, error) {
@@ -277,26 +299,45 @@ func (c *Command) vaultLink(ctx context.Context, tc *client.TorchClient, in args
 	if err != nil {
 		return "", fmt.Errorf("earn: vault link: %w", err)
 	}
+	if err := c.confirmVaultTx(ctx, tc, "link_wallet", sig); err != nil {
+		return "", err
+	}
 	return fmt.Sprintf("vault: linked %s (%s)", hot, sig), nil
 }
 
 func (c *Command) vaultDeposit(ctx context.Context, tc *client.TorchClient, in args) (string, error) {
-	info, err := tc.RPC.GetAccountInfo(ctx, client.VaultSolPDA(tc.ProgramID, tc.VaultCreator))
+	getenv := c.Getenv
+	if getenv == nil {
+		getenv = func(string) string { return "" }
+	}
+	cfgMap, err := onboard.Load(getenv)
 	if err != nil {
 		return "", fmt.Errorf("earn: vault deposit: %w", err)
 	}
-	vaultSOL := uint64(0)
+	if strings.TrimSpace(cfgMap["ORBIT_VAULT_DEPOSITED"]) != "" {
+		return "", nil
+	}
+	// The deposit gate is the recorded setup marker or the vault record's
+	// total_deposited, never the running balance (which the board spends).
+	info, err := tc.RPC.GetAccountInfo(ctx, client.TorchVaultPDA(tc.ProgramID, tc.VaultCreator))
+	if err != nil {
+		return "", fmt.Errorf("earn: vault deposit: %w", err)
+	}
 	if info.Exists {
-		if info.Lamports > client.RentExemptZeroData {
-			vaultSOL = info.Lamports - client.RentExemptZeroData
+		rec, err := client.DecodeTorchVault(info.Data)
+		if err != nil {
+			return "", fmt.Errorf("earn: vault deposit: vault record: %w", err)
+		}
+		if rec.TotalDeposited > 0 {
+			if err := c.recordDeposited(getenv); err != nil {
+				return "", fmt.Errorf("earn: vault deposit: %w", err)
+			}
+			return "", nil
 		}
 	}
 	oneSOL, err := client.ParseSOLAmount("1")
 	if err != nil {
 		return "", fmt.Errorf("earn: vault deposit: %w", err)
-	}
-	if vaultSOL >= oneSOL {
-		return "", nil
 	}
 	key, err := c.operatorKey(in)
 	if err != nil {
@@ -310,7 +351,43 @@ func (c *Command) vaultDeposit(ctx context.Context, tc *client.TorchClient, in a
 	if err != nil {
 		return "", fmt.Errorf("earn: vault deposit: %w", err)
 	}
+	if err := c.confirmVaultTx(ctx, tc, "deposit_vault", sig); err != nil {
+		return "", err
+	}
+	if err := c.recordDeposited(getenv); err != nil {
+		return "", fmt.Errorf("earn: vault deposit: %w", err)
+	}
 	return fmt.Sprintf("vault: deposited 1 SOL (%s)", sig), nil
+}
+
+func (c *Command) recordDeposited(getenv func(string) string) error {
+	cfgPath, err := onboard.ConfigPath(getenv)
+	if err != nil {
+		return err
+	}
+	return onboard.WriteConfigValue(cfgPath, "ORBIT_VAULT_DEPOSITED", "1")
+}
+
+func (c *Command) confirmVaultTx(ctx context.Context, tc *client.TorchClient, kind, sig string) error {
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		st, err := tc.RPC.GetSignatureStatus(ctx, sig)
+		if err != nil {
+			return fmt.Errorf("earn: vault %s: %w", kind, err)
+		}
+		if st.Exists && st.Err != "" {
+			return fmt.Errorf("earn: vault %s: tx failed: %s", kind, st.Err)
+		}
+		if st.Exists && st.Confirmed {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
+	return fmt.Errorf("earn: vault %s: %s not confirmed (the tx may still land; check before retrying)", kind, sig)
 }
 
 func (c *Command) operatorKey(in args) (sol.Keypair, error) {

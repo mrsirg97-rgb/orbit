@@ -9,9 +9,50 @@ import (
 )
 
 const (
-	CurveMemoCap = 500
-	SwapMemoCap  = 280
+	// legacyTxLimit is the 1232-byte serialized-transaction ceiling.
+	legacyTxLimit = 1232
+	SwapMemoCap   = 280
 )
+
+// CurveMemoCap is the longest memo in bytes (not runes) that fits the
+// legacy transaction limit on a curve buy with the vault ATA instruction —
+// measured with sol.Compile and the actual signed size, so it tracks the
+// builder instead of being estimated.
+var CurveMemoCap = curveMemoBudget()
+
+func curveMemoBudget() int {
+	id, err := idl.LoadIDL()
+	if err != nil {
+		panic(err)
+	}
+	disc, err := id.Discriminator("buy_via_vault")
+	if err != nil {
+		panic(err)
+	}
+	const wallet = "8GQ4XGM9p5DqKjw2JTrUAc42adwYWD5PK3P7eTobcYKy"
+	const mint = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
+	kp, err := sol.GenerateKeypair()
+	if err != nil {
+		panic(err)
+	}
+	for n := 0; ; n++ {
+		ixs, err := BuildBuyViaVault(disc, BuyAccounts{
+			Mint: mint, Creator: wallet, DevWallet: wallet,
+			Buyer: wallet, VaultCreator: wallet, ProgramID: DevnetProgramID,
+			WithATA: true,
+		}, MemoBuyLamports, 1, strings.Repeat("x", n))
+		if err != nil {
+			panic(err)
+		}
+		msg, err := sol.Compile("11111111111111111111111111111111", wallet, ixs)
+		if err != nil {
+			panic(err)
+		}
+		if len(sol.SignVersionedTx(msg, kp)) > legacyTxLimit {
+			return n - 1
+		}
+	}
+}
 
 func BuildMemo(signer, memo string) (sol.Instruction, error) {
 	memo = strings.TrimSpace(memo)

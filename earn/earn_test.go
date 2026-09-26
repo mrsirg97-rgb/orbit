@@ -2,6 +2,8 @@ package earn
 
 import (
 	"context"
+	"encoding/binary"
+	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -15,6 +17,7 @@ import (
 	"github.com/mrsirg97-rgb/orbit/brief"
 	"github.com/mrsirg97-rgb/orbit/client"
 	"github.com/mrsirg97-rgb/orbit/identity"
+	"github.com/mrsirg97-rgb/orbit/idl"
 	"github.com/mrsirg97-rgb/orbit/onboard"
 	"github.com/mrsirg97-rgb/orbit/sol"
 )
@@ -95,6 +98,10 @@ func testClient(t *testing.T, rpc *fakeRPC) *client.TorchClient {
 	if err != nil {
 		t.Fatal(err)
 	}
+	id, err := idl.LoadIDL()
+	if err != nil {
+		t.Fatal(err)
+	}
 	return &client.TorchClient{
 		Config: client.Config{
 			Indexer:      "https://indexer.example",
@@ -102,10 +109,24 @@ func testClient(t *testing.T, rpc *fakeRPC) *client.TorchClient {
 			ProgramID:    client.DevnetProgramID,
 			VaultCreator: "8GQ4XGM9p5DqKjw2JTrUAc42adwYWD5PK3P7eTobcYKy",
 			AgentKey:     kp,
+			AllowWrite:   true,
 		},
+		IDL: id,
 		API: &stubAPI{pnl: client.PnlSummary{TotalRealizedPnl: 2_500_000}},
 		RPC: rpc,
 	}
+}
+
+func vaultRecordData(creator string, totalDeposited uint64) []byte {
+	data := make([]byte, 114)
+	pub, err := sol.Decode(creator)
+	if err != nil {
+		panic(err)
+	}
+	copy(data[8:40], pub)
+	copy(data[40:72], pub)
+	binary.LittleEndian.PutUint64(data[72:80], totalDeposited)
+	return data
 }
 
 type fakeCrontab struct {
@@ -123,6 +144,7 @@ type earnHarness struct {
 	idb store.DB
 	sdb sched.DB
 	rpc *fakeRPC
+	tc  *client.TorchClient
 }
 
 func newHarness(t *testing.T, getenv func(string) string) *earnHarness {
@@ -131,7 +153,10 @@ func newHarness(t *testing.T, getenv func(string) string) *earnHarness {
 	rpc := &fakeRPC{}
 	tc := testClient(t, rpc)
 	rpc.accounts = map[string]client.AccountInfo{
-		client.TorchVaultPDA(tc.ProgramID, tc.VaultCreator):       {Exists: true, Lamports: 1_000_000_000},
+		client.TorchVaultPDA(tc.ProgramID, tc.VaultCreator): {
+			Exists: true, Lamports: 1_000_000_000,
+			Data: vaultRecordData(tc.VaultCreator, 1_000_000_000),
+		},
 		client.VaultWalletLinkPDA(tc.ProgramID, tc.AgentPublic()): {Exists: true, Lamports: 1_000_000_000},
 		client.VaultSolPDA(tc.ProgramID, tc.VaultCreator):         {Exists: true, Lamports: 2_000_000_000 + client.RentExemptZeroData},
 	}
@@ -192,7 +217,14 @@ func newHarness(t *testing.T, getenv func(string) string) *earnHarness {
 		Session:    "earn-test",
 		Model:      func() string { return "dsv4" },
 	}
-	return &earnHarness{cmd: cmd, idb: idb, sdb: sdb, rpc: rpc}
+	return &earnHarness{cmd: cmd, idb: idb, sdb: sdb, rpc: rpc, tc: tc}
+}
+
+type failInstallCrontab struct{}
+
+func (f *failInstallCrontab) List() (string, error) { return "SHELL=/bin/bash\n", nil }
+func (f *failInstallCrontab) Install(text string) error {
+	return errors.New("crontab: install failed")
 }
 
 func TestParseArgs(t *testing.T) {
@@ -325,6 +357,177 @@ func TestRegisterWizardCreatesVaultWhenCreatorMissing(t *testing.T) {
 	}
 	if !strings.Contains(string(b), "ORBIT_VAULT_CREATOR="+operator.PublicBase58()) {
 		t.Errorf("config missing the derived creator:\n%s", b)
+	}
+}
+
+func TestRegisterWizardRecordsExistingVaultWithoutSending(t *testing.T) {
+	dir := t.TempDir()
+	keyFile := filepath.Join(dir, "key")
+	agent, err := sol.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyFile, []byte(sol.Encode(agent.Secret)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfgFile := filepath.Join(dir, "config")
+	cfg := "ORBIT_INDEXER=https://indexer.example\n" +
+		"ORBIT_RPC=https://rpc.example\n" +
+		"ORBIT_PROGRAM_ID=" + client.DevnetProgramID + "\n" +
+		"ORBIT_AGENT_KEY_FILE=" + keyFile + "\n"
+	if err := os.WriteFile(cfgFile, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, func(k string) string {
+		if k == "ORBIT_CONFIG" {
+			return cfgFile
+		}
+		return ""
+	})
+	defer h.idb.DB.Close()
+	defer h.sdb.DB.Close()
+	operator, err := sol.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.cmd.Operator = func(flagKey, flagPath string) (sol.Keypair, error) { return operator, nil }
+	// The vault for the derived creator already exists on chain (a previous
+	// run sent it but crashed before recording the creator).
+	h.rpc.accounts[client.TorchVaultPDA(client.DevnetProgramID, operator.PublicBase58())] = client.AccountInfo{
+		Exists: true, Lamports: 1_000_000_000,
+		Data: vaultRecordData(operator.PublicBase58(), 0),
+	}
+	out, err := h.cmd.Run(context.Background(), "worker", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "vault: exists") {
+		t.Errorf("wizard output missing the exists step:\n%s", out)
+	}
+	if h.rpc.sends != 0 {
+		t.Errorf("sendTransaction calls: %d, want 0 (the existing vault must not be created again)", h.rpc.sends)
+	}
+	b, err := os.ReadFile(cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "ORBIT_VAULT_CREATOR="+operator.PublicBase58()) {
+		t.Errorf("config missing the recorded creator:\n%s", b)
+	}
+}
+
+func TestRegisterWizardRerunSendsNothing(t *testing.T) {
+	h := newHarness(t, nil)
+	defer h.idb.DB.Close()
+	defer h.sdb.DB.Close()
+	if _, err := h.cmd.Run(context.Background(), "worker", nil); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(h.cmd.Getenv("ORBIT_CONFIG"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "ORBIT_VAULT_DEPOSITED=1") {
+		t.Errorf("setup marker not recorded after the first run:\n%s", b)
+	}
+	if _, err := h.cmd.Run(context.Background(), "worker", nil); err != nil {
+		t.Fatal(err)
+	}
+	if h.rpc.sends != 0 {
+		t.Errorf("sendTransaction calls: %d, want 0 (a rerun on a set-up home sends nothing)", h.rpc.sends)
+	}
+}
+
+func TestRegisterWizardFailedAfterDepositRerunsWithoutDeposit(t *testing.T) {
+	h := newHarness(t, nil)
+	defer h.idb.DB.Close()
+	defer h.sdb.DB.Close()
+	// The vault exists but has never been deposited: the wizard must send it.
+	h.rpc.accounts[client.TorchVaultPDA(h.tc.ProgramID, h.tc.VaultCreator)] = client.AccountInfo{
+		Exists: true, Lamports: 1_000_000_000,
+		Data: vaultRecordData(h.tc.VaultCreator, 0),
+	}
+	h.cmd.Crontab = &failInstallCrontab{}
+	if _, err := h.cmd.Run(context.Background(), "worker", nil); err == nil || !strings.Contains(err.Error(), "crontab") {
+		t.Fatalf("first run must fail at the job after the deposit: %v", err)
+	}
+	if h.rpc.sends != 1 {
+		t.Fatalf("sendTransaction calls: %d, want 1 (the deposit)", h.rpc.sends)
+	}
+	h.cmd.Crontab = &fakeCrontab{text: "SHELL=/bin/bash\n"}
+	if _, err := h.cmd.Run(context.Background(), "worker", nil); err != nil {
+		t.Fatal(err)
+	}
+	if h.rpc.sends != 1 {
+		t.Errorf("sendTransaction calls: %d, want 1 (the rerun must not deposit again)", h.rpc.sends)
+	}
+}
+
+func TestRegisterWizardAddsRoleToExistingSetup(t *testing.T) {
+	h := newHarness(t, nil)
+	defer h.idb.DB.Close()
+	defer h.sdb.DB.Close()
+	if _, err := h.cmd.Run(context.Background(), "worker", nil); err != nil {
+		t.Fatal(err)
+	}
+	out, err := h.cmd.Run(context.Background(), `architect worker --goal "Research briefs."`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "created") || !strings.Contains(out, "updated") {
+		t.Errorf("the existing role's job must be refreshed, the new role created:\n%s", out)
+	}
+	rows, err := identity.List(context.Background(), h.idb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Errorf("identity rows: %d, want 2", len(rows))
+	}
+	if h.rpc.sends != 0 {
+		t.Errorf("sendTransaction calls: %d, want 0", h.rpc.sends)
+	}
+}
+
+func TestRegisterModelCheckBeforeChainSpend(t *testing.T) {
+	dir := t.TempDir()
+	keyFile := filepath.Join(dir, "key")
+	agent, err := sol.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyFile, []byte(sol.Encode(agent.Secret)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfgFile := filepath.Join(dir, "config")
+	cfg := "ORBIT_INDEXER=https://indexer.example\n" +
+		"ORBIT_RPC=https://rpc.example\n" +
+		"ORBIT_PROGRAM_ID=" + client.DevnetProgramID + "\n" +
+		"ORBIT_AGENT_KEY_FILE=" + keyFile + "\n"
+	if err := os.WriteFile(cfgFile, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, func(k string) string {
+		if k == "ORBIT_CONFIG" {
+			return cfgFile
+		}
+		return ""
+	})
+	defer h.idb.DB.Close()
+	defer h.sdb.DB.Close()
+	h.cmd.Model = nil
+	if _, err := h.cmd.Run(context.Background(), "worker", nil); err == nil || !strings.Contains(err.Error(), "no model") {
+		t.Fatalf("missing model: %v", err)
+	}
+	if h.rpc.sends != 0 {
+		t.Errorf("sendTransaction calls: %d, want 0 (the model check must precede any chain spend)", h.rpc.sends)
+	}
+	b, err := os.ReadFile(cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "ORBIT_VAULT_CREATOR") {
+		t.Errorf("a model-less run must not touch the config:\n%s", b)
 	}
 }
 
