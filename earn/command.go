@@ -199,11 +199,9 @@ func (c *Command) ensureSetup(ctx context.Context, in args) (*client.TorchClient
 			return nil, nil, fmt.Errorf("earn: config: %w", err)
 		}
 	}
-	if creator := strings.TrimSpace(cfgMap["ORBIT_VAULT_CREATOR"]); creator == "" {
-		line, err := c.vaultCreate(ctx, in)
-		if err != nil {
-			return nil, nil, err
-		}
+	if line, err := c.vaultCreate(ctx, in); err != nil {
+		return nil, nil, err
+	} else if line != "" {
 		steps = append(steps, line)
 		cfgMap, err = onboard.Load(getenv)
 		if err != nil {
@@ -228,10 +226,6 @@ func (c *Command) ensureSetup(ctx context.Context, in args) (*client.TorchClient
 }
 
 func (c *Command) vaultCreate(ctx context.Context, in args) (string, error) {
-	key, err := c.operatorKey(in)
-	if err != nil {
-		return "", err
-	}
 	getenv := c.Getenv
 	if getenv == nil {
 		getenv = func(string) string { return "" }
@@ -240,22 +234,41 @@ func (c *Command) vaultCreate(ctx context.Context, in args) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("earn: vault create: %w", err)
 	}
-	creator := key.PublicBase58()
-	cfg.VaultCreator = creator
-	clientNew := c.NewClient
-	if clientNew == nil {
-		clientNew = client.New
-	}
-	tc, err := clientNew(cfg)
-	if err != nil {
-		return "", fmt.Errorf("earn: vault create: %w", err)
-	}
 	cfgPath, err := onboard.ConfigPath(getenv)
 	if err != nil {
 		return "", fmt.Errorf("earn: vault create: %w", err)
 	}
-	recordCreator := func() error {
+	recordCreator := func(creator string) error {
 		return onboard.WriteConfigValue(cfgPath, "ORBIT_VAULT_CREATOR", creator)
+	}
+	cfgMap, err := onboard.Load(getenv)
+	if err != nil {
+		return "", fmt.Errorf("earn: vault create: %w", err)
+	}
+	if creator := strings.TrimSpace(cfgMap["ORBIT_VAULT_CREATOR"]); creator != "" {
+		cfg.VaultCreator = creator
+		tc, err := c.vaultClient(cfg)
+		if err != nil {
+			return "", fmt.Errorf("earn: vault create: %w", err)
+		}
+		vault := client.TorchVaultPDA(tc.ProgramID, creator)
+		info, err := tc.RPC.GetAccountInfo(ctx, vault)
+		if err != nil {
+			return "", fmt.Errorf("earn: vault create: %w", err)
+		}
+		if info.Exists {
+			return fmt.Sprintf("vault: exists %s", vault), nil
+		}
+	}
+	key, err := c.operatorKey(in)
+	if err != nil {
+		return "", err
+	}
+	creator := key.PublicBase58()
+	cfg.VaultCreator = creator
+	tc, err := c.vaultClient(cfg)
+	if err != nil {
+		return "", fmt.Errorf("earn: vault create: %w", err)
 	}
 	vault := client.TorchVaultPDA(tc.ProgramID, creator)
 	info, err := tc.RPC.GetAccountInfo(ctx, vault)
@@ -263,7 +276,7 @@ func (c *Command) vaultCreate(ctx context.Context, in args) (string, error) {
 		return "", fmt.Errorf("earn: vault create: %w", err)
 	}
 	if info.Exists {
-		if err := recordCreator(); err != nil {
+		if err := recordCreator(creator); err != nil {
 			return "", fmt.Errorf("earn: vault create: %w", err)
 		}
 		return fmt.Sprintf("vault: exists %s (recorded %s)", vault, creator), nil
@@ -276,10 +289,18 @@ func (c *Command) vaultCreate(ctx context.Context, in args) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("earn: vault create: %w", err)
 	}
-	if err := recordCreator(); err != nil {
+	if err := recordCreator(creator); err != nil {
 		return "", fmt.Errorf("earn: vault create: %w", err)
 	}
 	return fmt.Sprintf("vault: created %s (%s)", vault, sig), nil
+}
+
+func (c *Command) vaultClient(cfg client.Config) (*client.TorchClient, error) {
+	clientNew := c.NewClient
+	if clientNew == nil {
+		clientNew = client.New
+	}
+	return clientNew(cfg)
 }
 
 func (c *Command) vaultLink(ctx context.Context, tc *client.TorchClient, in args) (string, error) {

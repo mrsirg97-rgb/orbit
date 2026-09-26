@@ -221,6 +221,22 @@ func TestLoadOperatorCreateConfigNeedsNoCreator(t *testing.T) {
 	}
 }
 
+func TestLoadOperatorCreateConfigIgnoresMissingAgentKeyFile(t *testing.T) {
+	env := map[string]string{
+		"ORBIT_CONFIG":         filepath.Join(t.TempDir(), "config"),
+		"ORBIT_INDEXER":        "https://x",
+		"ORBIT_RPC":            "https://x",
+		"ORBIT_AGENT_KEY_FILE": filepath.Join(t.TempDir(), "missing-key"),
+	}
+	cfg, err := LoadOperatorCreateConfig(func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.AllowWrite {
+		t.Error("operator create config on devnet must keep the write gate on")
+	}
+}
+
 func TestLoadBoardReadConfigNeedsOnlyRPC(t *testing.T) {
 	env := map[string]string{
 		"ORBIT_CONFIG": filepath.Join(t.TempDir(), "config"),

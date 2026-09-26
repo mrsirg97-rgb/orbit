@@ -443,6 +443,21 @@ func TestRegisterWizardRerunSendsNothing(t *testing.T) {
 	}
 }
 
+func TestRegisterWizardExistingSetupNeedsNoOperatorKey(t *testing.T) {
+	h := newHarness(t, nil)
+	defer h.idb.DB.Close()
+	defer h.sdb.DB.Close()
+	h.cmd.Operator = func(flagKey, flagPath string) (sol.Keypair, error) {
+		return sol.Keypair{}, errors.New("operator key required: -operator-key, -operator-key-path, or ORBIT_OPERATOR_KEY(_PATH)")
+	}
+	if _, err := h.cmd.Run(context.Background(), "worker", nil); err != nil {
+		t.Fatalf("a wizard run on an existing setup must not resolve the operator key: %v", err)
+	}
+	if h.rpc.sends != 0 {
+		t.Errorf("sendTransaction calls: %d, want 0 (nothing to sign on an existing setup)", h.rpc.sends)
+	}
+}
+
 func TestRegisterWizardFailedAfterDepositRerunsWithoutDeposit(t *testing.T) {
 	h := newHarness(t, nil)
 	defer h.idb.DB.Close()

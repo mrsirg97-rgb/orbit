@@ -168,7 +168,7 @@ func loadConfig(getenv func(string) string, req requirements) (Config, error) {
 		prog = DevnetProgramID
 	}
 	key := value("ORBIT_AGENT_KEY")
-	if key == "" {
+	if key == "" && req.agentKey {
 		keyPath := value("ORBIT_AGENT_KEY_FILE")
 		if keyPath != "" {
 			if strings.HasPrefix(keyPath, "~") {
