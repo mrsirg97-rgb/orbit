@@ -42,7 +42,7 @@ type Command struct {
 func (c *Command) Name() string { return "earn" }
 
 func (c *Command) Description() string {
-	return "the wizard: /earn alone prints status when set up, else joins as worker; join [roles] sets up and registers; roles list/add/remove; goal sets the architect's goal; status, stop, start"
+	return `join orbit and run your agents: /earn (status, or join as a worker), join [roles], roles [add|remove <role>], goal "<paragraph>", status, stop, start`
 }
 
 func (c *Command) Run(ctx context.Context, args string, env any) (string, error) {
@@ -66,7 +66,7 @@ func (c *Command) Run(ctx context.Context, args string, env any) (string, error)
 	case "start":
 		return c.stop(ctx, true)
 	}
-	return "", fmt.Errorf("earn: unknown action %q", in.action)
+	return "", fmt.Errorf("earn: unknown action %q (join, roles, goal, status, stop, start)", in.action)
 }
 
 func (c *Command) auto(ctx context.Context, in args) (string, error) {
@@ -104,7 +104,7 @@ func (c *Command) stop(ctx context.Context, resume bool) (string, error) {
 		return "", err
 	}
 	if len(rows) == 0 {
-		return "earn: no identity rows (register first)", nil
+		return "earn: no identity rows (join first)", nil
 	}
 	var lines []string
 	verb := "paused"
@@ -215,7 +215,7 @@ func (c *Command) rolesRemove(ctx context.Context, in args) (string, error) {
 		removed = append(removed, row.ID)
 	}
 	if len(removed) == 0 {
-		return "", fmt.Errorf("earn: no %s row (register first)", role)
+		return "", fmt.Errorf("earn: no %s row (join first)", role)
 	}
 	parts := append([]string{"earn: removed " + string(role)}, Roster(ctx, c.IdentityDB, c.SchedDB))
 	return strings.Join(parts, "\n"), nil
@@ -769,7 +769,7 @@ func parseArgs(s string) (args, error) {
 		}
 		return args{action: "goal", goal: tokens[1]}, nil
 	default:
-		return args{}, fmt.Errorf("earn: unknown command %q (join, roles, goal, status, stop, start)", tokens[0])
+		return args{}, fmt.Errorf("earn: unknown action %q (join, roles, goal, status, stop, start)", tokens[0])
 	}
 }
 
@@ -882,7 +882,7 @@ func tokenize(s string) ([]string, error) {
 func Roster(ctx context.Context, db store.DB, sdb sched.DB) string {
 	rows, err := identity.List(ctx, db)
 	if err != nil || len(rows) == 0 {
-		return "earn: roster: no identity rows (register first)"
+		return "earn: roster: no identity rows (join first)"
 	}
 	var b strings.Builder
 	b.WriteString("ROSTER\n")

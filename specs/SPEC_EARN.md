@@ -12,10 +12,17 @@ natives, the `/earn` command beside `command.All()`, and the orbit title
 - **The TUI**: `tui.New(os.Stdin, os.Stdout, theme, WithTitle("orbit",
   orbitRows, "powered by rig"), WithCommands(command.All()+earn, env),
   WithStatus(orbitStatusIn), WithStatusTick(2 * time.Second))`. The
-  status function adds the earn rows under the footer: projects held,
-  open claims, last memo, PnL since start. The same rows are what `/earn
-  status` prints. The tick re-reads the status function while the input
-  loop is idle (zero is off; a fire's write shows up without a command).
+  theme is orbit's shipped one: the embedded default when the home has
+  no theme.json (a home theme.json wins entirely). The status function
+  adds the earn rows under the footer — painted dim, the same grey as
+  the model rows: projects held, open claims, last memo, PnL since
+  start. The same rows are what `/earn status` prints. The tick re-reads
+  the status function while the input loop is idle (zero is off; a
+  fire's write shows up without a command).
+- **The hint**: the command's description names the moments — `/earn
+  (status, or join as a worker), join [roles], roles [add|remove
+  <role>], goal "<paragraph>", status, stop, start` — and the
+  unknown-action error lists the same verbs.
 - **bare /earn** (the wizard's door): prints status when the home is set
   up (hot key, vault, link, deposit), otherwise runs join with one
   worker.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"errors"
 	"path/filepath"
 
@@ -67,7 +68,10 @@ import (
 	orbittool "github.com/mrsirg97-rgb/orbit/tool"
 )
 
-const Version = "0.2.4"
+const Version = "0.3.0"
+
+//go:embed theme.json
+var shippedTheme []byte
 
 // titleName is the ASCII fallback when the theme's glyphs are not blocks.
 const titleName = "orbit"
@@ -138,6 +142,7 @@ type root struct {
 	client *clientProvider
 	board  *board.Store
 	earn   *earn.Command
+	theme  tui.Theme
 }
 
 type clientProvider struct {
@@ -721,7 +726,19 @@ func (r *root) earnRows(ctx context.Context) []string {
 	if err != nil || !ok {
 		return nil
 	}
-	return rows.Lines()
+	lines := rows.Lines()
+	for i, line := range lines {
+		lines[i] = r.theme.Paint(tui.SlotDim, line)
+	}
+	return lines
+}
+
+func resolveTheme(cfg *config.Config, trueColor bool) (tui.Theme, error) {
+	doc := cfg.Theme
+	if len(doc) == 0 {
+		doc = shippedTheme
+	}
+	return tui.ResolveTheme(cfg.Settings.Theme, doc, trueColor)
 }
 
 func sessionFor(resumeID string, resume func(id string) (*core.Session, error)) (*core.Session, error) {
@@ -1304,11 +1321,12 @@ func main() {
 		fe = &oneshot.OneShot{Prompt: *prompt, Out: os.Stdout, Err: os.Stderr}
 	} else if *tuiMode == "true" || (*tuiMode == "auto" && tui.IsTerminal(os.Stdout.Fd())) {
 
-		th, terr := tui.ResolveTheme(cfg.Settings.Theme, cfg.Theme, tuiTrueColor())
+		th, terr := resolveTheme(cfg, tuiTrueColor())
 		if terr != nil {
 			fmt.Fprintln(os.Stderr, "rig:", terr)
 			os.Exit(1)
 		}
+		r.theme = th
 		fe = tui.New(os.Stdin, os.Stdout, th,
 			tui.WithTitle(titleName, orbitRows, "powered by rig"),
 			tui.WithStatus(r.statusIn),

@@ -1,0 +1,14 @@
+{
+  "base": "oled",
+  "slots": {
+    "ember": "#6b7fa3",
+    "accent": "#8a9bbd",
+    "dim": "#3a4150",
+    "rule": "#2a303b",
+    "text": "#b8bfcc",
+    "success": "#6fa38a",
+    "warn": "#a39a6f",
+    "error": "#a36f6f",
+    "reasoning": "#4f5868"
+  }
+}

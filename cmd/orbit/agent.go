@@ -73,7 +73,7 @@ func runAgent(args []string) int {
 			die("%v", err)
 		}
 		if len(rows) == 0 {
-			die("agent: no identity row (register first)")
+			die("agent: no identity row (join first)")
 		}
 		for _, row := range rows {
 			if code := ensureJobAction(ctx, idb, row, "refresh"); code != 0 {
@@ -132,7 +132,7 @@ func ensureJobAction(ctx context.Context, idb store.DB, row identity.Row, action
 	if action == "refresh" {
 		jobID := findJobID(ctx, sdb, agent.JobName(row.ID))
 		if jobID == "" {
-			die("agent: job: no existing job %s (register first)", agent.JobName(row.ID))
+			die("agent: job: no existing job %s (join first)", agent.JobName(row.ID))
 		}
 		reply, err = agent.Refresh(ctx, sdb, sched.RealCrontab(""), jobID, row.ID, block, "orbit-agent", agent.RunnerCommand(self))
 	} else {
@@ -163,7 +163,7 @@ func printAgent(ctx context.Context, idb store.DB, row identity.Row) int {
 	defer sdb.DB.Close()
 	jobID := findJobID(ctx, sdb, agent.JobName(row.ID))
 	if jobID == "" {
-		fmt.Println("JOB        none (register first)")
+		fmt.Println("JOB        none (join first)")
 		return 0
 	}
 	bound, tx, err := sdb.TxReadOnly(ctx)

@@ -30,7 +30,7 @@ func (b *Board) client() (*client.TorchClient, error) {
 func (b *Board) Name() string { return "board" }
 
 func (b *Board) Description() string {
-	return "the shared board: read a project's board (goal, tasks, claims, verdicts); act: task, brief, claim, note, complete, accept, reject. Every act is a memo plus a vault-routed micro buy; the reply is the tx signature plus the memo."
+	return "the shared board: read a project's board (goal, tasks, claims, verdicts); act: task, brief, claim, note, complete, accept, reject. A task needs no id (minted after the sync); an act the fold would refuse is refused before spending; only the funder's accept counts. The reply is the signature, the memo, and the board, or \"pending: not yet indexed\", or the assigned-id line when the fold renumbers."
 }
 
 func (b *Board) Schema() json.RawMessage {
@@ -39,7 +39,7 @@ func (b *Board) Schema() json.RawMessage {
 		"properties": {
 			"mint": {"type": "string", "description": "Full mint pubkey or 8-char FID (RPC-only needs the full mint)."},
 			"action": {"type": "string", "enum": ["task", "brief", "claim", "note", "complete", "accept", "reject"], "description": "Omit to read only."},
-			"id": {"type": "integer", "description": "The task id (the memo's id); the task action mints the next id itself."},
+			"id": {"type": "integer", "description": "The memo's id; omit for task (the id is minted after the sync)."},
 			"text": {"type": "string", "description": "The memo text: task/brief/note/reject text; omit for claim/complete/accept."}
 		},
 		"required": ["mint"]
