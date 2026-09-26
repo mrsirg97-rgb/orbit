@@ -104,7 +104,9 @@ are untouched; orbit serves nothing — it is a client, a fold, and a tool.
   `pending: not yet indexed` — the write is confirmed, only the cache is
   behind. When the fold renumbers a stale task, the reply names the
   assigned id (the memo's id is a hint; a follow-up claim on the hint
-  would target someone else's task).
+  would target someone else's task). After a confirmed act the store
+  calls its `OnAct` observer (when set) with the final shape — the
+  minted id, or the assigned id when the fold renumbered.
 
 - **The seam**: the board store implements rig's board seam — the swarm
   surface (claim / note / complete / accept / reject / reap over a

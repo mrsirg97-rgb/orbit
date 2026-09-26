@@ -30,6 +30,38 @@ func (r Rows) Lines() []string {
 	}
 }
 
+type Fire struct {
+	Role string `json:"role"`
+	Verb string `json:"verb"`
+	Task int    `json:"task"`
+	At   string `json:"at"`
+}
+
+func (f Fire) Line() string {
+	parts := []string{f.Role}
+	if f.Verb != "" {
+		parts = append(parts, f.Verb)
+	}
+	if f.Task != 0 {
+		parts = append(parts, fmt.Sprintf("#%d", f.Task))
+	}
+	return strings.Join(parts, " ")
+}
+
+type Snapshot struct {
+	At       string
+	Rows     Rows
+	LastFire Fire
+}
+
+func (s Snapshot) Lines() []string {
+	lines := s.Rows.Lines()
+	if s.LastFire.Role != "" {
+		lines[2] = fmt.Sprintf("%s · %s · %s", lines[2], s.LastFire.Line(), age(s.LastFire.At))
+	}
+	return lines
+}
+
 func Status(ctx context.Context, tc *client.TorchClient, st *board.Store) (Rows, error) {
 	if tc == nil {
 		return Rows{}, fmt.Errorf("earn: no orbit config (run /earn)")
@@ -86,40 +118,66 @@ func SnapshotPath(home string) string {
 	return filepath.Join(home, "status.json")
 }
 
-func Snapshot(path string) (Rows, bool, error) {
+func ReadSnapshot(path string) (Snapshot, bool, error) {
 	b, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return Rows{}, false, nil
+		return Snapshot{}, false, nil
 	}
 	if err != nil {
-		return Rows{}, false, fmt.Errorf("earn: snapshot: %w", err)
+		return Snapshot{}, false, fmt.Errorf("earn: snapshot: %w", err)
 	}
 	var snap snapshot
 	if err := json.Unmarshal(b, &snap); err != nil {
-		return Rows{}, false, fmt.Errorf("earn: snapshot %s: %w", path, err)
+		return Snapshot{}, false, fmt.Errorf("earn: snapshot %s: %w", path, err)
 	}
-	return snap.Rows, true, nil
+	out := Snapshot{At: snap.At, Rows: snap.Rows}
+	if snap.LastFire != nil {
+		out.LastFire = *snap.LastFire
+	}
+	return out, true, nil
 }
 
-func WriteSnapshot(path string, rows Rows) error {
-	snap := snapshot{At: time.Now().UTC().Format(time.RFC3339), Rows: rows}
+func WriteSnapshot(path string, rows Rows, fire Fire) error {
+	if fire.Role == "" {
+		if prev, ok, err := ReadSnapshot(path); err == nil && ok {
+			fire = prev.LastFire
+		}
+	}
+	var last *Fire
+	if fire.Role != "" {
+		last = &fire
+	}
+	snap := snapshot{At: time.Now().UTC().Format(time.RFC3339), LastFire: last, Rows: rows}
 	b, err := json.MarshalIndent(snap, "", "  ")
 	if err != nil {
 		return fmt.Errorf("earn: snapshot: %w", err)
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "status-*.json")
+	if err != nil {
 		return fmt.Errorf("earn: snapshot: %w", err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if _, err := tmp.Write(b); err != nil {
+		tmp.Close()
+		return fmt.Errorf("earn: snapshot: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("earn: snapshot: %w", err)
+	}
+	if err := os.Chmod(tmpName, 0o644); err != nil {
+		return fmt.Errorf("earn: snapshot: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
 		return fmt.Errorf("earn: snapshot: %w", err)
 	}
 	return nil
 }
 
 type snapshot struct {
-	At   string `json:"at"`
-	Rows Rows   `json:"rows"`
+	At       string `json:"at"`
+	LastFire *Fire  `json:"lastFire,omitempty"`
+	Rows     Rows   `json:"rows"`
 }
 
 type memoSeen struct {

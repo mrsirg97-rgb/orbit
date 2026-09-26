@@ -49,7 +49,9 @@ dispatch.
 - **The fire path** (`runJobFire`): the job's identity row -> the live
   read snapshot -> `brief.Build` at the row's size -> the job prompt
   refresh -> spawn. The footer snapshot is best-effort: a failed snapshot
-  write never kills the fire.
+  write never kills the fire. The fire writes it at fire start (the
+  read state), after every board act (the worker's `Store.OnAct` hook
+  refreshes it with the act's role, verb, and task id), and at fire end.
 - **Reads stay keyless**: project list, agent list, vault show, and board
   read load read mode (RPC only, no vault creator, no agent key).
 - **Bootstrap** prints the unsigned vault-admin instructions as JSON for

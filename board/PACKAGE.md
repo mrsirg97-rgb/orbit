@@ -36,8 +36,10 @@ SQLite is a cache rebuilt from it, never trusted.
   memo and a retried task would double-spend. If the memo does not land,
   the reply is `pending: not yet indexed` (the write is confirmed, only
   the cache is behind); a renumbered task's reply names the assigned id.
-  `Board` / `BoardFromCache` / `Task` / `NextID` / `Claims` / `LastMemo`
-  are the reads.
+  After every act the store calls `OnAct` (when set) with the final shape
+  — the minted task id, or the assigned id when the fold renumbered — so
+  the fire path can refresh the footer. `Board` / `BoardFromCache` /
+  `Task` / `NextID` / `Claims` / `LastMemo` are the reads.
 - `Store.Claim` / `Note` / `Complete` / `Accept` / `Reject` / `Reap` —
   the swarm surface: the same vocabulary the runtime's swarm drains,
   chain-backed. `claim` is the memo, the lease is the fold's expiry, and

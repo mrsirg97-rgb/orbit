@@ -6,6 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	rigconfig "github.com/mrsirg97-rgb/rig/config"
+	"github.com/mrsirg97-rgb/rig/store"
+	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
 
 	"github.com/mrsirg97-rgb/orbit/agent"
 	"github.com/mrsirg97-rgb/orbit/board"
@@ -14,8 +19,6 @@ import (
 	"github.com/mrsirg97-rgb/orbit/earn"
 	"github.com/mrsirg97-rgb/orbit/identity"
 	orbittool "github.com/mrsirg97-rgb/orbit/tool"
-	rigconfig "github.com/mrsirg97-rgb/rig/config"
-	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
 )
 
 func runJobFire(args []string) int {
@@ -72,9 +75,11 @@ func runJobFire(args []string) int {
 		})
 	}
 	if err := agent.Fire(ctx, sdb, sched.RealCrontab(""), args[0], row.ID, text, agent.RunnerCommand(self), run); err != nil {
+		writeFireEndStatus(ctx, tc)
 		fmt.Fprintln(os.Stderr, "orbit:", err)
 		return 1
 	}
+	writeFireEndStatus(ctx, tc)
 	return 0
 }
 
@@ -137,7 +142,44 @@ func writeStatusSnapshot(ctx context.Context, tc *client.TorchClient, read brief
 		fmt.Fprintf(os.Stderr, "orbit: status snapshot: %v\n", err)
 		return
 	}
-	if err := earn.WriteSnapshot(earn.SnapshotPath(mustOrbitHome()), rows); err != nil {
+	writeSnapshotRows(rows)
+}
+
+func writeFireEndStatus(ctx context.Context, tc *client.TorchClient) {
+	bdb, err := board.Open(board.StorePath(mustOrbitHome()))
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "orbit: status snapshot: %v\n", err)
+		return
+	}
+	defer bdb.DB.Close()
+	st := &board.Store{Client: func() (*client.TorchClient, error) { return tc, nil }, DB: bdb}
+	rows, err := earn.Status(ctx, tc, st)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "orbit: status snapshot: %v\n", err)
+		return
+	}
+	writeSnapshotRows(rows)
+}
+
+func writeSnapshotRows(rows earn.Rows) {
+	if err := earn.WriteSnapshot(earn.SnapshotPath(mustOrbitHome()), rows, earn.Fire{}); err != nil {
+		fmt.Fprintf(os.Stderr, "orbit: status snapshot: %v\n", err)
+	}
+}
+
+func fireActSnapshot(ctx context.Context, idb store.DB, tc *client.TorchClient, st *board.Store, path, agentID string, shape board.Shape) {
+	row, err := identity.GetByID(ctx, idb, agentID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "orbit: fire status: %v\n", err)
+		return
+	}
+	rows, err := earn.Status(ctx, tc, st)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "orbit: fire status: %v\n", err)
+		return
+	}
+	fire := earn.Fire{Role: row.Role, Verb: shape.Verb, Task: shape.ID, At: time.Now().UTC().Format(time.RFC3339)}
+	if err := earn.WriteSnapshot(path, rows, fire); err != nil {
+		fmt.Fprintf(os.Stderr, "orbit: fire status: %v\n", err)
 	}
 }

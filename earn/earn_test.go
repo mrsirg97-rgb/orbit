@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/mrsirg97-rgb/rig/store"
 	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
@@ -825,20 +828,77 @@ func TestStatusRows(t *testing.T) {
 
 func TestSnapshotLocalRead(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "status.json")
-	if _, ok, err := Snapshot(path); err != nil || ok {
+	if _, ok, err := ReadSnapshot(path); err != nil || ok {
 		t.Fatalf("missing snapshot: ok=%v err=%v", ok, err)
 	}
 	want := Rows{Held: 3, OpenClaims: 1, LastMemo: "just now · \"backed\"", PnLSOL: 2.5}
-	if err := WriteSnapshot(path, want); err != nil {
+	if err := WriteSnapshot(path, want, Fire{}); err != nil {
 		t.Fatal(err)
 	}
-	got, ok, err := Snapshot(path)
+	got, ok, err := ReadSnapshot(path)
 	if err != nil || !ok {
 		t.Fatalf("snapshot read: ok=%v err=%v", ok, err)
 	}
-	if got != want {
-		t.Errorf("snapshot rows: %+v, want %+v", got, want)
+	if got.Rows != want {
+		t.Errorf("snapshot rows: %+v, want %+v", got.Rows, want)
 	}
+}
+
+func TestSnapshotCarriesLastFire(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "status.json")
+	fire := Fire{Role: "worker", Verb: "note", Task: 4, At: time.Now().UTC().Add(-30 * time.Second).Format(time.RFC3339)}
+	if err := WriteSnapshot(path, Rows{Held: 1, LastMemo: "3m ago · \"backed\""}, fire); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := ReadSnapshot(path)
+	if err != nil || !ok {
+		t.Fatalf("snapshot read: ok=%v err=%v", ok, err)
+	}
+	if got.LastFire != fire {
+		t.Errorf("last fire: %+v, want %+v", got.LastFire, fire)
+	}
+	lines := got.Lines()
+	if !strings.Contains(lines[2], "worker note #4") || !strings.Contains(lines[2], "just now") {
+		t.Errorf("the last-memo row must show the fire:\n%s", lines[2])
+	}
+}
+
+func TestConcurrentWritesNeverTruncate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "status.json")
+	var mu sync.Mutex
+	var wrote []Snapshot
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			snap := Snapshot{
+				At:       time.Now().UTC().Format(time.RFC3339),
+				Rows:     Rows{Held: i, OpenClaims: i, LastMemo: fmt.Sprintf("memo %d", i), PnLSOL: float64(i)},
+				LastFire: Fire{Role: "worker", Verb: "note", Task: i, At: time.Now().UTC().Format(time.RFC3339)},
+			}
+			mu.Lock()
+			wrote = append(wrote, snap)
+			mu.Unlock()
+			if err := WriteSnapshot(path, snap.Rows, snap.LastFire); err != nil {
+				t.Errorf("write %d: %v", i, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	got, ok, err := ReadSnapshot(path)
+	if err != nil {
+		t.Fatalf("concurrent fires left a file that does not parse: %v", err)
+	}
+	if !ok {
+		t.Fatal("snapshot missing after concurrent writes")
+	}
+	for _, w := range wrote {
+		if got.Rows == w.Rows && got.LastFire == w.LastFire {
+			return
+		}
+	}
+	t.Errorf("the parsed snapshot is not one complete write: %+v", got)
 }
 
 func TestRowsFromBriefNoChainCalls(t *testing.T) {

@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mrsirg97-rgb/orbit/board"
 	"github.com/mrsirg97-rgb/orbit/client"
+	"github.com/mrsirg97-rgb/orbit/earn"
 	"github.com/mrsirg97-rgb/orbit/identity"
 	"github.com/mrsirg97-rgb/orbit/sol"
 )
@@ -144,5 +146,41 @@ func TestFireSandboxAndSwapFromSettingsAndEnv(t *testing.T) {
 	}
 	if swapURL != "http://10.0.0.2:9000" {
 		t.Errorf("env swap url %q, want the env to override settings", swapURL)
+	}
+}
+
+func TestFireActSnapshotWritesLastFire(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	idb, err := identity.Store(filepath.Join(dir, "identity.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer idb.DB.Close()
+	tc := runjobClient(t)
+	row, err := identity.NewRow(tc.AgentPublic(), identity.Worker, identity.Overrides{Name: "worker", Model: "dsv4"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := identity.Upsert(ctx, idb, row); err != nil {
+		t.Fatal(err)
+	}
+	bs, err := board.Open(filepath.Join(dir, "board.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bs.DB.Close()
+	st := &board.Store{Client: func() (*client.TorchClient, error) { return tc, nil }, DB: bs}
+	path := filepath.Join(dir, "status.json")
+	fireActSnapshot(ctx, idb, tc, st, path, row.ID, board.Shape{Verb: "note", ID: 7})
+	snap, ok, err := earn.ReadSnapshot(path)
+	if err != nil || !ok {
+		t.Fatalf("snapshot: ok=%v err=%v", ok, err)
+	}
+	if snap.LastFire.Role != string(identity.Worker) || snap.LastFire.Verb != "note" || snap.LastFire.Task != 7 {
+		t.Errorf("last fire: %+v, want worker note #7", snap.LastFire)
+	}
+	if snap.LastFire.At == "" {
+		t.Error("the last fire must carry its time")
 	}
 }
