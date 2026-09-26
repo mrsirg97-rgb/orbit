@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -36,6 +37,32 @@ type SignatureStatus struct {
 	Exists    bool
 	Confirmed bool
 	Err       string
+}
+
+// WaitConfirmed polls GetSignatureStatus until the tx is confirmed (or
+// failed) within the budget. The write is known to have been sent; the
+// poll is the caller's confirmation door, bounded so a stuck RPC cannot
+// hang a fire.
+func WaitConfirmed(ctx context.Context, rpc RPC, signature string, budget time.Duration) error {
+	deadline := time.Now().Add(budget)
+	for time.Now().Before(deadline) {
+		st, err := rpc.GetSignatureStatus(ctx, signature)
+		if err != nil {
+			return fmt.Errorf("status: %w", err)
+		}
+		if st.Exists && st.Err != "" {
+			return fmt.Errorf("tx failed: %s", st.Err)
+		}
+		if st.Exists && st.Confirmed {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
+	return errors.New("not confirmed in time (the tx may still land; check before retrying)")
 }
 
 type SignatureInfo struct {
