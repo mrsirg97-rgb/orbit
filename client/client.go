@@ -86,12 +86,16 @@ const (
 	SourceScan    Source = "scan"
 )
 
-func (c *TorchClient) Messages(ctx context.Context, mint string, limit int, source Source) ([]MessageRow, error) {
+func (c *TorchClient) Messages(ctx context.Context, mint string, limit int, source Source, before string) ([]MessageRow, error) {
 	switch source {
 	case SourceIndexer:
-		return c.API.Messages(ctx, Q("mint", mint, "limit", fmt.Sprint(limit)))
+		q := Q("mint", mint, "limit", fmt.Sprint(limit))
+		if before != "" {
+			q.Set("before", before)
+		}
+		return c.API.Messages(ctx, q)
 	case SourceScan:
-		return ScanMessages(ctx, c.RPC, c.ProgramID, mint, limit)
+		return ScanMessages(ctx, c.RPC, c.ProgramID, mint, limit, before)
 	default:
 		return nil, fmt.Errorf("client: unknown message source %q", source)
 	}

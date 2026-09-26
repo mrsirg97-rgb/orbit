@@ -8,6 +8,7 @@ import (
 	"math"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,7 +21,11 @@ import (
 	"github.com/mrsirg97-rgb/orbit/client"
 )
 
-const SchemaVersion = 3
+const SchemaVersion = 4
+
+// WalkBound caps one sync's pages. A walk that would continue past it
+// leaves the cache marked incomplete (the render says so).
+const WalkBound = 50
 
 type Project struct {
 	Mint  string
@@ -93,31 +98,144 @@ func (s *Store) Sync(ctx context.Context, p Project, limit int) error {
 		return err
 	}
 	if source == client.SourceIndexer && tc.Indexer == "" {
-		rows, err := tc.Messages(ctx, p.Mint, limit, client.SourceScan)
+		res, err := s.walk(ctx, p, tc, client.SourceScan, limit, true)
 		if err != nil {
 			return fmt.Errorf("board sync %s: rpc scan: %w", p.Mint, err)
 		}
-		return s.cacheRows(ctx, p, rows, client.SourceScan, true)
+		return s.cacheRows(ctx, p, res.rows, client.SourceScan, true, res.bound)
 	}
-	rows, err := tc.Messages(ctx, p.Mint, limit, source)
+	res, err := s.walk(ctx, p, tc, source, limit, false)
 	if err != nil {
 		if source == client.SourceIndexer && client.IndexerUnreachable(err) {
 			if recorded {
 				return fmt.Errorf("board sync %s: %w", p.Mint, ErrIndexerUnreachable)
 			}
 			fmt.Printf("board sync %s: source switched from indexer to RPC scan (indexer unreachable)\n", p.Mint)
-			rows, err = tc.Messages(ctx, p.Mint, limit, client.SourceScan)
+			res, err = s.walk(ctx, p, tc, client.SourceScan, limit, false)
 			if err != nil {
 				return fmt.Errorf("board sync %s: rpc scan: %w", p.Mint, err)
 			}
-			return s.cacheRows(ctx, p, rows, client.SourceScan, false)
+			incomplete := res.bound
+			if !res.genesis && !res.bound {
+				prev, err := s.projectIncomplete(ctx, p.Mint)
+				if err != nil {
+					return err
+				}
+				incomplete = prev
+			}
+			return s.cacheRows(ctx, p, res.rows, client.SourceScan, false, incomplete)
 		}
 		if source == client.SourceIndexer {
 			return fmt.Errorf("board sync %s: indexer: %w", p.Mint, err)
 		}
 		return fmt.Errorf("board sync %s: rpc scan: %w", p.Mint, err)
 	}
-	return s.cacheRows(ctx, p, rows, source, false)
+	incomplete := res.bound
+	if !res.genesis && !res.bound {
+		prev, err := s.projectIncomplete(ctx, p.Mint)
+		if err != nil {
+			return err
+		}
+		incomplete = prev
+	}
+	return s.cacheRows(ctx, p, res.rows, source, false, incomplete)
+}
+
+type walkResult struct {
+	rows    []client.MessageRow
+	bound   bool
+	genesis bool
+}
+
+func (s *Store) walk(ctx context.Context, p Project, tc *client.TorchClient, source client.Source, limit int, fresh bool) (walkResult, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	var pages [][]client.MessageRow
+	cursor := ""
+	for page := 0; page < WalkBound; page++ {
+		rows, err := tc.Messages(ctx, p.Mint, limit, source, cursor)
+		if err != nil {
+			return walkResult{}, err
+		}
+		if len(rows) == 0 {
+			return walkResult{rows: s.flatten(pages), genesis: true}, nil
+		}
+		pages = append(pages, rows)
+		if len(rows) < limit {
+			return walkResult{rows: s.flatten(pages), genesis: true}, nil
+		}
+		if !fresh {
+			cached, err := s.anyCached(ctx, p.Mint, rows)
+			if err != nil {
+				return walkResult{}, err
+			}
+			if cached {
+				return walkResult{rows: s.flatten(pages)}, nil
+			}
+		}
+		cursor, err = s.nextCursor(source, rows)
+		if err != nil {
+			return walkResult{}, err
+		}
+		if cursor == "" {
+			return walkResult{rows: s.flatten(pages), genesis: true}, nil
+		}
+	}
+	return walkResult{rows: s.flatten(pages), bound: true}, nil
+}
+
+func (s *Store) flatten(pages [][]client.MessageRow) []client.MessageRow {
+	total := 0
+	for _, p := range pages {
+		total += len(p)
+	}
+	out := make([]client.MessageRow, 0, total)
+	for i := len(pages) - 1; i >= 0; i-- {
+		out = append(out, pages[i]...)
+	}
+	return out
+}
+
+func (s *Store) nextCursor(source client.Source, rows []client.MessageRow) (string, error) {
+	switch source {
+	case client.SourceIndexer:
+		oldest := rows[len(rows)-1].CreatedAt
+		t, err := time.Parse(time.RFC3339, oldest)
+		if err != nil {
+			return "", fmt.Errorf("board sync: created_at %q: %w", oldest, err)
+		}
+		return t.Add(time.Second).UTC().Format(time.RFC3339), nil
+	case client.SourceScan:
+		return rows[0].Signature, nil
+	default:
+		return "", fmt.Errorf("board sync: unknown source %q", source)
+	}
+}
+
+func (s *Store) anyCached(ctx context.Context, mint string, rows []client.MessageRow) (bool, error) {
+	bound, tx, err := s.DB.TxReadOnly(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	args := make([]any, 0, len(rows)+1)
+	args = append(args, mint)
+	placeholders := make([]string, 0, len(rows))
+	for _, r := range rows {
+		placeholders = append(placeholders, "?")
+		args = append(args, r.Signature)
+	}
+	q := `SELECT 1 FROM messages WHERE mint = ? AND signature IN (` + strings.Join(placeholders, ", ") + `) LIMIT 1`
+	var one int
+	err = tx.QueryRowContext(bound, q, args...).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *Store) sourceOf(ctx context.Context, mint string, tc *client.TorchClient) (client.Source, bool, error) {
@@ -145,7 +263,32 @@ func (s *Store) sourceOf(ctx context.Context, mint string, tc *client.TorchClien
 	}
 }
 
-func (s *Store) cacheRows(ctx context.Context, p Project, rows []client.MessageRow, source client.Source, wipe bool) error {
+func (s *Store) projectIncomplete(ctx context.Context, mint string) (bool, error) {
+	bound, tx, err := s.DB.TxReadOnly(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	return incompleteIn(bound, mint)
+}
+
+func incompleteIn(bound context.Context, mint string) (bool, error) {
+	tx, err := sqlx.TxFrom(bound)
+	if err != nil {
+		return false, err
+	}
+	var one int
+	err = tx.QueryRowContext(bound, `SELECT 1 FROM project_incomplete WHERE project = ?`, mint).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *Store) cacheRows(ctx context.Context, p Project, rows []client.MessageRow, source client.Source, wipe, incomplete bool) error {
 	bound, tx, err := s.DB.Tx(ctx)
 	if err != nil {
 		return err
@@ -164,6 +307,16 @@ func (s *Store) cacheRows(ctx context.Context, p Project, rows []client.MessageR
 		}
 		if _, err := txr.ExecContext(ctx, `DELETE FROM tasks WHERE project = ?`, p.Mint); err != nil {
 			return fmt.Errorf("board sync %s: wipe: %w", p.Mint, err)
+		}
+	}
+	if incomplete {
+		if _, err := txr.ExecContext(ctx,
+			`INSERT INTO project_incomplete (project) VALUES (?) ON CONFLICT(project) DO NOTHING`, p.Mint); err != nil {
+			return fmt.Errorf("board sync %s: incomplete: %w", p.Mint, err)
+		}
+	} else {
+		if _, err := txr.ExecContext(ctx, `DELETE FROM project_incomplete WHERE project = ?`, p.Mint); err != nil {
+			return fmt.Errorf("board sync %s: incomplete: %w", p.Mint, err)
 		}
 	}
 	if _, err := txr.ExecContext(ctx,
@@ -508,7 +661,11 @@ func (s *Store) BoardFromCache(ctx context.Context, p Project) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return renderBoard(s.label(p), rows, goal, time.Now()), nil
+	incomplete, err := incompleteIn(bound, p.Mint)
+	if err != nil {
+		return "", err
+	}
+	return renderBoard(s.label(p), rows, goal, time.Now(), incomplete), nil
 }
 
 func (s *Store) goalOf(bound context.Context, mint string) (string, error) {

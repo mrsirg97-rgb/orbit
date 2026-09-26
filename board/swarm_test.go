@@ -74,7 +74,7 @@ func (f *boardFakeRPC) GetSignatureStatus(context.Context, string) (client.Signa
 func (f *boardFakeRPC) RequestAirdrop(context.Context, string, uint64) (string, error) {
 	return "", nil
 }
-func (f *boardFakeRPC) GetSignaturesForAddress(context.Context, string, int) ([]client.SignatureInfo, error) {
+func (f *boardFakeRPC) GetSignaturesForAddress(context.Context, string, int, string) ([]client.SignatureInfo, error) {
 	f.syncCalls++
 	out := make([]client.SignatureInfo, 0, len(f.msgs))
 	for i, m := range f.msgs {

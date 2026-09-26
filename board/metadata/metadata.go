@@ -2,9 +2,10 @@
 // fixes — meta (the version door), messages (the chain log cache, the
 // indexer's message schema verbatim), project_sources (the per-project
 // message source), tasks (the fold projection, keyed by project and
-// task), notes (a task's note/reason rows). Source of truth; domain and
-// ddl are generated from it, never typed by hand. Nullable columns are
-// pointers.
+// task), notes (a task's note/reason rows). project_incomplete (the
+// walk-bound flag) rides extra.sql, like the signature index. Source of
+// truth; domain and ddl are generated from it, never typed by hand.
+// Nullable columns are pointers.
 package metadata
 
 // table:"meta"

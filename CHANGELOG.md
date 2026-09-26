@@ -1,4 +1,28 @@
 # Changelog
+## [0.3.1] — the board sync window becomes a walk
+
+The board sync was one window of the newest 100 messages, so a fresh
+cache never reached the log's goal memo and a project with more than the
+window was never fully folded. Sync now walks: the indexer pages
+newest-first with `before=<oldest created_at seen + 1s>` (the boundary
+second re-fetched, signatures dedupe), the RPC scan pages with the
+signature cursor, and the walk stops when a page holds a signature
+already cached or comes back short. A fresh cache walks to genesis (the
+first goal memo lands), a warm cache reads one page, and the walk runs
+per recorded source — indexer with the timestamp cursor, scan with the
+signature cursor.
+
+The walk is bounded at 50 pages: past it the cache is marked incomplete
+(`project_incomplete`, schema v4) and the board render says so — the
+goal is the first goal memo in the walked log. The RPC seam gains the
+cursor (`GetSignaturesForAddress(..., before)`) and
+`TorchClient.Messages`/`ScanMessages` carry it.
+
+Tests: a 250-memo fake log syncs fully from empty in 3 pages; the
+same-second boundary loses nothing; a warm cache makes one request; the
+bound marks the cache incomplete and the render says so; the goal is the
+first goal memo in the walked log; the scan walk pages by signature.
+
 ## [0.3.0] — the earn hints, the tool descriptions, and the shipped theme
 
 The `/earn` command's description and its unknown-action error name the

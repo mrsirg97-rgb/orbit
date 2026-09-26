@@ -113,7 +113,7 @@ type RPC interface {
     GetBalance(ctx, pubkey string) (uint64, error)
     GetSignatureStatus(ctx, sig string) (SignatureStatus, error)
     RequestAirdrop(ctx, pubkey string, lamports uint64) (string, error)
-    GetSignaturesForAddress(ctx, address string, limit int) ([]SignatureInfo, error)
+    GetSignaturesForAddress(ctx, address string, limit int, before string) ([]SignatureInfo, error)
     GetTransaction(ctx, signature string) (*Transaction, error)
 }
 ```

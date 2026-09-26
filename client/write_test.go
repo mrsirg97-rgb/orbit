@@ -45,7 +45,7 @@ func (f *fakeRPC) GetSignatureStatus(ctx context.Context, signature string) (Sig
 func (f *fakeRPC) RequestAirdrop(ctx context.Context, pubkey string, lamports uint64) (string, error) {
 	return "airdrop-sig", nil
 }
-func (f *fakeRPC) GetSignaturesForAddress(ctx context.Context, address string, limit int) ([]SignatureInfo, error) {
+func (f *fakeRPC) GetSignaturesForAddress(ctx context.Context, address string, limit int, before string) ([]SignatureInfo, error) {
 	return nil, nil
 }
 func (f *fakeRPC) GetTransaction(ctx context.Context, signature string) (*Transaction, error) {

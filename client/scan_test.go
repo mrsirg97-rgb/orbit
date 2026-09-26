@@ -65,7 +65,7 @@ func serveRecordedTxs(t *testing.T) *JSONRPC {
 func TestScanMessagesAgainstRecordedTransactions(t *testing.T) {
 	rpc := serveRecordedTxs(t)
 	mint := "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
-	rows, err := ScanMessages(context.Background(), rpc, DevnetProgramID, mint, 10)
+	rows, err := ScanMessages(context.Background(), rpc, DevnetProgramID, mint, 10, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,5 +101,43 @@ func TestScanMessagesAgainstRecordedTransactions(t *testing.T) {
 	}
 	if rows[0].Slot > rows[1].Slot {
 		t.Error("rows are not in chain order")
+	}
+}
+
+func TestScanMessagesPassesBeforeToTheRPC(t *testing.T) {
+	var gotBefore string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		var req struct {
+			Method string `json:"method"`
+			Params []any  `json:"params"`
+			ID     int64  `json:"id"`
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		if req.Method == "getSignaturesForAddress" && len(req.Params) > 1 {
+			if cfg, ok := req.Params[1].(map[string]any); ok {
+				if b, ok := cfg["before"].(string); ok {
+					gotBefore = b
+				}
+			}
+		}
+		w.Header().Set("content-type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": []any{}})
+	}))
+	t.Cleanup(srv.Close)
+	rpc := NewJSONRPC(srv.URL)
+	if _, err := ScanMessages(context.Background(), rpc, DevnetProgramID,
+		"EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", 10, "sigBefore"); err != nil {
+		t.Fatal(err)
+	}
+	if gotBefore != "sigBefore" {
+		t.Errorf("rpc before = %q, want sigBefore", gotBefore)
 	}
 }

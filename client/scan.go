@@ -11,7 +11,7 @@ import (
 	"github.com/mrsirg97-rgb/orbit/sol"
 )
 
-func ScanMessages(ctx context.Context, rpc RPC, programID, mint string, limit int) ([]MessageRow, error) {
+func ScanMessages(ctx context.Context, rpc RPC, programID, mint string, limit int, before string) ([]MessageRow, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -19,7 +19,7 @@ func ScanMessages(ctx context.Context, rpc RPC, programID, mint string, limit in
 		limit = 100
 	}
 	curve := BondingCurvePDA(programID, mint)
-	sigs, err := rpc.GetSignaturesForAddress(ctx, curve, limit)
+	sigs, err := rpc.GetSignaturesForAddress(ctx, curve, limit, before)
 	if err != nil {
 		return nil, fmt.Errorf("scan %s: signatures: %w", mint, err)
 	}

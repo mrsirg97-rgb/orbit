@@ -73,20 +73,44 @@ func (a *countAPI) Pnl(context.Context, string, string) (PnlSummary, error) {
 }
 func (a *countAPI) Swaps(context.Context, url.Values) ([]SwapRow, error) { return nil, nil }
 
+type beforeAPI struct {
+	countAPI
+	q url.Values
+}
+
+func (a *beforeAPI) Messages(ctx context.Context, q url.Values) ([]MessageRow, error) {
+	a.countAPI.messages++
+	a.q = q
+	return nil, nil
+}
+
+func TestMessagesCarriesBeforeForTheIndexer(t *testing.T) {
+	api := &beforeAPI{}
+	rpc := serveRecordedTxs(t)
+	tc := &TorchClient{Config: Config{RPC: rpc.base, ProgramID: DevnetProgramID}, API: api, RPC: rpc}
+	before := "2026-01-01T12:00:00Z"
+	if _, err := tc.Messages(context.Background(), "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", 10, SourceIndexer, before); err != nil {
+		t.Fatal(err)
+	}
+	if api.q.Get("before") != before {
+		t.Errorf("indexer query before = %q, want %q", api.q.Get("before"), before)
+	}
+}
+
 func TestMessagesRoutesBySource(t *testing.T) {
 	api := &countAPI{}
 	rpc := serveRecordedTxs(t)
 	tc := &TorchClient{Config: Config{RPC: rpc.base, ProgramID: DevnetProgramID}, API: api, RPC: rpc}
 	ctx := context.Background()
 
-	if _, err := tc.Messages(ctx, "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", 10, SourceIndexer); err != nil {
+	if _, err := tc.Messages(ctx, "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", 10, SourceIndexer, ""); err != nil {
 		t.Fatal(err)
 	}
 	if api.messages != 1 {
 		t.Errorf("indexer source must route to the API: %d calls", api.messages)
 	}
 
-	rows, err := tc.Messages(ctx, "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", 10, SourceScan)
+	rows, err := tc.Messages(ctx, "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", 10, SourceScan, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +121,7 @@ func TestMessagesRoutesBySource(t *testing.T) {
 		t.Errorf("scan rows: %d, want 2", len(rows))
 	}
 
-	if _, err := tc.Messages(ctx, "x", 10, Source("other")); err == nil {
+	if _, err := tc.Messages(ctx, "x", 10, Source("other"), ""); err == nil {
 		t.Error("an unknown source must refuse")
 	}
 }

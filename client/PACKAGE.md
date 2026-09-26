@@ -41,18 +41,22 @@ governs.
   condition: connect/DNS errors, timeouts, and 5xx — never a 4xx.
 - **The read fallback** (`client.go`, `scan.go`): `Source` is the one
   record — `indexer` or `scan`; `TorchClient.Messages(mint, limit,
-  source)` reads a mint's messages from the named source. The board
-  chooses the source (sticky per mint, recorded in `project_sources`) and
-  falls back to the scan on an unreachable indexer; a source switch
-  prints one line naming it.
+  source, before)` reads a mint's messages from the named source, with
+  the walk's cursor: the indexer takes `before` as an RFC3339 timestamp
+  (exclusive, the boundary second re-fetched) and the scan passes it to
+  `getSignaturesForAddress` as the signature cursor. The board chooses
+  the source (sticky per mint, recorded in `project_sources`) and falls
+  back to the scan on an unreachable indexer; a source switch prints one
+  line naming it.
 - **The websocket** (`events.go`): one room per connection (`all` or
   `market:<mint>`; a second room refuses by name rather than being
   dropped), frames decoded by kind, a lagged room surfaces as
   `ErrResync`.
 - **The RPC-only scan** (`scan.go`): the board's chain fallback —
-  `getSignaturesForAddress` on the curve, `getTransaction` per signature,
-  memo decoded, sender = the tx's first account key, action kind from the
-  co-resident torch instruction, dedupe by signature, rows in chain order.
+  `getSignaturesForAddress` on the curve with the signature cursor,
+  `getTransaction` per signature, memo decoded, sender = the tx's first
+  account key, action kind from the co-resident torch instruction, dedupe
+  by signature, rows in chain order.
 - **`TorchClient`** (`client.go`): read + write + route. `WriteAction`
   routes by market status: curve while BONDING/COMPLETE, `vault_swap`
   when MIGRATED, refuse when RECLAIMED.
