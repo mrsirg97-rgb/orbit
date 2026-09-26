@@ -252,7 +252,7 @@ func scan(row *sql.Row) (Row, error) {
 	var r Row
 	err := row.Scan(&r.ID, &r.Name, &r.Wallet, &r.Role, &r.Bio, &r.Goal, &r.Cadence, &r.Model, &r.Stall, &r.Budget, &r.Timeout, &r.BlockSize, &r.CreatedAt)
 	if err == sql.ErrNoRows {
-		return Row{}, fmt.Errorf("identity: no row (register first)")
+		return Row{}, fmt.Errorf("identity: no row (join first)")
 	}
 	return r, err
 }

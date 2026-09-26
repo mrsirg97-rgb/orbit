@@ -2,12 +2,16 @@ package main
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mrsirg97-rgb/rig/config"
+	"github.com/mrsirg97-rgb/rig/frontend/tui"
 
 	"github.com/mrsirg97-rgb/orbit/earn"
 )
@@ -39,8 +43,8 @@ func TestVersionStartupStaysFast(t *testing.T) {
 
 func TestVersionIsTheFreeze(t *testing.T) {
 
-	if Version != "0.2.4" {
-		t.Fatalf("Version = %q, want 0.2.4", Version)
+	if Version != "0.3.0" {
+		t.Fatalf("Version = %q, want 0.3.0", Version)
 	}
 
 	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(Version) {
@@ -61,6 +65,63 @@ func TestStatusCallbackReflectsFireWrite(t *testing.T) {
 	}
 	if !strings.Contains(lines[2], "worker note #4") || !strings.Contains(lines[2], "just now") {
 		t.Errorf("the status callback must show a fire's write on the next read:\n%s", lines[2])
+	}
+}
+
+func TestEarnRowsComeBackPainted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "status.json")
+	if err := earn.WriteSnapshot(path, earn.Rows{Held: 2, OpenClaims: 1, LastMemo: "3m ago · \"backed\"", PnLSOL: 1.5}, earn.Fire{}); err != nil {
+		t.Fatal(err)
+	}
+	th, err := resolveTheme(&config.Config{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &root{earn: &earn.Command{SnapshotPath: path}, theme: th}
+	lines := r.earnRows(context.Background())
+	if len(lines) != 4 {
+		t.Fatalf("footer rows: %d, want 4:\n%s", len(lines), strings.Join(lines, "\n"))
+	}
+	for i, line := range lines {
+		if want := th.Paint(tui.SlotDim, tui.RemoveColor(line)); line != want {
+			t.Errorf("row %d must be painted dim:\ngot  %q\nwant %q", i, line, want)
+		}
+	}
+}
+
+func TestShippedThemeWhenNoHomeThemeFile(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := config.Load(dir, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Theme) != 0 {
+		t.Fatalf("an empty home must load no theme.json, got %s", cfg.Theme)
+	}
+	th, err := resolveTheme(cfg, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if th.Slot("ember") != "#6b7fa3" {
+		t.Errorf("shipped ember = %q, want #6b7fa3", th.Slot("ember"))
+	}
+}
+
+func TestHomeThemeFileOverridesShipped(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "theme.json"), []byte(`{"base":"oled","slots":{"ember":"#112233"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(dir, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	th, err := resolveTheme(cfg, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if th.Slot("ember") != "#112233" {
+		t.Errorf("home theme ember = %q, want #112233 (the home theme.json wins entirely)", th.Slot("ember"))
 	}
 }
 

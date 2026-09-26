@@ -126,3 +126,10 @@ func TestCostBasisIsLamportsEverywhere(t *testing.T) {
 		t.Errorf("pnlFor = %v, want %v (cost basis in lamports)", got, want)
 	}
 }
+
+func TestBoardDescriptionNamesTheReplyShape(t *testing.T) {
+	desc := (&Board{}).Description()
+	if !strings.Contains(desc, "minted") || !strings.Contains(desc, "funder") {
+		t.Errorf("board description = %q, want it to name the minted id and the funder's accept", desc)
+	}
+}

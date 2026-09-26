@@ -1,4 +1,28 @@
 # Changelog
+## [0.3.0] — the earn hints, the tool descriptions, and the shipped theme
+
+The `/earn` command's description and its unknown-action error name the
+verbs (`/earn (status, or join as a worker), join [roles], roles
+[add|remove <role>], goal "<paragraph>", status, stop, start`), and
+"register first" reads "join first" everywhere.
+
+The tool descriptions match the code: a board task needs no id (minted
+after the sync), an act the fold would refuse is refused before
+spending, only the funder's accept counts, and the reply is the
+signature, the memo, and the board, or `pending: not yet indexed`, or
+the assigned-id line when the fold renumbers; market is one action per
+fire.
+
+The footer paints every earn row with the theme's dim slot — the same
+grey as the model rows — and orbit ships its theme: when the home has no
+theme.json, the TUI resolves from the embedded default (ember #6b7fa3),
+and a home theme.json still wins entirely.
+
+Tests: the description and the unknown-action error name the verbs; the
+board tool's description contains "minted" and "funder"; earn rows come
+back painted; no theme.json -> ember is #6b7fa3; a home theme.json with
+its own ember overrides it.
+
 ## [0.2.4] — the indexer read falls back to the RPC scan, sticky per project
 
 The board's message read tries the indexer first and falls back to the

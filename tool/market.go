@@ -30,7 +30,7 @@ func (m *Market) client() (*client.TorchClient, error) {
 func (m *Market) Name() string { return "market" }
 
 func (m *Market) Description() string {
-	return "read a project: price, treasury, sentiment, holdings; act: back, exit, post. Every write replies with the tx signature plus the memo."
+	return "read a project: price, treasury, sentiment, holdings; act: back, exit, post. One action per fire. Every write replies with the tx signature plus the memo."
 }
 
 func (m *Market) Schema() json.RawMessage {

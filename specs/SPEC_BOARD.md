@@ -124,8 +124,11 @@ are untouched; orbit serves nothing — it is a client, a fold, and a tool.
 - **The board tool**: `board` reads a project's board (sync → fold →
   render) and acts: task, brief, claim, note, complete, accept, reject —
   each act is one memo + one vault-routed micro buy (0.001 SOL, the memo
-  buy). Any wallet may act; ownership and stake are the fold's rules.
-  Every write replies with the tx signature plus the memo.
+  buy). Any wallet may act; ownership and stake are the fold's rules. A
+  task needs no id (minted after the sync); an act the fold would refuse
+  is refused before spending; only the funder's accept counts. The reply
+  is the signature, the memo, and the board, or `pending: not yet
+  indexed`, or the assigned-id line when the fold renumbers.
 
 - **RPC scan**: with the indexer unset, the board reads the chain
   directly: `getSignaturesForAddress` on the project's bonding curve (and

@@ -17,7 +17,9 @@ dispatch.
   middleware chain, the frontend selection (`-tui` auto / one-shot / plain
   CLI) — plus the orbit wiring: the identity and board stores at the home
   root, the four orbit tools behind the lazy client seam, the `/earn`
-  command, the swarm adapter, and the earn footer snapshot.
+  command, the swarm adapter, the earn footer snapshot, and the shipped
+  theme (the embedded default when the home has no theme.json; a home
+  theme.json wins entirely).
 - **The lazy seam** (`clientProvider`): the first tool use loads the agent
   config and fails loudly, naming `/earn`, when it is missing; a failed
   load is retried at the next use, so `/earn`'s init can fix it in the
@@ -29,8 +31,8 @@ dispatch.
   `bootstrap` (the unsigned operator handoff), `run-job` (the fire path).
 - **The seam closures**: `wire` (the kernel), `swapIn`, `switchModel`,
   `switchRole`, `switchApprove`, `newSession`, `sessionResume`, the
-  plugin reload/swap, `statusIn`/`earnRows` (the footer), and the
-  `command.Env` closures over the root.
+  plugin reload/swap, `statusIn`/`earnRows` (the footer, painted dim),
+  and the `command.Env` closures over the root.
 - **Resolution helpers**: `client.Home` (the orbit home, `RIG_HOME`
   overrides), `resolveModel`, `sessionFor`, `checkOneShot`, `splitCSV`,
   `effectiveNativeNames`, `registeredNativeNames`, `isMutating`.

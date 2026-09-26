@@ -306,6 +306,30 @@ func TestParseArgs(t *testing.T) {
 	}
 }
 
+func TestDescriptionNamesTheVerbs(t *testing.T) {
+	desc := (&Command{}).Description()
+	for _, verb := range []string{"join", "roles", "goal", "status", "stop", "start"} {
+		if !strings.Contains(desc, verb) {
+			t.Errorf("description missing %q: %s", verb, desc)
+		}
+	}
+}
+
+func TestUnknownActionNamesTheVerbs(t *testing.T) {
+	_, err := parseArgs("frobnicate")
+	if err == nil {
+		t.Fatal("unknown action must error")
+	}
+	if !strings.Contains(err.Error(), "unknown action") {
+		t.Errorf("error = %v, want unknown action", err)
+	}
+	for _, verb := range []string{"join", "roles", "goal", "status", "stop", "start"} {
+		if !strings.Contains(err.Error(), verb) {
+			t.Errorf("error missing %q: %v", verb, err)
+		}
+	}
+}
+
 func TestBareEarnFreshHomeRegistersWorker(t *testing.T) {
 	dir := t.TempDir()
 	cfgFile := writeFreshConfig(t, dir)

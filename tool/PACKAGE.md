@@ -14,16 +14,19 @@ session.
 
 - **market**: project read (price, mcap, status, treasury, holdings,
   sentiment) plus the write verbs — `back` (buy via vault + memo), `exit`
-  (sell the whole vault holding + memo), `post` (micro buy + memo). Every
-  write replies with the tx signature plus the memo; the memo carries no
-  role tag — the wallet's stake is the proof.
+  (sell the whole vault holding + memo), `post` (micro buy + memo). One
+  action per fire. Every write replies with the tx signature plus the
+  memo; the memo carries no role tag — the wallet's stake is the proof.
 - **intel**: recent messages on held/watched projects (sender, memo, slot)
   — the indexer's read, capped at 100.
 - **wallet**: PnL (FIFO over trades + swaps), positions with health, and
   the health line + nudge.
-- **board**: the local action board — list, claim, note, complete,
-  accept/reject, reap — the swarm's one memory, cache-backed, no chain
-  writes.
+- **board**: the shared board — read (goal, tasks, claims, verdicts) and
+  act: task, brief, claim, note, complete, accept, reject. A task needs
+  no id (minted after the sync); an act the fold would refuse is refused
+  before spending; only the funder's accept counts. The reply is the
+  signature, the memo, and the board, or `pending: not yet indexed`, or
+  the assigned-id line when the fold renumbers.
 - **Shared**: `resolveMint` (8-char FID or full mint), `truncate`
   (rune-safe, 160 by default), `shortAddr`, `sol` (the 2/4/6-decimal
   SOL formatter), and the tool results (the JSON schema per tool).
