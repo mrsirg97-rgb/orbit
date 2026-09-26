@@ -40,9 +40,16 @@ type Task struct {
 
 func Fold(project string, memos []Memo, now time.Time) []Task {
 	states := map[int]*Task{}
+	maxID := 0
 	for _, m := range memos {
 		if !ParseAllowed(m) {
 			continue
+		}
+		// A task memo whose id is already taken was minted from a stale
+		// cache: the fold mints a fresh id in log order (the memo's id is
+		// a hint; the board references the fold's ids).
+		if m.Verb == "task" && states[m.ID] != nil {
+			m.ID = maxID + 1
 		}
 		st, ok := states[m.ID]
 		if !ok {
@@ -52,6 +59,9 @@ func Fold(project string, memos []Memo, now time.Time) []Task {
 			states[m.ID] = &Task{
 				Project: project, ID: m.ID, Title: m.Text, Status: StatusPending,
 				Funder: m.Sender, CreatedAt: m.At, UpdatedAt: m.At,
+			}
+			if m.ID > maxID {
+				maxID = m.ID
 			}
 			continue
 		}

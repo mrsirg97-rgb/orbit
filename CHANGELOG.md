@@ -1,4 +1,24 @@
 # Changelog
+## [0.1.5] — a board act never guesses the memo's seq
+
+An `Act` inserted its own memo row with `seq = max + 1` and `Sync` never
+renumbered it, so a writer's memo ordered before others' and a
+`(mint, seq)` collision wedged the project.
+
+- **No local row** — the act writes the memo, then re-syncs: the memo's
+  seq is the chain's order, never a local guess.
+- **The task id is minted after the sync**, not before, and the fold
+  renumbers a task memo whose id is already taken (a stale cache minted
+  the same id) to a fresh id in log order.
+- **Refuse before spending** — before the write, the act folds the cache
+  plus the candidate memo and refuses what the fold would refuse (a
+  foreign state, an accept from a non-funder, a stale id) without a
+  chain spend.
+
+Tests: two clients folding the same contested verdict agree (both
+verdicts land, no `(mint, seq)` wedge), a task from a stale cache gets a
+fresh id, and an accept from a non-funder is refused before spending.
+
 ## [0.1.4] — the wizard is safe to rerun; the RPC decoders match a real node
 
 The first `/earn` runs after the vault fix found two rerun and wire bugs.
