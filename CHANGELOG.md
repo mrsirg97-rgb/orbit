@@ -1,4 +1,11 @@
 # Changelog
+## [0.1.2] — the TUI title follows rig's letterforms
+
+The `orbit` art rows didn't match rig's letterforms: `o` had no counter,
+`r` and `b` were identical, `i` was two bars, and `t` was a block. The
+rows now use rig's letterforms in the same 3-row shape, and the ASCII
+fallback name stays `orbit`.
+
 ## [0.1.1] — vault create on a clean home
 
 The first real `/earn` run on a clean home found three create-path bugs,

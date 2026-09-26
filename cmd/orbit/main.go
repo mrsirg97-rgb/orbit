@@ -65,12 +65,17 @@ import (
 	orbittool "github.com/mrsirg97-rgb/orbit/tool"
 )
 
-const Version = "0.1.1"
+const Version = "0.1.2"
 
+// titleName is the ASCII fallback when the theme's glyphs are not blocks.
+const titleName = "orbit"
+
+// orbitRows uses rig's letterforms (o has a counter, r and b differ, i is a
+// single bar, t is a stem) in the same 3-row shape as rig's titleRows.
 var orbitRows = []string{
-	"█▀█ █▀▄ █▀▄ █ █ ▀▀█",
-	"█▀█ █▀▄ █▀▄ █ █ █▄█",
-	"▀▀▀ ▀▀▀ ▀▀▀ ▀▀▀ ▀▀▀",
+	"█▀█ █▀▄ █▀▄ █ ▀█▀",
+	"█ █ █▀▄ █▀█ █  █",
+	"▀▀▀ ▀ ▀ ▀▀▀ ▀  ▀",
 }
 
 type root struct {
@@ -1276,7 +1281,7 @@ func main() {
 			os.Exit(1)
 		}
 		fe = tui.New(os.Stdin, os.Stdout, th,
-			tui.WithTitle("orbit", orbitRows, "powered by rig"),
+			tui.WithTitle(titleName, orbitRows, "powered by rig"),
 			tui.WithStatus(r.statusIn),
 			tui.WithCommands(append(command.All(), r.earn), env),
 		)
