@@ -3,8 +3,10 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -219,6 +221,38 @@ func NewAPI(base string) API {
 	return &httpAPI{base: base, cli: &http.Client{Timeout: 30 * time.Second}}
 }
 
+type HTTPStatusError struct {
+	Path string
+	Code int
+	Body string
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("api %s: status %d: %s", e.Path, e.Code, e.Body)
+}
+
+func IndexerUnreachable(err error) bool {
+	if err == nil {
+		return false
+	}
+	var status *HTTPStatusError
+	if errors.As(err, &status) {
+		return status.Code >= 500
+	}
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	return errors.Is(err, context.DeadlineExceeded)
+}
+
 func (a *httpAPI) get(ctx context.Context, path string, q url.Values) ([]byte, error) {
 	u := a.base + path
 	if len(q) > 0 {
@@ -235,7 +269,7 @@ func (a *httpAPI) get(ctx context.Context, path string, q url.Values) ([]byte, e
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("api %s: status %d: %s", path, resp.StatusCode, string(body))
+		return nil, &HTTPStatusError{Path: path, Code: resp.StatusCode, Body: string(body)}
 	}
 	return io.ReadAll(resp.Body)
 }

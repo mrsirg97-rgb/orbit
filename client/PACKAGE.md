@@ -36,7 +36,15 @@ governs.
   airdrop, the signature status poll, and the board's chain scan calls.
 - **Indexer reads** (`api.go`): typed rows mirroring `indexer-core`
   `contracts.rs` — markets, trades, messages, positions, liquidations,
-  migrations, swaps, user PnL.
+  migrations, swaps, user PnL. A non-200 is a typed `HTTPStatusError`
+  (code + body), and `IndexerUnreachable` classifies the fallback
+  condition: connect/DNS errors, timeouts, and 5xx — never a 4xx.
+- **The read fallback** (`client.go`, `scan.go`): `Source` is the one
+  record — `indexer` or `scan`; `TorchClient.Messages(mint, limit,
+  source)` reads a mint's messages from the named source. The board
+  chooses the source (sticky per mint, recorded in `project_sources`) and
+  falls back to the scan on an unreachable indexer; a source switch
+  prints one line naming it.
 - **The websocket** (`events.go`): one room per connection (`all` or
   `market:<mint>`; a second room refuses by name rather than being
   dropped), frames decoded by kind, a lagged room surfaces as
@@ -74,7 +82,14 @@ governs.
   and a test re-measures it and fails if the builder drifts; swap 280.
 - Amounts are lamports / raw token units (6 decimals); the client never
   formats currency except `FormatSOL`, the read-only display form.
-- The indexer is optional: reads fall back to the chain through the RPC
-  seam, and the board works with `ORBIT_INDEXER` unset.
+- The indexer is optional: `ORBIT_INDEXER` unset means scan only, and a
+  set indexer falls back to the chain through the RPC seam when it is
+  unreachable (connect error, 5xx, timeout) — never on a 4xx. The fallback
+  is per mint and sticky: the board's `project_sources` record decides
+  the source and a mint's source never changes while its rows exist —
+  the fallback applies only to an unrecorded mint, an outage on a
+  recorded-indexer mint serves the stale cache (`indexer unreachable:
+  board may be stale`) and refuses acts, and unsetting the indexer wipes
+  and re-syncs under scan. `ORBIT_RPC` is always verbatim when set.
 - The websocket is one room per connection; reconnect is the caller's
   loop, and a bad frame fails loudly instead of being skipped.

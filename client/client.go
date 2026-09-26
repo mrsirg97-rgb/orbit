@@ -79,6 +79,24 @@ func (c *TorchClient) Route(m MarketRow) (string, error) {
 	}
 }
 
+type Source string
+
+const (
+	SourceIndexer Source = "indexer"
+	SourceScan    Source = "scan"
+)
+
+func (c *TorchClient) Messages(ctx context.Context, mint string, limit int, source Source) ([]MessageRow, error) {
+	switch source {
+	case SourceIndexer:
+		return c.API.Messages(ctx, Q("mint", mint, "limit", fmt.Sprint(limit)))
+	case SourceScan:
+		return ScanMessages(ctx, c.RPC, c.ProgramID, mint, limit)
+	default:
+		return nil, fmt.Errorf("client: unknown message source %q", source)
+	}
+}
+
 func (c *TorchClient) Intel(ctx context.Context, mint string, limit int) ([]MessageRow, error) {
 	q := Q("mint", mint, "limit", fmt.Sprint(limit))
 	return c.API.Messages(ctx, q)

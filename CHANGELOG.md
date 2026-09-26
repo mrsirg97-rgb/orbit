@@ -1,4 +1,39 @@
 # Changelog
+## [0.2.4] — the indexer read falls back to the RPC scan, sticky per project
+
+The board's message read tries the indexer first and falls back to the
+RPC scan when the indexer is unreachable (connect error, 5xx, timeout);
+a 4xx never falls back — the indexer answered, and its answer is
+authoritative. The fallback is per project and sticky: `project_sources`
+records which source numbers a project's messages, and a mint's source
+never changes while its rows exist. The fallback applies only to a mint
+with no recorded source; an outage on a recorded-indexer mint inserts
+nothing — the board read serves the cache with `indexer unreachable:
+board may be stale` and acts are refused — and a mint first synced by
+scan stays on scan until the cache is rebuilt. Each fallback prints one
+line naming the switch.
+
+- **The client classifies the fallback condition** — `IndexerUnreachable`
+  (connect/DNS errors, timeouts, 5xx), with a typed `HTTPStatusError`
+  carrying the indexer's non-200s; `TorchClient.Messages(mint, limit,
+  source)` reads a project's messages from the named source.
+- **The board records the source** — `project_sources` (one row per
+  project, schema v3); the record decides every sync, so an indexer
+  recovery never re-sources an already scanned mint.
+- **A source change by config** — unsetting `ORBIT_INDEXER` on a
+  recorded-indexer mint wipes the mint's messages, tasks, and notes in
+  the same transaction and re-syncs under the scan, so the cache never
+  holds rows under two numberings at once.
+- **`ORBIT_INDEXER` unset = scan only** and a user-set `ORBIT_RPC` is
+  verbatim; the README gains a section on running your own torch indexer
+  and pointing orbit at it.
+
+Tests: indexer down → the scan serves the read and the source is
+recorded; a later indexer recovery does not re-source an already scanned
+mint; a 404 does not fall back; an outage on a warm indexer mint inserts
+nothing and refuses an act; unsetting the indexer wipes and rewalks;
+the mixed-source case is impossible by construction.
+
 ## [0.2.3] — the footer goes live
 
 The TUI re-reads the footer snapshot on a 2s tick while idle, and a fire
