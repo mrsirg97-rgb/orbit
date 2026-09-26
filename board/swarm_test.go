@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -25,6 +26,10 @@ type boardFakeRPC struct {
 	accounts map[string]client.AccountInfo
 	sent     []string
 	sig      int
+	msgs     []client.SignatureInfo
+	txs      map[string]*client.Transaction
+	now      func() time.Time
+	visible  int // -1 = all sent messages; else only the first N (indexer lag)
 }
 
 func (f *boardFakeRPC) GetLatestBlockhash(context.Context) (string, error) {
@@ -32,8 +37,22 @@ func (f *boardFakeRPC) GetLatestBlockhash(context.Context) (string, error) {
 }
 func (f *boardFakeRPC) SendTransaction(ctx context.Context, signed []byte) (string, error) {
 	f.sig++
+	sig := "sigBoard" + itoa(f.sig)
 	f.sent = append(f.sent, sol.EncodeTx(signed))
-	return "sigBoard" + itoa(f.sig), nil
+	tx := decodeSentTx(signed)
+	if tx == nil {
+		return "", errors.New("fake rpc: sent tx did not decode")
+	}
+	slot := int64(len(f.msgs) + 1)
+	tx.Slot = slot
+	at := f.now().Unix()
+	tx.BlockTime = &at
+	if f.txs == nil {
+		f.txs = map[string]*client.Transaction{}
+	}
+	f.txs[sig] = tx
+	f.msgs = append(f.msgs, client.SignatureInfo{Signature: sig, BlockTime: &at})
+	return sig, nil
 }
 func (f *boardFakeRPC) GetAccountInfo(ctx context.Context, pubkey string) (client.AccountInfo, error) {
 	return f.accounts[pubkey], nil
@@ -49,15 +68,105 @@ func (f *boardFakeRPC) RequestAirdrop(context.Context, string, uint64) (string, 
 	return "", nil
 }
 func (f *boardFakeRPC) GetSignaturesForAddress(context.Context, string, int) ([]client.SignatureInfo, error) {
-	return nil, nil
+	if f.visible >= 0 && f.visible < len(f.msgs) {
+		return f.msgs[:f.visible], nil
+	}
+	return f.msgs, nil
 }
-func (f *boardFakeRPC) GetTransaction(context.Context, string) (*client.Transaction, error) {
-	return nil, nil
+func (f *boardFakeRPC) GetTransaction(ctx context.Context, sig string) (*client.Transaction, error) {
+	tx, ok := f.txs[sig]
+	if !ok {
+		return nil, nil
+	}
+	return tx, nil
+}
+
+func decodeSentTx(signed []byte) *client.Transaction {
+	if len(signed) < 67 || signed[0] != 1 || signed[65] != 0x80 {
+		return nil
+	}
+	msg := signed[66 : len(signed)-1]
+	pos := 3
+	readShort := func() (int, bool) {
+		if pos >= len(msg) {
+			return 0, false
+		}
+		v := int(msg[pos])
+		pos++
+		if v < 0x80 {
+			return v, true
+		}
+		v &= 0x7f
+		if pos >= len(msg) {
+			return 0, false
+		}
+		lo := int(msg[pos])
+		pos++
+		if lo < 0x80 {
+			return v | (lo << 7), true
+		}
+		if pos >= len(msg) {
+			return 0, false
+		}
+		lo &= 0x7f
+		hi := int(msg[pos])
+		pos++
+		return v | (lo << 7) | (hi << 14), true
+	}
+	keyCount, ok := readShort()
+	if !ok || keyCount == 0 || pos+keyCount*32+32 > len(msg) {
+		return nil
+	}
+	keys := make([]string, 0, keyCount)
+	for i := 0; i < keyCount; i++ {
+		keys = append(keys, sol.Encode(msg[pos:pos+32]))
+		pos += 32
+	}
+	pos += 32 // blockhash
+	ixCount, ok := readShort()
+	if !ok {
+		return nil
+	}
+	tx := &client.Transaction{Keys: keys}
+	for i := 0; i < ixCount; i++ {
+		if pos+2 > len(msg) {
+			return nil
+		}
+		progIdx := int(msg[pos])
+		acctCount := int(msg[pos+1])
+		pos += 2
+		if pos+acctCount > len(msg) {
+			return nil
+		}
+		pos += acctCount
+		dataLen, ok := readShort()
+		if !ok || pos+dataLen > len(msg) {
+			return nil
+		}
+		if progIdx < len(keys) {
+			tx.Ixs = append(tx.Ixs, client.TxInstruction{
+				ProgramID: keys[progIdx], Data: msg[pos : pos+dataLen],
+			})
+		}
+		pos += dataLen
+	}
+	return tx
 }
 
 func boardTestClient(t *testing.T, mint string) (*client.TorchClient, *boardFakeRPC) {
 	t.Helper()
-	rpc := &boardFakeRPC{accounts: map[string]client.AccountInfo{}}
+	rpc := newBoardFakeRPC(t, mint)
+	return boardClientFor(t, mint, "orbit-board-swarm-seed-00000000", rpc), rpc
+}
+
+func newBoardFakeRPC(t *testing.T, mint string) *boardFakeRPC {
+	t.Helper()
+	rpc := &boardFakeRPC{
+		accounts: map[string]client.AccountInfo{},
+		txs:      map[string]*client.Transaction{},
+		now:      time.Now,
+		visible:  -1,
+	}
 	creator := "So11111111111111111111111111111111111111112"
 	curve := make([]byte, 133)
 	cb, _ := sol.Decode(creator)
@@ -74,11 +183,19 @@ func boardTestClient(t *testing.T, mint string) (*client.TorchClient, *boardFake
 	binary.LittleEndian.PutUint64(curve[125:133], 200_000_000_000)
 	rpc.accounts[client.BondingCurvePDA(client.DevnetProgramID, mint)] = client.AccountInfo{Exists: true, Data: curve}
 	rpc.accounts[client.GlobalConfigPDA(client.DevnetProgramID)] = globalConfigRPC(t)
-	seed := make([]byte, 32)
-	copy(seed, "orbit-board-swarm-seed-00000000")
+	return rpc
+}
+
+func boardClientFor(t *testing.T, mint, seed string, rpc *boardFakeRPC) *client.TorchClient {
+	t.Helper()
 	raw := make([]byte, 64)
-	copy(raw[:32], seed)
-	pub, _ := sol.PublicFromSeed(seed)
+	seedBytes := make([]byte, 32)
+	copy(seedBytes, seed)
+	copy(raw[:32], seedBytes)
+	pub, err := sol.PublicFromSeed(seedBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
 	copy(raw[32:], pub)
 	kp, err := sol.KeypairFromSecret(sol.Encode(raw))
 	if err != nil {
@@ -88,14 +205,23 @@ func boardTestClient(t *testing.T, mint string) (*client.TorchClient, *boardFake
 	if err != nil {
 		t.Fatal(err)
 	}
-	tc := &client.TorchClient{
+	return &client.TorchClient{
 		Config: client.Config{
 			RPC: "http://127.0.0.1:1", ProgramID: client.DevnetProgramID,
-			VaultCreator: creator, AgentKey: kp, AllowWrite: true,
+			VaultCreator: "So11111111111111111111111111111111111111112", AgentKey: kp, AllowWrite: true,
 		},
 		IDL: id, API: &nilAPI{}, RPC: rpc,
 	}
-	return tc, rpc
+}
+
+func openBoardStoreWith(t *testing.T, tc *client.TorchClient) (store.DB, *Store) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "board.sqlite")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return db, &Store{Client: func() (*client.TorchClient, error) { return tc, nil }, DB: db}
 }
 
 func globalConfigRPC(t *testing.T) client.AccountInfo {
@@ -334,6 +460,104 @@ func compact(b []byte) (int, []byte, bool) {
 		return (v & 0x7f) | int(b[1])<<7, b[2:], true
 	}
 	return v, b[1:], true
+}
+
+func TestTwoClientsFoldContestedVerdictAgree(t *testing.T) {
+	ctx := context.Background()
+	rpc := newBoardFakeRPC(t, testMint)
+	tcA := boardClientFor(t, testMint, "orbit-board-client-A-seed-0000000", rpc)
+	tcB := boardClientFor(t, testMint, "orbit-board-client-B-seed-0000000", rpc)
+	dbA, stA := openBoardStoreWith(t, tcA)
+	dbB, stB := openBoardStoreWith(t, tcB)
+	defer dbA.DB.Close()
+	defer dbB.DB.Close()
+	base := time.Now().UTC().Add(-10 * time.Minute).Format(time.RFC3339)
+	arch, worker := tcA.AgentPublic(), tcB.AgentPublic()
+	baseLog := []client.MessageRow{
+		{Mint: testMint, MessageID: 1, Sender: arch, MemoText: "task 1: Contested verdict", Slot: 1, Signature: "sigT1", CreatedAt: base},
+		{Mint: testMint, MessageID: 2, Sender: worker, MemoText: "claim 1", Slot: 2, Signature: "sigC1", CreatedAt: base},
+		{Mint: testMint, MessageID: 3, Sender: worker, MemoText: "complete 1", Slot: 3, Signature: "sigP1", CreatedAt: base},
+	}
+	seedRecordedLog(t, dbA, testMint, baseLog)
+	seedRecordedLog(t, dbB, testMint, baseLog)
+	project := Project{Mint: testMint, Label: "torch test"}
+
+	// Both clients write a verdict on the same review task from the same
+	// pre-write view (A's memo not yet visible to B): the log ends up with
+	// both, and both clients fold the same log without a (mint, seq) wedge.
+	if _, err := stA.Accept(ctx, project, "1"); err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	rpc.visible = 0
+	if _, err := stB.Reject(ctx, project, "1", "No proof"); err != nil {
+		t.Fatalf("reject: %v", err)
+	}
+	rpc.visible = -1
+	boardA, err := stA.Board(ctx, project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	boardB, err := stB.Board(ctx, project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if boardA != boardB {
+		t.Errorf("clients disagree on the contested verdict:\n--- A ---\n%s\n--- B ---\n%s", boardA, boardB)
+	}
+	if len(rpc.sent) != 2 {
+		t.Errorf("sent txs: %d, want 2 (both verdicts land)", len(rpc.sent))
+	}
+	if !strings.Contains(boardA, "t1 done") {
+		t.Errorf("verdict board missing the done task:\n%s", boardA)
+	}
+}
+
+func TestActStaleTaskGetsFreshID(t *testing.T) {
+	ctx := context.Background()
+	rpc := newBoardFakeRPC(t, testMint)
+	tc := boardClientFor(t, testMint, "orbit-board-swarm-seed-00000000", rpc)
+	db, st := openBoardStoreWith(t, tc)
+	defer db.DB.Close()
+	base := time.Now().UTC().Add(-10 * time.Minute).Format(time.RFC3339)
+	seedRecordedLog(t, db, testMint, []client.MessageRow{
+		{Mint: testMint, MessageID: 1, Sender: "walletX", MemoText: "task 6: The real task 6", Slot: 1, Signature: "sigT6", CreatedAt: base},
+	})
+	project := Project{Mint: testMint, Label: "torch test"}
+	// The caller minted id 6 from a cache that predates the sync above.
+	if _, err := st.Act(ctx, project, Shape{Verb: "task", ID: 6, Text: "Stale cache task"}); err != nil {
+		t.Fatalf("act: %v", err)
+	}
+	board, err := st.BoardFromCache(ctx, project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(board, "t6 pending") || !strings.Contains(board, "The real task 6") {
+		t.Errorf("the real task 6 is missing:\n%s", board)
+	}
+	if !strings.Contains(board, "t7 pending") || !strings.Contains(board, "Stale cache task") {
+		t.Errorf("the stale task did not get a fresh id:\n%s", board)
+	}
+}
+
+func TestActRefusesForeignAcceptBeforeSpend(t *testing.T) {
+	ctx := context.Background()
+	rpc := newBoardFakeRPC(t, testMint)
+	tc := boardClientFor(t, testMint, "orbit-board-swarm-seed-00000000", rpc)
+	db, st := openBoardStoreWith(t, tc)
+	defer db.DB.Close()
+	base := time.Now().UTC().Add(-10 * time.Minute).Format(time.RFC3339)
+	seedRecordedLog(t, db, testMint, []client.MessageRow{
+		{Mint: testMint, MessageID: 1, Sender: "walletX", MemoText: "task 1: Funded by someone else", Slot: 1, Signature: "sigT1", CreatedAt: base},
+		{Mint: testMint, MessageID: 2, Sender: "walletY", MemoText: "claim 1", Slot: 2, Signature: "sigC1", CreatedAt: base},
+		{Mint: testMint, MessageID: 3, Sender: "walletY", MemoText: "complete 1", Slot: 3, Signature: "sigP1", CreatedAt: base},
+	})
+	project := Project{Mint: testMint, Label: "torch test"}
+	if _, err := st.Accept(ctx, project, "1"); err == nil || !strings.Contains(err.Error(), "refuse") {
+		t.Fatalf("non-funder accept: %v", err)
+	}
+	if len(rpc.sent) != 0 {
+		t.Errorf("sent txs: %d, want 0 (a refused act must not spend)", len(rpc.sent))
+	}
 }
 
 func TestOpenMigratesV1Cache(t *testing.T) {

@@ -24,11 +24,14 @@ are untouched; orbit serves nothing — it is a client, a fold, and a tool.
 | reject | `reject <id>: <reason>` |
 
   Task ids are positive integers, minted per project by the fold (next =
-  max + 1); the writer reads the board before it writes, so the id it
-  quotes is the fold's. Every shape fits the curve memo cap (pinned bytes
-  from a `sol.Compile` measurement against the 1232-byte legacy limit;
-  a test re-measures and fails if the builder drifts); `goal` is the
-  project create's first buy and is not a board act.
+  max + 1). An act mints the id after its sync, from the freshly folded
+  cache — never before it — and a task memo whose id is already taken
+  (a stale cache minted the same id) gets a fresh id from the fold: the
+  memo's id is a hint, the fold's ids are the board's. Every shape fits
+  the curve memo cap (pinned bytes from a `sol.Compile` measurement
+  against the 1232-byte legacy limit; a test re-measures and fails if
+  the builder drifts); `goal` is the project create's first buy and is
+  not a board act.
 
 - **The fold**: `Fold(rows, now) → tasks` is a pure function of the
   project's message log in log order (seq). Each memo is parsed
@@ -42,7 +45,8 @@ are untouched; orbit serves nothing — it is a client, a fold, and a tool.
 
 | verb | precondition | effect |
 |---|---|---|
-| task | id is new | pending, title, funder = sender |
+| task | id free | pending, title, funder = sender |
+| task | id taken | mints a fresh id (max + 1) and creates the task there |
 | brief | task exists, brief empty, sender = funder | set the brief |
 | claim | task pending | active, owner = sender, claimed_at = memo time |
 | note | task exists | append the note (sender, text, time) |
@@ -52,10 +56,11 @@ are untouched; orbit serves nothing — it is a client, a fold, and a tool.
 
   A foreign row is one whose state or ownership does not match: a second
   claim on an active task, a complete on a pending task, a verdict on a
-  task not in review, a task memo that reuses an id, an accept or brief
-  from a wallet that did not fund the task — the row does not move the
-  state. The fold never reads outside the project's log: the board is
-  keyed by project and task, nothing else.
+  task not in review, an accept or brief from a wallet that did not fund
+  the task — the row does not move the state. A task memo that reuses an
+  id is not foreign: it mints a fresh id (the stale-cache case). The fold
+  never reads outside the project's log: the board is keyed by project
+  and task, nothing else.
 
 - **Dissent**: `reject` is the dissent verb, honoured from anyone who paid
   for the memo. A short arrives in a later PR as `dissent`: reject plus a
@@ -84,7 +89,12 @@ are untouched; orbit serves nothing — it is a client, a fold, and a tool.
   store's. The cache is the board's window: each sync adds the newest
   messages (100 per sync) and the fold covers what the cache holds; the
   chain's slot and timestamp replace the local approximation on the next
-  sync.
+  sync. An act never inserts its own row: it writes the memo, re-syncs,
+  and the memo's seq is the chain's — a locally guessed `max + 1` would
+  order the writer's memo before others' and a `(mint, seq)` collision
+  would wedge the project. Before the write, the act folds the cache plus
+  the candidate memo and refuses what the fold would refuse (a foreign
+  state or a stale id) without spending.
 
 - **The seam**: the board store implements rig's board seam — the swarm
   surface (claim / note / complete / accept / reject / reap over a

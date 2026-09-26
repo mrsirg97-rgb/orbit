@@ -68,16 +68,10 @@ func (b *Board) Exec(ctx context.Context, args json.RawMessage) (string, error) 
 		return b.Store.Board(ctx, project)
 	}
 	shape := board.Shape{Verb: in.Action, ID: in.ID, Text: in.Text}
-	if in.Action == "task" && in.ID == 0 {
-		next, err := b.Store.NextID(ctx, project)
-		if err != nil {
-			return "", fmt.Errorf("board: task id: %w", err)
-		}
-		shape.ID = next
-	}
-	if shape.ID == 0 {
+	if shape.ID == 0 && in.Action != "task" {
 		return "", fmt.Errorf("board: %s needs a task id", in.Action)
 	}
+	// The task action mints its id in Act, after the sync.
 	return b.Store.Act(ctx, project, shape)
 }
 

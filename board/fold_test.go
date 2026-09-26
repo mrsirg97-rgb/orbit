@@ -127,15 +127,40 @@ func TestFoldForeignClaim(t *testing.T) {
 		Memo{Verb: "task", ID: 1, Text: "Re-own", Sender: arch, At: base.Add(4 * time.Minute).Format(time.RFC3339)},
 	}
 	tasks := Fold("p", memos, now)
-	if len(tasks) != 1 {
-		t.Fatalf("tasks: %d, want 1", len(tasks))
+	if len(tasks) != 2 {
+		t.Fatalf("tasks: %d, want 2 (the reused id mints a fresh one)", len(tasks))
 	}
 	t1 := tasks[0]
-	if t1.Status != StatusActive || t1.Owner != workA {
+	if t1.ID != 1 || t1.Status != StatusActive || t1.Owner != workA {
 		t.Errorf("foreign claim moved the state: %s %q", t1.Status, t1.Owner)
 	}
 	if t1.Title != "Context compaction" {
 		t.Errorf("foreign create re-owned the title: %q", t1.Title)
+	}
+	t2 := tasks[1]
+	if t2.ID != 2 || t2.Status != StatusPending || t2.Title != "Re-own" || t2.Funder != arch {
+		t.Errorf("stale task memo did not mint a fresh id: %+v", t2)
+	}
+}
+
+func TestFoldStaleTaskMemoMintsFreshID(t *testing.T) {
+	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	memos := []Memo{
+		Memo{Verb: "task", ID: 6, Text: "The real task 6", Sender: "walletA", At: base.Format(time.RFC3339)},
+		Memo{Verb: "task", ID: 6, Text: "Stale cache task", Sender: "walletB", At: base.Add(time.Minute).Format(time.RFC3339)},
+		Memo{Verb: "claim", ID: 6, Sender: "walletA", At: base.Add(2 * time.Minute).Format(time.RFC3339)},
+		Memo{Verb: "claim", ID: 7, Sender: "walletA", At: base.Add(3 * time.Minute).Format(time.RFC3339)},
+	}
+	tasks := Fold("p", memos, base.Add(4*time.Minute))
+	if len(tasks) != 2 {
+		t.Fatalf("tasks: %d, want 2", len(tasks))
+	}
+	t1, t2 := tasks[0], tasks[1]
+	if t1.ID != 6 || t1.Title != "The real task 6" || t1.Status != StatusActive {
+		t.Errorf("task 6: %+v", t1)
+	}
+	if t2.ID != 7 || t2.Title != "Stale cache task" || t2.Status != StatusActive || t2.Owner != "walletA" {
+		t.Errorf("stale task: %+v", t2)
 	}
 }
 

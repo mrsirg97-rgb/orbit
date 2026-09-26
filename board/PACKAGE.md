@@ -29,9 +29,11 @@ SQLite is a cache rebuilt from it, never trusted.
 - `Store` — the local SQLite cache (the chain's message log plus the fold
   projection) and the chain write path. `Sync` folds the chain into the
   cache (indexer fast path, RPC scan fallback), idempotent by signature;
-  `Act` writes one board verb (memo + vault-routed micro buy) and rebuilds
-  the projection in the same transaction; `Board` / `BoardFromCache` /
-  `Task` / `NextID` / `Claims` / `LastMemo` are the reads.
+  `Act` writes one board verb (memo + vault-routed micro buy), refuses
+  what the fold would refuse before spending, mints the task id after the
+  sync, and re-syncs after the write (the memo's seq is the chain's,
+  never a local guess); `Board` / `BoardFromCache` / `Task` / `NextID` /
+  `Claims` / `LastMemo` are the reads.
 - `Store.Claim` / `Note` / `Complete` / `Accept` / `Reject` / `Reap` —
   the swarm surface: the same vocabulary the runtime's swarm drains,
   chain-backed. `claim` is the memo, the lease is the fold's expiry, and

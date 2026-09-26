@@ -77,11 +77,8 @@ func boardAct(ctx context.Context, project board.Project, verb string, rest []st
 		if text == "" {
 			die("board: task needs text")
 		}
-		next, err := st.NextID(ctx, project)
-		if err != nil {
-			die("board: task id: %v", err)
-		}
-		reply, err = st.Act(ctx, project, board.Shape{Verb: "task", ID: next, Text: text})
+		// The id is minted by Act after the sync; ID=0 means "mint it".
+		reply, err = st.Act(ctx, project, board.Shape{Verb: "task", ID: 0, Text: text})
 		if err != nil {
 			die("board: %v", err)
 		}
