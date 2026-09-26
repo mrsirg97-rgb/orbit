@@ -91,7 +91,7 @@ func (c *Command) status(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if c.SnapshotPath != "" {
-		if err := WriteSnapshot(c.SnapshotPath, rows); err != nil {
+		if err := WriteSnapshot(c.SnapshotPath, rows, Fire{}); err != nil {
 			return "", err
 		}
 	}
@@ -275,7 +275,7 @@ func (c *Command) finish(ctx context.Context, tc *client.TorchClient, line strin
 	parts = append(parts, Roster(ctx, c.IdentityDB, c.SchedDB))
 	if c.SnapshotPath != "" {
 		if rows, err := Status(ctx, tc, c.Board); err == nil {
-			_ = WriteSnapshot(c.SnapshotPath, rows)
+			_ = WriteSnapshot(c.SnapshotPath, rows, Fire{})
 		}
 	}
 	return strings.Join(parts, "\n")

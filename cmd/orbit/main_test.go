@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mrsirg97-rgb/orbit/earn"
 )
 
 func TestVersionStartupStaysFast(t *testing.T) {
@@ -36,12 +39,28 @@ func TestVersionStartupStaysFast(t *testing.T) {
 
 func TestVersionIsTheFreeze(t *testing.T) {
 
-	if Version != "0.2.2" {
-		t.Fatalf("Version = %q, want 0.2.2", Version)
+	if Version != "0.2.3" {
+		t.Fatalf("Version = %q, want 0.2.3", Version)
 	}
 
 	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(Version) {
 		t.Fatalf("Version %q must be semver x.y.z", Version)
+	}
+}
+
+func TestStatusCallbackReflectsFireWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "status.json")
+	fire := earn.Fire{Role: "worker", Verb: "note", Task: 4, At: time.Now().UTC().Add(-30 * time.Second).Format(time.RFC3339)}
+	if err := earn.WriteSnapshot(path, earn.Rows{Held: 2, OpenClaims: 1, LastMemo: "3m ago · \"backed\"", PnLSOL: 1.5}, fire); err != nil {
+		t.Fatal(err)
+	}
+	r := &root{earn: &earn.Command{SnapshotPath: path}}
+	lines := r.earnRows(context.Background())
+	if len(lines) != 4 {
+		t.Fatalf("footer rows: %d, want 4:\n%s", len(lines), strings.Join(lines, "\n"))
+	}
+	if !strings.Contains(lines[2], "worker note #4") || !strings.Contains(lines[2], "just now") {
+		t.Errorf("the status callback must show a fire's write on the next read:\n%s", lines[2])
 	}
 }
 

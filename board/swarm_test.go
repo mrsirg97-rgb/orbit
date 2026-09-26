@@ -563,6 +563,34 @@ func TestActStaleTaskGetsFreshID(t *testing.T) {
 	}
 }
 
+func TestActOnActSeesFinalShape(t *testing.T) {
+	ctx := context.Background()
+	rpc := newBoardFakeRPC(t, testMint)
+	tc := boardClientFor(t, testMint, "orbit-board-swarm-seed-00000000", rpc)
+	db, st := openBoardStoreWith(t, tc)
+	defer db.DB.Close()
+	base := time.Now().UTC().Add(-10 * time.Minute).Format(time.RFC3339)
+	seedRecordedLog(t, db, testMint, []client.MessageRow{
+		{Mint: testMint, MessageID: 1, Sender: "walletX", MemoText: "task 6: The real task 6", Slot: 1, Signature: "sigT6", CreatedAt: base},
+	})
+	project := Project{Mint: testMint, Label: "torch test"}
+	var seen []Shape
+	st.OnAct = func(ctx context.Context, shape Shape) { seen = append(seen, shape) }
+	reply, err := st.Act(ctx, project, Shape{Verb: "task", ID: 6, Text: "Stale cache task"})
+	if err != nil {
+		t.Fatalf("act: %v", err)
+	}
+	if len(seen) != 1 {
+		t.Fatalf("OnAct calls: %d, want 1", len(seen))
+	}
+	if seen[0].Verb != "task" || seen[0].ID != 7 {
+		t.Errorf("OnAct shape: %+v, want task #7 (the assigned id)", seen[0])
+	}
+	if !strings.Contains(reply, "assigned id 7") {
+		t.Errorf("the reply does not name the assigned id:\n%s", reply)
+	}
+}
+
 func TestActTaskThenClaimWithLagSucceeds(t *testing.T) {
 	ctx := context.Background()
 	rpc := newBoardFakeRPC(t, testMint)

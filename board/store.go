@@ -30,6 +30,9 @@ type Store struct {
 	DB     store.DB
 	// WaitBudget bounds the act's re-sync-until-cached loop (default 15s).
 	WaitBudget time.Duration
+	// OnAct is called after every act with the final shape (the minted or
+	// assigned task id); the fire path uses it to refresh the footer.
+	OnAct func(context.Context, Shape)
 }
 
 func (s *Store) client() (*client.TorchClient, error) {
@@ -236,6 +239,9 @@ func (s *Store) Act(ctx context.Context, p Project, shape Shape) (string, error)
 		return "", fmt.Errorf("board act %s: re-sync: %w", shape.Verb, err)
 	}
 	if !landed {
+		if s.OnAct != nil {
+			s.OnAct(ctx, shape)
+		}
 		return res.Signature + " " + memo + "\npending: not yet indexed", nil
 	}
 	board, err := s.BoardFromCache(ctx, p)
@@ -244,9 +250,14 @@ func (s *Store) Act(ctx context.Context, p Project, shape Shape) (string, error)
 	}
 	if shape.Verb == "task" {
 		if assigned, renumbered, err := s.assignedID(ctx, p, memo, tc.AgentPublic(), now); err == nil && renumbered {
+			memoID := shape.ID
+			shape.ID = assigned
 			board = fmt.Sprintf("board: assigned id %d (the memo's id %d was taken; claim %d, not %d)\n%s",
-				assigned, shape.ID, assigned, shape.ID, board)
+				assigned, memoID, assigned, memoID, board)
 		}
+	}
+	if s.OnAct != nil {
+		s.OnAct(ctx, shape)
 	}
 	return res.Signature + " " + memo + "\n" + board, nil
 }

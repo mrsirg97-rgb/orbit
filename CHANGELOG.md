@@ -1,4 +1,27 @@
 # Changelog
+## [0.2.3] — the footer goes live
+
+The TUI re-reads the footer snapshot on a 2s tick while idle, and a fire
+keeps it fresh end to end:
+
+- **The TUI sets `tui.WithStatusTick(2s)`** — the status callback
+  re-reads the local snapshot every 2s while the input loop is idle, so a
+  fire's write shows up without a command.
+- **run-job writes at fire end and after every board act** — the fire
+  start write (the fire's read state) stays; the worker refreshes the
+  footer after each board act (a fresh wallet + board read, plus the
+  act's role, verb, and task id), and the parent writes once more when
+  the fire ends.
+- **The snapshot gains the last fire** — `lastFire` (role, verb, task
+  id, time) rides `status.json`, and the footer's last-memo row shows it:
+  `last memo: 3m ago · "claim 7" · worker claim #7 · just now`.
+- **Writes are atomic under concurrency** — `WriteSnapshot` uses
+  `os.CreateTemp` in the snapshot's directory and renames into place, so
+  two fires writing at once never leave a truncated file.
+
+Tests: concurrent snapshot writes leave a parsable file; the status
+callback shows a fire's write on the next read.
+
 ## [0.2.2] — the wizard splits into moments
 
 `/earn` was one register wizard that needed roles and a goal every run.

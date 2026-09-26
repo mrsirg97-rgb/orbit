@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/mrsirg97-rgb/rig"
 	"github.com/mrsirg97-rgb/rig/command"
@@ -66,7 +67,7 @@ import (
 	orbittool "github.com/mrsirg97-rgb/orbit/tool"
 )
 
-const Version = "0.2.2"
+const Version = "0.2.3"
 
 // titleName is the ASCII fallback when the theme's glyphs are not blocks.
 const titleName = "orbit"
@@ -716,7 +717,7 @@ func (r *root) statusIn(ctx context.Context) tui.StatusIn {
 }
 
 func (r *root) earnRows(ctx context.Context) []string {
-	rows, ok, err := earn.Snapshot(r.earn.SnapshotPath)
+	rows, ok, err := earn.ReadSnapshot(r.earn.SnapshotPath)
 	if err != nil || !ok {
 		return nil
 	}
@@ -1178,7 +1179,18 @@ func main() {
 		os.Exit(1)
 	}
 	defer bdb.DB.Close()
+	snapshotPath := filepath.Join(cfgDir, "status.json")
 	r.board = &board.Store{Client: cp.Torch, DB: bdb}
+	if agentID := os.Getenv("ORBIT_AGENT_ID"); agentID != "" {
+		r.board.OnAct = func(ctx context.Context, shape board.Shape) {
+			tc, err := cp.Torch()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "orbit: fire status: %v\n", err)
+				return
+			}
+			fireActSnapshot(ctx, idb, tc, r.board, snapshotPath, agentID, shape)
+		}
+	}
 	r.tools["market"] = &orbittool.Market{Client: cp.Torch, StakeLamports: identity.BaseStakeLamports}
 	r.tools["intel"] = &orbittool.Intel{Client: cp.Torch}
 	r.tools["wallet"] = &orbittool.Wallet{Client: cp.Torch}
@@ -1202,7 +1214,7 @@ func main() {
 		Cwd:          cwd,
 		Session:      "orbit-earn",
 		Model:        func() string { return r.activeID },
-		SnapshotPath: filepath.Join(cfgDir, "status.json"),
+		SnapshotPath: snapshotPath,
 	}
 
 	workersEnv := command.Workers{File: filepath.Join(cfgDir, "workers.json")}
@@ -1300,6 +1312,7 @@ func main() {
 		fe = tui.New(os.Stdin, os.Stdout, th,
 			tui.WithTitle(titleName, orbitRows, "powered by rig"),
 			tui.WithStatus(r.statusIn),
+			tui.WithStatusTick(2*time.Second),
 			tui.WithCommands(append(command.All(), r.earn), env),
 		)
 

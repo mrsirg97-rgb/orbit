@@ -33,10 +33,13 @@ SPEC_EARN governs.
   memo, PnL since start. `Status` reads it from the chain (wallet read +
   the board cache); `RowsFromBrief` computes the same rows from a fire's
   read state with no extra chain reads.
-- **The snapshot**: `SnapshotPath` / `Snapshot` / `WriteSnapshot` — the
-  local `status.json` (atomic temp + rename). The TUI status callback
-  reads only the file, never the chain, so every command stays off the
-  network. `/earn status` and each agent fire write it.
+- **The snapshot**: `SnapshotPath` / `ReadSnapshot` / `WriteSnapshot` —
+  the local `status.json`, written atomically (`os.CreateTemp` in the
+  same directory, then rename: concurrent fires never leave a truncated
+  file). It carries the last fire (role, verb, task id, time), and the
+  footer's last-memo row shows it. The TUI status callback reads only the
+  file, never the chain, so every command stays off the network. `/earn
+  status` and each agent fire write it.
 
 ## How it is consumed
 

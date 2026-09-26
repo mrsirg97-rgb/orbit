@@ -11,9 +11,11 @@ natives, the `/earn` command beside `command.All()`, and the orbit title
 
 - **The TUI**: `tui.New(os.Stdin, os.Stdout, theme, WithTitle("orbit",
   orbitRows, "powered by rig"), WithCommands(command.All()+earn, env),
-  WithStatus(orbitStatusIn))`. The status function adds the earn rows
-  under the footer: projects held, open claims, last memo, PnL since
-  start. The same rows are what `/earn status` prints.
+  WithStatus(orbitStatusIn), WithStatusTick(2 * time.Second))`. The
+  status function adds the earn rows under the footer: projects held,
+  open claims, last memo, PnL since start. The same rows are what `/earn
+  status` prints. The tick re-reads the status function while the input
+  loop is idle (zero is off; a fire's write shows up without a command).
 - **bare /earn** (the wizard's door): prints status when the home is set
   up (hot key, vault, link, deposit), otherwise runs join with one
   worker.
@@ -77,13 +79,23 @@ the fold trusts).
 `earn.Status` reads the wallet (held projects, PnL since start) and the
 board cache (the wallet's open claims, its last memo) — command time
 only. `/earn status` and each agent fire write the rows to the local
-snapshot (`<orbit home>/status.json`, atomic temp + rename), and the
-TUI's status callback reads only that file. Every command recaptures the
-status in rig, so a callback that touched the chain would put `/help` on
-the network; the snapshot keeps the footer local. The rows are as fresh
-as the last `/earn status` or fire — a mid-turn tool effect shows stale
-until the next command, and the brief's own numbers (the fire's read)
-carry the same staleness.
+snapshot (`<orbit home>/status.json`), and the TUI's status callback
+reads only that file. Every command recaptures the status in rig, so a
+callback that touched the chain would put `/help` on the network; the
+snapshot keeps the footer local. The rows are as fresh as the last
+`/earn status` or fire — a mid-turn tool effect shows stale until the
+next command, and the brief's own numbers (the fire's read) carry the
+same staleness.
+
+A fire writes three times, all best-effort: at fire start the rows come
+from the fire's read state (`RowsFromBrief`, no extra chain reads), after
+every board act the worker re-reads the wallet and the board cache (the
+act just landed) and records the act as the snapshot's last fire (role,
+verb, task id, time), and at fire end the parent writes the fresh rows
+once more. The footer's last-memo row shows the last fire — `last memo:
+3m ago · "claim 7" · worker claim #7 · just now`. The snapshot write is
+atomic under concurrency: `os.CreateTemp` in the snapshot's directory,
+then rename, so two fires writing at once never leave a truncated file.
 
 ### 5. The wizard asks with the answers at the call
 
@@ -105,9 +117,9 @@ new bytes.
 
 - `earn/command.go` — the /earn command: register wizard, status, stop,
   start
-- `earn/status.go` — the footer rows (held, claims, last memo, PnL) and the
-  local snapshot (write at `/earn status` and per fire, read at status
-  callback)
+- `earn/status.go` — the footer rows (held, claims, last memo, PnL), the
+  last fire (role, verb, task id, time), and the local snapshot (atomic
+  write at `/earn status` and per fire, read at status callback)
 - `earn/earn_test.go` — wizard, status, stop against fakes
 - `cmd/orbit/main.go` — rig's main with orbit tools, /earn, and the title
 - `cmd/orbit/*.go` — the subcommands (init, vault, project, board,
