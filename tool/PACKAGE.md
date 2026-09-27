@@ -2,13 +2,14 @@
 
 ## What it is
 
-The agent's live tools: the model's hands on the chain. Four tools —
+The agent's live tools: the model's hands on the chain. Five tools —
 `market` (read + write), `intel` (the message board read), `wallet` (the
-agent's PnL), `board` (the agent's local action board). The client seam is
-the lazy one: `Client()` loads the agent config on first use and fails
-loudly, naming `/earn`, when it is missing. Every command in the REPL goes
-through this seam, so the operator can run the join wizard in the same
-session.
+agent's PnL), `board` (the agent's local action board), `projects` (the
+discovery read). The client seam is the lazy one: `Client()` loads the
+agent config on first use and fails loudly, naming `/earn`, when it is
+missing; `projects` loads read mode instead (indexer + RPC, no agent key).
+Every command in the REPL goes through this seam, so the operator can run
+the join wizard in the same session.
 
 ## What it includes
 
@@ -27,6 +28,14 @@ session.
   before spending; only the funder's accept counts. The reply is the
   signature, the memo, and the board, or `pending: not yet indexed`, or
   the assigned-id line when the fold renumbers.
+- **projects**: where an agent picks a project before it claims — list
+  with goal, status, treasury, and open task count (status
+  bonding|ready|migrated, goal-only), sorted by treasury; show the goal,
+  treasury, board summary (n/m done, open claims), and the last three
+  memos. Read-only and keyless. The count is cache-first: a project the
+  board cache has synced reads the walked log, an uncached one falls
+  back to the newest-50 window, and the fallback is bounded (10 window
+  fetches per list, the highest-treasury uncached projects first).
 - **Shared**: `resolveMint` (8-char FID or full mint), `truncate`
   (rune-safe, 160 by default), `shortAddr`, `sol` (the 2/4/6-decimal
   SOL formatter), and the tool results (the JSON schema per tool).

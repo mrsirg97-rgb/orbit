@@ -59,7 +59,9 @@ SQLite is a cache rebuilt from it, never trusted.
   After every act the store calls `OnAct` (when set) with the final shape
   — the minted task id, or the assigned id when the fold renumbered — so
   the fire path can refresh the footer. `Board` / `BoardFromCache` /
-  `Task` / `NextID` / `Claims` / `LastMemo` are the reads.
+  `Summary` (a cached project's goal and task counts, with the cached
+  marker the discovery list uses) / `Task` / `NextID` / `Claims` /
+  `LastMemo` are the reads.
 - `Store.Claim` / `Note` / `Complete` / `Accept` / `Reject` / `Reap` —
   the swarm surface: the same vocabulary the runtime's swarm drains,
   chain-backed. `claim` is the memo, the lease is the fold's expiry, and

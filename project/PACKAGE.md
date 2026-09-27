@@ -15,10 +15,15 @@ SPEC_PROJECT governs.
 - **`SymbolFor`**: the ticker derived from the name — uppercase
   alphanumerics, the first 6 runes, `PROJ` when the name has no letters.
 - **`List`**: the indexer read — markets, the first `goal:` memo per
-  market, and the treasury float from the RPC seam (the
-  `treasury_sol_vault` lamports minus the rent floor). A market without a
-  goal memo keeps `Goal` empty; a market without a treasury account shows
-  0.
+  market, the treasury float from the RPC seam (the
+  `treasury_sol_vault` lamports minus the rent floor), and the open task
+  count folded from the same message log with the board's pure fold. A
+  market without a goal memo keeps `Goal` empty; a market without a
+  treasury account shows 0; a task log deeper than the 50-message window
+  counts only what the window folded.
+- **`Show`**: one project's discovery read — market detail, the goal, the
+  treasury float, the board summary (n/m done, open claims) folded from
+  the same message log, and the last three memos.
 - **`Create`**: the two-transaction create — `create_token` (operator +
   fresh mint keypair, both sign) confirmed before the buy is sent; then
   the first `buy_via_vault` from the operator's own vault with the goal

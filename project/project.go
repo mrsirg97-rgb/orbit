@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/mrsirg97-rgb/orbit/board"
 	"github.com/mrsirg97-rgb/orbit/client"
 	"github.com/mrsirg97-rgb/orbit/sol"
 )
@@ -72,6 +74,26 @@ type Row struct {
 	Status      string
 	TreasurySOL uint64
 	Goal        string
+	OpenTasks   int
+}
+
+type MemoView struct {
+	Sender string
+	Text   string
+	At     string
+}
+
+type ShowView struct {
+	Mint        string
+	Name        string
+	Symbol      string
+	Status      string
+	TreasurySOL uint64
+	Goal        string
+	TotalTasks  int
+	DoneTasks   int
+	OpenClaims  int
+	Memos       []MemoView
 }
 
 func List(ctx context.Context, api client.API, rpc client.RPC, programID string, limit int) ([]Row, error) {
@@ -102,10 +124,81 @@ func List(ctx context.Context, api client.API, rpc client.RPC, programID string,
 		}
 		rows = append(rows, Row{
 			Mint: m.Mint, Name: m.Name, Symbol: m.Symbol, Status: string(m.Status),
-			TreasurySOL: treasury, Goal: goal,
+			TreasurySOL: treasury, Goal: goal, OpenTasks: OpenTasks(m.Mint, msgs),
 		})
 	}
 	return rows, nil
+}
+
+func Show(ctx context.Context, api client.API, rpc client.RPC, programID, mint string) (ShowView, error) {
+	detail, err := api.Market(ctx, mint)
+	if err != nil {
+		return ShowView{}, fmt.Errorf("project show: market %s: %w", mint, err)
+	}
+	msgs, err := api.Messages(ctx, client.Q("mint", mint, "limit", "50"))
+	if err != nil {
+		return ShowView{}, fmt.Errorf("project show: messages %s: %w", mint, err)
+	}
+	out := ShowView{
+		Mint: mint, Name: detail.Market.Name, Symbol: detail.Market.Symbol,
+		Status: string(detail.Market.Status),
+	}
+	for _, msg := range msgs {
+		if out.Goal == "" {
+			if g, ok := GoalFrom(msg.MemoText); ok {
+				out.Goal = g
+			}
+		}
+		if len(out.Memos) < 3 {
+			out.Memos = append(out.Memos, MemoView{Sender: msg.Sender, Text: msg.MemoText, At: msg.CreatedAt})
+		}
+	}
+	out.TotalTasks, out.DoneTasks, out.OpenClaims = boardCounts(foldTasks(mint, msgs))
+	info, err := rpc.GetAccountInfo(ctx, client.TreasurySolVaultPDA(programID, mint))
+	if err != nil {
+		return ShowView{}, fmt.Errorf("project show: treasury %s: %w", mint, err)
+	}
+	if info.Exists && info.Lamports > client.RentExemptZeroData {
+		out.TreasurySOL = info.Lamports - client.RentExemptZeroData
+	}
+	return out, nil
+}
+
+func boardCounts(tasks []board.Task) (total, done, claims int) {
+	for _, t := range tasks {
+		total++
+		switch t.Status {
+		case board.StatusDone:
+			done++
+		case board.StatusActive:
+			claims++
+		}
+	}
+	return total, done, claims
+}
+
+func OpenTasks(mint string, msgs []client.MessageRow) int {
+	total, done, _ := boardCounts(foldTasks(mint, msgs))
+	return total - done
+}
+
+func foldTasks(mint string, msgs []client.MessageRow) []board.Task {
+	sorted := make([]client.MessageRow, len(msgs))
+	copy(sorted, msgs)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return sorted[i].MessageID < sorted[j].MessageID
+	})
+	memos := make([]board.Memo, 0, len(sorted))
+	for _, m := range sorted {
+		mm, ok := board.ParseMemo(m.MemoText)
+		if !ok {
+			continue
+		}
+		mm.Sender = m.Sender
+		mm.At = m.CreatedAt
+		memos = append(memos, mm)
+	}
+	return board.Fold(mint, memos, time.Now())
 }
 
 type CreateResult struct {
