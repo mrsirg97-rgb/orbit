@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,6 +45,9 @@ func runJobFire(args []string) int {
 	if err != nil {
 		die("run-job: %v", err)
 	}
+	if err := checkFireFunded(ctx, tc); err != nil {
+		die("%v", err)
+	}
 	snap, text, err := fireBrief(ctx, tc, row)
 	if err != nil {
 		die("run-job: brief: %v", err)
@@ -57,10 +62,21 @@ func runJobFire(args []string) int {
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		die("%v", err)
 	}
+	if err := writeFireAgentID(mustOrbitHome(), row.ID); err != nil {
+		die("run-job: %v", err)
+	}
 	sandbox, swapURL, err := fireSandboxSwap(os.Getenv)
 	if err != nil {
 		die("run-job: settings: %v", err)
 	}
+	if err := os.MkdirAll(filepath.Join(mustOrbitHome(), "kernel"), 0o755); err != nil {
+		die("run-job: sandbox kernel: %v", err)
+	}
+	tunnel, err := startChainTunnel(fireChainSock(mustOrbitHome()), "443", fireTunnelHosts(cfg))
+	if err != nil {
+		die("run-job: chain tunnel: %v", err)
+	}
+	defer tunnel.Close()
 	run := func(ctx context.Context) error {
 		return sched.RunJob(args[0], sched.RunOpts{
 			Home:      home,
@@ -101,8 +117,17 @@ func fireBrief(ctx context.Context, tc *client.TorchClient, row identity.Row) (b
 }
 
 func fireSandboxSwap(getenv func(string) string) (string, string, error) {
-	// The sandbox and the worker swap URL come from settings.json like main
-	// reads them; env overrides. Neither is hardcoded here.
+	return fireSandboxSwapWith(getenv, func() error { _, err := sched.LandlockABI(); return err }, os.Stderr)
+}
+
+// fireSandboxSwapWith picks the fire's sandbox. Landlock, the netless
+// profile, whenever the kernel has it: the operator's interactive setting
+// never turns it off. Where the box cannot provide it (macOS, an old
+// kernel) the fire runs with the operator's configured sandbox and says so
+// in one line; a box without landlock is a first-class box, never a
+// refused fire. The worker swap URL comes from settings.json with the env
+// override either way.
+func fireSandboxSwapWith(getenv func(string) string, probe func() error, notice io.Writer) (string, string, error) {
 	home, err := client.Home(getenv)
 	if err != nil {
 		return "", "", err
@@ -115,18 +140,54 @@ func fireSandboxSwap(getenv func(string) string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	sandbox := cfg.Settings.Sandbox
-	if v := strings.TrimSpace(getenv("ORBIT_SANDBOX")); v != "" {
-		sandbox = v
-	}
-	if sandbox == "" {
-		sandbox = "off"
-	}
 	swapURL := cfg.Settings.SwapURL
 	if v := strings.TrimSpace(getenv("RIG_SWAP_URL")); v != "" {
 		swapURL = v
 	}
-	return sandbox, swapURL, nil
+	if err := probe(); err != nil {
+		fallback := strings.TrimSpace(cfg.Settings.Sandbox)
+		if fallback == "" || fallback == "landlock" {
+			fallback = "off"
+		}
+		if notice != nil {
+			fmt.Fprintf(notice, "orbit: fire sandbox: landlock unavailable (%v); running with sandbox %q\n", err, fallback)
+		}
+		return fallback, swapURL, nil
+	}
+	return "landlock", swapURL, nil
+}
+
+// fireTunnelHosts are the only TLS server names the chain tunnel forwards:
+// the indexer, the RPC seam, and the devnet airdrop RPC. Anything else the
+// jail asks for is refused and logged, so the netless sandbox stays
+// meaningful with a shell inside it.
+func fireTunnelHosts(cfg client.Config) []string {
+	var hosts []string
+	for _, raw := range []string{cfg.Indexer, cfg.RPC, client.DevnetAirdropRPC} {
+		if u, err := url.Parse(strings.TrimSpace(raw)); err == nil && u.Hostname() != "" {
+			hosts = append(hosts, u.Hostname())
+		}
+	}
+	return hosts
+}
+
+func checkFireFunded(ctx context.Context, tc *client.TorchClient) error {
+	balance, err := tc.RPC.GetBalance(ctx, tc.AgentPublic())
+	if err != nil {
+		return fmt.Errorf("run-job: hot wallet balance: %w", err)
+	}
+	if balance < earn.FundingFloorLamports {
+		return fmt.Errorf("run-job: %s", earn.FundingLine(tc.AgentPublic()))
+	}
+	return nil
+}
+
+func writeFireAgentID(home, agentID string) error {
+	dir := filepath.Join(home, ".rig-job")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("run-job: fire scratch: %w", err)
+	}
+	return os.WriteFile(filepath.Join(dir, "agent-id"), []byte(agentID), 0o644)
 }
 
 func writeStatusSnapshot(ctx context.Context, tc *client.TorchClient, read brief.ReadState) {

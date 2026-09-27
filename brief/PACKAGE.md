@@ -3,17 +3,27 @@
 ## What it is
 
 The agent's brief: the compact prompt shape over torch's read side, in
-torch's vocabulary. `Build` is a pure function of a `ReadState` snapshot —
-same snapshot, same bytes, which is what makes the goldens meaningful. The
-opcodes are back/exit/post/pass, the statuses are
-bonding/ready/migrated/reclaimed, and the columns are HELD/FOUNDED/
-SENTIMENT — no glyphs, no foreign abbreviations. SPEC_BRIEF governs.
+the gig economy's vocabulary (SPEC_WORK decisions 9 and 12). `Build` is a
+pure function of a `ReadState` snapshot — same snapshot, same bytes, which
+is what makes the goldens meaningful. The acts are invest/contract/work/
+release/short/post/pass, the states are private/funded/public/closed
+(torch's bonding/ready/migrated/reclaimed named once, in the LEGEND), and
+the columns are STATE/SIZE/RATE/HELD/VALUE/EARN/GOSSIP/BACKING/LENDS
+(FOUNDED and COMMIT left in 0.5.1: a column that never changes, and a
+flag the COMMITMENTS line already carries, are noise) — no glyphs, no foreign abbreviations, no torch trade words.
+SPEC_BRIEF governs.
 
 ## What it includes
 
-- `Build` — renders the brief: LEGEND / YOU ARE / INTEL / PROJECTS /
+- `Build` — renders the brief: LEGEND / YOU ARE / GOSSIP / PROJECTS /
   ACTIONS / RULES / STRATEGIES, both sizes. The full size is "everything
-  the agent can see"; the compact is the daily-fire brief.
+  the agent can see"; the compact is the daily-fire brief. The LEGEND is
+  the one place both vocabularies meet; the compact ACTIONS block points
+  back at it instead of repeating the acts.
+- `StateWord` — torch status to orbit's state word. `MarketView.Lending`
+  and `TreasurySOL` feed the BACKING and LENDS columns; a public project
+  with LENDS F is "public, not lending yet" (contract, not work), said in
+  the PROJECTS legend line.
 - `StubBrief` — the prompt stored at register/refresh: the identity
   header and the static rules, with a line telling the fire to rebuild
   the live brief. The real brief is built per fire by run-job.
@@ -26,7 +36,7 @@ SENTIMENT — no glyphs, no foreign abbreviations. SPEC_BRIEF governs.
   is a package constant so tests pin it.
 - `Tokens` — the documented 4-chars-per-token heuristic.
 - The projection: `ReadState` (what the tools produce) -> `MarketView`
-  rows; FID is the last 8 chars of the mint, the numbers are the wallet
+  rows; PID is the last 8 chars of the mint, the numbers are the wallet
   read's (PnL, holdings value, cost basis), and the vocabulary is
   torch's.
 
@@ -48,6 +58,10 @@ SENTIMENT — no glyphs, no foreign abbreviations. SPEC_BRIEF governs.
   the fixed fixture; a new number is a column in the projection and a
   line in the golden.
 - PROJECTS names are truncated to 12 chars (rune-safe — a name is not
-  split mid-rune); the FID is the last 8 chars of the mint.
+  split mid-rune); the PID is the last 8 chars of the mint, and every
+  tool takes it as `project`.
 - The brief never names a role, an archetype, or a stake scale: YOU ARE
   is the wallet, and the memos the tools write carry no role tag.
+- Risk is said in the same plain register as the rest: work is borrowed
+  budget with a clock on it, and getting washed out costs the stake. The
+  immersion never hides the ledger.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,8 +44,8 @@ func TestVersionStartupStaysFast(t *testing.T) {
 
 func TestVersionIsTheFreeze(t *testing.T) {
 
-	if Version != "0.4.2" {
-		t.Fatalf("Version = %q, want 0.4.2", Version)
+	if Version != "0.5.1" {
+		t.Fatalf("Version = %q, want 0.5.1", Version)
 	}
 
 	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(Version) {
@@ -90,7 +91,7 @@ func TestEarnRowsPaintLabelsEmberValuesTextAndPnLBySign(t *testing.T) {
 			th.Paint(tui.SlotEmber, "projects held: ") + th.Paint(tui.SlotText, "2"),
 			th.Paint(tui.SlotEmber, "open claims: ") + th.Paint(tui.SlotText, "1"),
 			th.Paint(tui.SlotEmber, "last memo: ") + th.Paint(tui.SlotText, "3m ago · \"backed\""),
-			th.Paint(tui.SlotEmber, "PnL since start: ") + th.Paint(tc.slot, earn.Rows{PnLSOL: tc.pnl}.PnLText()),
+			th.Paint(tui.SlotEmber, "earnings since start: ") + th.Paint(tc.slot, earn.Rows{PnLSOL: tc.pnl}.PnLText()),
 		}
 		for i := range want {
 			if lines[i] != want[i] {
@@ -151,7 +152,7 @@ func TestTitleRowsShapeAndFallback(t *testing.T) {
 }
 
 func TestOrbitToolsAreOnTheWire(t *testing.T) {
-	names := registeredNativeNames(nil, false)
+	names := registeredNativeNames(nil, false, false)
 	have := map[string]bool{}
 	for _, n := range names {
 		have[n] = true
@@ -166,6 +167,52 @@ func TestOrbitToolsAreOnTheWire(t *testing.T) {
 	}
 }
 
+func TestFireWireToolsetIsExactlyTheTen(t *testing.T) {
+	names := registeredNativeNames(nil, false, true)
+	if got, want := strings.Join(names, ","), strings.Join(fireToolNames, ","); got != want {
+		t.Errorf("fire wire: %s, want %s", got, want)
+	}
+	have := map[string]bool{}
+	for _, n := range names {
+		have[n] = true
+	}
+	for _, kept := range []string{"bash", "python", "todo", "read", "rem", "board", "project", "intel", "wallet", "projects"} {
+		if !have[kept] {
+			t.Errorf("the fire wire must keep %s: %v", kept, names)
+		}
+	}
+	for _, banned := range []string{"write", "edit", "scheduler", "plugin", "plugins", "sessions", "delegate", "view", "diff", "ls", "find", "grep"} {
+		if have[banned] {
+			t.Errorf("the fire wire must not name %s: %v", banned, names)
+		}
+	}
+}
+
+func TestFireAllowIsFixedAndInteractiveUntouched(t *testing.T) {
+	noEnv := func(string) string { return "" }
+	fireAllow := effectiveAllow([]string{"bash", "read"}, noEnv, "", false, true)
+	if got, want := strings.Join(fireAllow, ","), strings.Join(fireToolNames, ","); got != want {
+		t.Errorf("fire allow: %s, want %s", got, want)
+	}
+	interactive := effectiveAllow([]string{"bash", "read"}, noEnv, "", false, false)
+	if got := strings.Join(interactive, ","); got != "bash,read,project,intel,wallet,board,projects" {
+		t.Errorf("interactive allow changed: %s", got)
+	}
+	operator := effectiveAllow([]string{"read", "board"}, noEnv, "", false, false)
+	if got := strings.Join(operator, ","); got != "read,board" {
+		t.Errorf("an operator allow naming an orbit tool must stay verbatim: %s", got)
+	}
+}
+
+func TestFireJailIsTheRigHomeScratch(t *testing.T) {
+	if !isFireJail(filepath.Join(t.TempDir(), ".rig-job")) {
+		t.Error("a RIG_HOME ending in .rig-job must read as a fire jail")
+	}
+	if isFireJail(filepath.Join(t.TempDir(), "home")) {
+		t.Error("a normal RIG_HOME must not read as a fire jail")
+	}
+}
+
 func TestDefaultAllowAdmitsOrbitTools(t *testing.T) {
 	got := appendOrbitTools([]string{"read", "bash"})
 	want := append([]string{"read", "bash"}, orbitToolNames...)
@@ -175,5 +222,35 @@ func TestDefaultAllowAdmitsOrbitTools(t *testing.T) {
 	kept := appendOrbitTools([]string{"read", "board"})
 	if strings.Join(kept, ",") != "read,board" {
 		t.Errorf("an operator allow naming an orbit tool must be kept verbatim, got %v", kept)
+	}
+}
+
+type echoTool struct{ name string }
+
+func (e echoTool) Name() string            { return e.name }
+func (e echoTool) Description() string     { return "echo" }
+func (e echoTool) Schema() json.RawMessage { return json.RawMessage(`{}`) }
+func (e echoTool) Exec(_ context.Context, a json.RawMessage) (string, error) {
+	return string(a), nil
+}
+
+func TestKeyGuardRefusesTheKeyByAnySpelling(t *testing.T) {
+	key := "/home/op/.orbit/key"
+	g := guardKey(echoTool{"read"}, key, "")
+	for _, args := range []string{
+		`{"path": "/home/op/.orbit/key"}`,
+		`{"command": "cat ~/.orbit/key"}`,
+		`{"code": "open('.orbit/key').read()"}`,
+		`{"paths": ["/tmp/x", "/home/op/.orbit/key"]}`,
+	} {
+		if _, err := g.Exec(context.Background(), json.RawMessage(args)); err == nil {
+			t.Errorf("guard let %s through", args)
+		}
+	}
+	if out, err := g.Exec(context.Background(), json.RawMessage(`{"path": "/home/op/.orbit/config"}`)); err != nil || out == "" {
+		t.Errorf("an unrelated path must pass: %v", err)
+	}
+	if _, ok := guardKey(echoTool{"read"}).(echoTool); !ok {
+		t.Error("no key paths means no wrapper")
 	}
 }

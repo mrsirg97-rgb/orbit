@@ -24,8 +24,8 @@ type flakyAPI struct {
 }
 
 func (a *flakyAPI) Markets(context.Context, url.Values) ([]client.MarketRow, error) { return nil, nil }
-func (a *flakyAPI) Market(context.Context, string) (client.MarketDetail, error) {
-	return client.MarketDetail{}, nil
+func (a *flakyAPI) Market(_ context.Context, mint string) (client.MarketDetail, error) {
+	return migratedDetail(mint), nil
 }
 func (a *flakyAPI) Messages(context.Context, url.Values) ([]client.MessageRow, error) {
 	a.calls++

@@ -70,7 +70,7 @@ func TestNewRowFromRoleDefaults(t *testing.T) {
 		row.Budget != 0.5 || row.Stall != 30 || row.Timeout != 45 {
 		t.Errorf("role defaults not applied: %+v", row)
 	}
-	if row.Name != "torch worker" || row.Model != "dsv4" {
+	if row.Name != "worker" || row.Model != "dsv4" {
 		t.Errorf("name/model: %+v", row)
 	}
 	if row.Bio == "" || row.Wallet != wallet || row.Goal != "" {

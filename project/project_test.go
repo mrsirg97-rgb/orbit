@@ -155,7 +155,7 @@ func serveProjectsFixture(t *testing.T) (client.API, client.RPC) {
 
 func TestListAgainstFixture(t *testing.T) {
 	api, rpc := serveProjectsFixture(t)
-	rows, err := List(context.Background(), api, rpc, client.DevnetProgramID, 50)
+	rows, err := List(context.Background(), api, rpc, client.DevnetProgramID, 50, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestListAgainstFixture(t *testing.T) {
 
 func TestListPrefersFirstGoalMemo(t *testing.T) {
 	api, rpc := serveProjectsFixture(t)
-	rows, err := List(context.Background(), api, rpc, client.DevnetProgramID, 50)
+	rows, err := List(context.Background(), api, rpc, client.DevnetProgramID, 50, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,10 +14,10 @@ var update = flag.Bool("update", false, "rewrite the golden files")
 func fixtureReadState() ReadState {
 	markets := []MarketView{
 		{Mint: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", Name: "Torch Test", Symbol: "TST", Status: "BONDING", PriceSOL: 0.00015, MCAPSOL: 150000, IsHeld: true, ValueSOL: 0.1234, PnLSOL: 0.0567, Sentiment: 2.5},
-		{Mint: "6wDUn9V7fuP1Ujn6o3xk4yFh4EE3F65LpgQsrNjTjmVx", Name: "Deep", Symbol: "DEEP", Status: "MIGRATED", PriceSOL: 0.00012, MCAPSOL: 120000, IsHeld: true, ValueSOL: 0.05, PnLSOL: -0.01, Sentiment: -3},
+		{Mint: "6wDUn9V7fuP1Ujn6o3xk4yFh4EE3F65LpgQsrNjTjmVx", Name: "Deep", Symbol: "DEEP", Status: "MIGRATED", PriceSOL: 0.00012, MCAPSOL: 120000, IsHeld: true, ValueSOL: 0.05, PnLSOL: -0.01, Sentiment: -3, TreasurySOL: 2.5, Lending: true},
 		{Mint: "9nE9pmVmGdPemmudsrZegDuMygfcTwKc95QrwSU7JUUv", Name: "Rising", Symbol: "RIS", Status: "COMPLETE", PriceSOL: 0.0003, MCAPSOL: 300000},
 		{Mint: "8gsdeXDgmFG6zYhAgHgrUHM6e6rxTojFYXesL196X94d", Name: "New One", Symbol: "NEW", Status: "BONDING", PriceSOL: 0.00002, MCAPSOL: 20000},
-		{Mint: "FkD69MZDUUEd5bd2eW3cjSkmc5QqVmV8SB4LrTq1ziMx", Name: "Watching", Symbol: "WAT", Status: "MIGRATED", PriceSOL: 0.001, MCAPSOL: 1000000},
+		{Mint: "FkD69MZDUUEd5bd2eW3cjSkmc5QqVmV8SB4LrTq1ziMx", Name: "Watching", Symbol: "WAT", Status: "MIGRATED", PriceSOL: 0.001, MCAPSOL: 1000000, TreasurySOL: 0.4},
 		{Mint: "EwrxtuXUqFxaLMQ4uSCgyoukjC3u4UrvCVY3SRh9k1yy", Name: "Dumped", Symbol: "DMP", Status: "RECLAIMED", PriceSOL: 0, MCAPSOL: 0},
 		{Mint: "75CynQP7x9quDFzxaan7bAbVYXthYNqseC63BYzsR4Qt", Name: "Alpha", Symbol: "ALP", Status: "BONDING", PriceSOL: 0.00008, MCAPSOL: 80000},
 		{Mint: "3FZJJx4MSZTYpQXLyB19nRyHHCXNZyCUwW6LR97pGVmJ", Name: "Beta", Symbol: "BET", Status: "COMPLETE", PriceSOL: 0.0005, MCAPSOL: 500000},
@@ -133,12 +133,60 @@ func TestHealthNudges(t *testing.T) {
 	}
 }
 
-func TestStatusWord(t *testing.T) {
+func TestStateWord(t *testing.T) {
 	for _, c := range []struct{ in, want string }{
-		{"BONDING", "bonding"}, {"COMPLETE", "ready"}, {"MIGRATED", "migrated"}, {"RECLAIMED", "reclaimed"},
+		{"BONDING", "private"}, {"COMPLETE", "funded"}, {"MIGRATED", "public"}, {"RECLAIMED", "closed"},
 	} {
-		if got := statusWord(c.in); got != c.want {
-			t.Errorf("statusWord(%s) = %s, want %s", c.in, got, c.want)
+		if got := StateWord(c.in); got != c.want {
+			t.Errorf("StateWord(%s) = %s, want %s", c.in, got, c.want)
+		}
+	}
+}
+
+func TestVocabularyIsTheGigEconomy(t *testing.T) {
+	read := fixtureReadState()
+	for _, size := range []Size{Compact, Full} {
+		got, err := Build(read, size)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{
+			"gig economy", "invest $", "contract $ N", "work $ N", "release $ [N]", "short $ [N", "post $",
+			"private=bonding, funded=ready, public=migrated, closed=reclaimed",
+			"public, not lending yet", "EARNINGS:", "COMMITMENTS:", "GOSSIP", "BACKING", "washed out",
+		} {
+			if !strings.Contains(got, want) {
+				t.Errorf("size %d brief missing %q", size, want)
+			}
+		}
+		for _, gone := range []string{"back $", "exit $", "MCAP", "PNL", "SENTIMENT", "leaderboard", "LOAN "} {
+			if strings.Contains(got, gone) {
+				t.Errorf("size %d brief still says %q", size, gone)
+			}
+		}
+	}
+}
+
+func TestPublicNotLendingYetIsAColumn(t *testing.T) {
+	read := fixtureReadState()
+	got, err := Build(read, Compact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(got, "\n") {
+		switch {
+		case strings.HasPrefix(line, "rNjTjmVx "):
+			if !strings.HasSuffix(line, " T") || !strings.Contains(line, " public ") {
+				t.Errorf("a public project with lending unlocked: %q", line)
+			}
+		case strings.HasPrefix(line, "rTq1ziMx "):
+			if !strings.HasSuffix(line, " F") || !strings.Contains(line, " public ") {
+				t.Errorf("public, not lending yet: %q", line)
+			}
+		case strings.HasPrefix(line, "oxPkrZBG "):
+			if !strings.Contains(line, " private ") || !strings.HasSuffix(line, " F") {
+				t.Errorf("a private project offers neither: %q", line)
+			}
 		}
 	}
 }
@@ -152,7 +200,7 @@ func TestProjection(t *testing.T) {
 	for _, want := range []string{
 		"krZBG",
 		"jmVx",
-		"bonding", "migrated", "ready",
+		"private", "public", "funded",
 		"T", "F",
 	} {
 		if !strings.Contains(got, want) {
@@ -162,8 +210,8 @@ func TestProjection(t *testing.T) {
 	if !strings.Contains(got, "@AP2B3A") {
 		t.Error("identity name missing")
 	}
-	if !strings.Contains(got, "PNL: +") {
-		t.Error("PNL line missing")
+	if !strings.Contains(got, "EARNINGS: +") {
+		t.Error("EARNINGS line missing")
 	}
 }
 
@@ -176,8 +224,8 @@ func TestYouAreDescribesTheWallet(t *testing.T) {
 		}
 		for _, want := range []string{
 			"NAME: @AP2B3A",
-			"PNL: +0.1609 SOL.",
-			"POSITIONS: rNjTjmVx long at_risk 0.0050 SOL.",
+			"EARNINGS: +0.1609 SOL.",
+			"COMMITMENTS: rNjTjmVx long at_risk 0.0050 SOL.",
 		} {
 			if !strings.Contains(got, want) {
 				name := "compact"
@@ -234,7 +282,7 @@ func TestRowsAndSizes(t *testing.T) {
 	if bytes.Count([]byte(compact), []byte("\n")) >= bytes.Count([]byte(full), []byte("\n")) {
 		t.Error("full must have more lines than compact")
 	}
-	for _, sec := range []string{"LEGEND", "YOU ARE", "INTEL", "PROJECTS", "ACTIONS", "RULES", "STRATEGIES"} {
+	for _, sec := range []string{"LEGEND", "YOU ARE", "GOSSIP", "PROJECTS", "ACTIONS", "RULES", "STRATEGIES"} {
 		if !strings.Contains(compact, sec+"\n") || !strings.Contains(full, sec+"\n") {
 			t.Errorf("section %s missing in one size", sec)
 		}

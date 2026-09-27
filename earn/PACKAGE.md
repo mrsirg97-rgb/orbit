@@ -22,8 +22,13 @@ SPEC_EARN governs.
   (worker by default). The key resolves lazily, at the first step that
   signs — a rerun on a set-up home registers roles with no key. Before
   any chain spend, one preflight line names what exists and what will
-  happen. Every step is idempotent; one identity row per role is
-  registered, the scheduled jobs start, and the roster prints.
+  happen; the preflight also reads the hot wallet balance and, under
+  `FundingFloorLamports` (0.005 SOL), names the pubkey and `send devnet
+  SOL or wait for the faucet`. A wallet under the floor retries the
+  airdrop through init (`ensureFunded`), and the setup refuses before any
+  chain spend if the retry leaves it there — the hot wallet pays every
+  write's rent and fees. Every step is idempotent; one identity row per
+  role is registered, the scheduled jobs start, and the roster prints.
 - **`roles` / `roles add|remove <role>`**: the roster, and one role's
   registration or removal (identity row + job).
 - **`goal "<text>"`**: the architect's goal — set or change it,
@@ -31,7 +36,7 @@ SPEC_EARN governs.
 - **`status` / `stop` / `start`**: the footer rows, and the pause/resume
   of every identity's scheduled job.
 - **`Rows`** (`status.go`): the footer — projects held, open claims, last
-  memo, PnL since start. `Status` reads it from the chain (wallet read +
+  memo, earnings since start. `Status` reads it from the chain (wallet read +
   the board cache); `RowsFromBrief` computes the same rows from a fire's
   read state with no extra chain reads.
 - **The snapshot**: `SnapshotPath` / `ReadSnapshot` / `WriteSnapshot` —

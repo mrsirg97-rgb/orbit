@@ -96,7 +96,9 @@ type ShowView struct {
 	Memos       []MemoView
 }
 
-func List(ctx context.Context, api client.API, rpc client.RPC, programID string, limit int) ([]Row, error) {
+type CarrierReader func(context.Context, string) (client.Carrier, error)
+
+func List(ctx context.Context, api client.API, rpc client.RPC, programID string, limit int, carriers CarrierReader) ([]Row, error) {
 	markets, err := api.Markets(ctx, client.Q("limit", fmt.Sprint(limit)))
 	if err != nil {
 		return nil, fmt.Errorf("project list: markets: %w", err)
@@ -124,13 +126,13 @@ func List(ctx context.Context, api client.API, rpc client.RPC, programID string,
 		}
 		rows = append(rows, Row{
 			Mint: m.Mint, Name: m.Name, Symbol: m.Symbol, Status: string(m.Status),
-			TreasurySOL: treasury, Goal: goal, OpenTasks: OpenTasks(m.Mint, msgs),
+			TreasurySOL: treasury, Goal: goal, OpenTasks: OpenTasks(ctx, carriers, m.Mint, m.Status, msgs),
 		})
 	}
 	return rows, nil
 }
 
-func Show(ctx context.Context, api client.API, rpc client.RPC, programID, mint string) (ShowView, error) {
+func Show(ctx context.Context, api client.API, rpc client.RPC, programID, mint string, carriers CarrierReader) (ShowView, error) {
 	detail, err := api.Market(ctx, mint)
 	if err != nil {
 		return ShowView{}, fmt.Errorf("project show: market %s: %w", mint, err)
@@ -153,7 +155,7 @@ func Show(ctx context.Context, api client.API, rpc client.RPC, programID, mint s
 			out.Memos = append(out.Memos, MemoView{Sender: msg.Sender, Text: msg.MemoText, At: msg.CreatedAt})
 		}
 	}
-	out.TotalTasks, out.DoneTasks, out.OpenClaims = boardCounts(foldTasks(mint, msgs))
+	out.TotalTasks, out.DoneTasks, out.OpenClaims = boardCounts(foldTasks(ctx, carriers, mint, detail.Market.Status, msgs))
 	info, err := rpc.GetAccountInfo(ctx, client.TreasurySolVaultPDA(programID, mint))
 	if err != nil {
 		return ShowView{}, fmt.Errorf("project show: treasury %s: %w", mint, err)
@@ -177,18 +179,19 @@ func boardCounts(tasks []board.Task) (total, done, claims int) {
 	return total, done, claims
 }
 
-func OpenTasks(mint string, msgs []client.MessageRow) int {
-	total, done, _ := boardCounts(foldTasks(mint, msgs))
+func OpenTasks(ctx context.Context, carriers CarrierReader, mint string, status client.MarketStatus, msgs []client.MessageRow) int {
+	total, done, _ := boardCounts(foldTasks(ctx, carriers, mint, status, msgs))
 	return total - done
 }
 
-func foldTasks(mint string, msgs []client.MessageRow) []board.Task {
+func foldTasks(ctx context.Context, carriers CarrierReader, mint string, status client.MarketStatus, msgs []client.MessageRow) []board.Task {
 	sorted := make([]client.MessageRow, len(msgs))
 	copy(sorted, msgs)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		return sorted[i].MessageID < sorted[j].MessageID
 	})
 	memos := make([]board.Memo, 0, len(sorted))
+	ledger := board.Ledger{Public: board.IsPublic(status), Carriers: map[string]client.Carrier{}}
 	for _, m := range sorted {
 		mm, ok := board.ParseMemo(m.MemoText)
 		if !ok {
@@ -196,9 +199,15 @@ func foldTasks(mint string, msgs []client.MessageRow) []board.Task {
 		}
 		mm.Sender = m.Sender
 		mm.At = m.CreatedAt
+		mm.Signature = m.Signature
+		if ledger.Public && carriers != nil && (mm.Verb == "claim" || mm.Verb == "reject") {
+			if c, err := carriers(ctx, m.Signature); err == nil {
+				ledger.Carriers[m.Signature] = c
+			}
+		}
 		memos = append(memos, mm)
 	}
-	return board.Fold(mint, memos, time.Now())
+	return board.Fold(mint, memos, ledger, time.Now())
 }
 
 type CreateResult struct {

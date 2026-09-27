@@ -8,7 +8,7 @@ import (
 	"github.com/mrsirg97-rgb/orbit/board/domain"
 )
 
-func renderBoard(label string, tasks []domain.Task, goal string, now time.Time, incomplete bool) string {
+func renderBoard(label string, tasks []domain.Task, backings map[string]Backing, goal string, now time.Time, incomplete bool) string {
 	var b strings.Builder
 	if goal != "" {
 		fmt.Fprintf(&b, "[%s] board — %s\n", label, goal)
@@ -32,7 +32,7 @@ func renderBoard(label string, tasks []domain.Task, goal string, now time.Time, 
 		if t.Status == StatusPending && (next == 0 || id < next) {
 			next = id
 		}
-		b.WriteString(taskLine(t, now))
+		b.WriteString(taskLine(t, backings[t.Id], now))
 	}
 	if len(tasks) == 0 {
 		b.WriteString("No tasks yet — post and fund one with task.\n")
@@ -41,23 +41,40 @@ func renderBoard(label string, tasks []domain.Task, goal string, now time.Time, 
 	return b.String()
 }
 
-func taskLine(t domain.Task, now time.Time) string {
+func taskLine(t domain.Task, backing Backing, now time.Time) string {
 	line := fmt.Sprintf("t%s %-7s %s", t.Id, t.Status, t.Title)
 	if t.Funder != "" {
 		line += fmt.Sprintf(" · funded by %s", shortAddr(t.Funder))
 	}
 	switch t.Status {
 	case StatusActive:
-		line += fmt.Sprintf(" · claimed by %s · %s", shortAddr(t.Owner), age(now, t.ClaimedAt))
+		line += fmt.Sprintf(" · claimed by %s · %s%s", shortAddr(t.Owner), age(now, t.ClaimedAt), backingText(backing))
 	case StatusReview:
-		line += fmt.Sprintf(" · completed by %s · %s", shortAddr(t.Owner), age(now, t.CompletedAt))
+		line += fmt.Sprintf(" · completed by %s · %s%s", shortAddr(t.Owner), age(now, t.CompletedAt), backingText(backing))
 	case StatusDone:
 		line += fmt.Sprintf(" · accepted by %s", shortAddr(t.AcceptedBy))
 	}
 	if t.RejectedBy != "" {
 		line += fmt.Sprintf(" · rejected by %s", shortAddr(t.RejectedBy))
+		if backing.RejectShort > 0 {
+			line += fmt.Sprintf(" · short %s SOL", solText(backing.RejectShort))
+		}
 	}
 	return line + "\n"
+}
+
+func backingText(b Backing) string {
+	switch b.Backing {
+	case BackingContract:
+		return fmt.Sprintf(" · contract %s SOL", solText(b.Stake))
+	case BackingWork:
+		return fmt.Sprintf(" · work #%d", b.Position.Index)
+	}
+	return ""
+}
+
+func solText(lamports uint64) string {
+	return fmt.Sprintf("%.4f", float64(lamports)/1e9)
 }
 
 func summaryLine(label string, total, done, next int) string {

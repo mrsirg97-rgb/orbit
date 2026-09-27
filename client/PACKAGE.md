@@ -16,7 +16,9 @@ governs.
   the orbit home (`RIG_HOME`, default `~/.orbit`), and six loaders share
   one resolver with one required set per mode (agent runtime, operator,
   vault create, read, board write, board read). Reads never need a signing
-  key; a present-but-bad key still fails closed.
+  key; a present-but-bad key still fails closed. `Config.DialContext` is
+  the runtime transport seam: when set, both the indexer and the RPC go
+  through it — the fire's chain tunnel is the one caller.
 - **The embedded IDL** (`idl/`): parsed once at init — discriminators,
   account order with signer/writable flags, borsh args. A builder for an
   instruction the IDL does not name is an init error, never a runtime
@@ -27,13 +29,34 @@ governs.
   buy/sell splits (protocol fee, dev share, treasury decay, creator
   growth), DeepPool swap fees, the single slippage knob, all checked and
   never wrapping.
-- **Instruction builders** (`ix.go`, `vault.go`): curve buy/sell via
-  vault, `vault_swap` (DeepPool), `create_token`, the SPL memo, the vault
-  ATA create, and the operator's admin set (create/link/unlink/deposit/
-  withdraw — built unsigned, sent by `SendVaultIx` with the operator key).
+- **Instruction builders** (`ix.go`, `vault.go`, `position.go`): curve
+  buy/sell via vault, `vault_swap` (DeepPool), `create_token`, the SPL
+  memo, the vault ATA create, the operator's admin set (create/link/
+  unlink/deposit/withdraw — built unsigned, sent by `SendVaultIx` with
+  the operator key), and the four position instructions (`open_long`,
+  `close_long`, `open_short`, `close_short`, all `_via_vault`) built by
+  `BuildFromIDL` from the IDL's account list and flags over the seed
+  table (`PositionPDA` keyed (vault, mint, side byte, index),
+  `UserRiskPDA`, `LongSolVaultPDA`, `ShortVaultPDA`, the position's and
+  the treasury lock's ATAs).
+- **The position path** (`position.go`): `WritePosition` opens or closes
+  a position through the vault and refuses before migration (the program
+  refuses too: `NotMigrated`); `NextPositionIndex` probes the position
+  PDAs from 0 for the first free index; `OpenPositions` reads the vault's
+  active positions on a mint. `Carrier` reads what a transaction carried
+  beside its memo: the SOL a buy committed (`buy_via_vault`, a buying
+  `vault_swap`), or the long or short it opened (vault, index,
+  collateral, from the instruction's accounts and args). `LongEnds` reads
+  the indexer's positions and position events for a mint and names the
+  long positions that ended, by (vault, index) and time; nil without an
+  indexer. `LendingUnlockLamports` mirrors the devnet build's lending
+  gate (1 SOL of treasury float).
 - **The RPC seam** (`rpc.go`): the `RPC` interface plus `JSONRPC` over
   POST `{base}/rpc`; the fake is the test double. It also carries the
   airdrop, the signature status poll, and the board's chain scan calls.
+  `GetTransaction` resolves each instruction's account keys
+  (`TxInstruction.Accounts`) so the carrier can name the vault a
+  position was opened for.
 - **Indexer reads** (`api.go`): typed rows mirroring `indexer-core`
   `contracts.rs` — markets, trades, messages, positions, liquidations,
   migrations, swaps, user PnL. A non-200 is a typed `HTTPStatusError`

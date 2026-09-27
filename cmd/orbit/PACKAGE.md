@@ -50,12 +50,33 @@ dispatch.
   before approval spends a prompt, perm denies before approval asks and
   before the retry guard counts a failure, guard bounds retries/rounds/
   results, and paths expands `~` outermost so every tool inherits it.
-- **The fire path** (`runJobFire`): the job's identity row -> the live
-  read snapshot -> `brief.Build` at the row's size -> the job prompt
-  refresh -> spawn. The footer snapshot is best-effort: a failed snapshot
-  write never kills the fire. The fire writes it at fire start (the
-  read state), after every board act (the worker's `Store.OnAct` hook
-  refreshes it with the act's role, verb, and task id), and at fire end.
+- **The fire path** (`runJobFire`): the job's identity row -> the hot
+  wallet floor check (`checkFireFunded`: under 0.005 SOL it refuses with
+  the same line the earn preflight prints) -> the live read snapshot ->
+  `brief.Build` at the row's size -> the job prompt refresh -> spawn. The
+  fire's sandbox is always on (landlock — the netless profile, and the
+  only one that runs unprivileged), the interactive setting never reaches
+  it, and the agent id rides the scratch (`writeFireAgentID`) so the
+  worker's `Store.OnAct` hook keeps the footer's act snapshot. The
+  sandbox is netless by design, so the fire's chain traffic tunnels
+  through `chainTunnel` (`<home>/.rig-job-chain.sock`): the worker's
+  client dials the socket and the proxy forwards the TLS bytes to the
+  host named in the ClientHello. The footer snapshot is best-effort: a
+  failed snapshot write never kills the fire. The fire writes it at fire
+  start (the read state), after every board act (the worker's `Store.OnAct`
+  hook refreshes it with the act's role, verb, and task id), and at fire
+  end.
+- **The fire's fixed wire**: the jailed worker names itself by the
+  scratch home (`isFireJail`: `RIG_HOME` ending in `.rig-job`), resolves
+  the orbit home (`os.Setenv("RIG_HOME", ...)`), and pins both the wire
+  and the allow-list to `fireToolNames` — `market`, `intel`, `wallet`,
+  `board`, `projects`, `read`, `rem`, `bash`, `python`, `todo` — with no scheduler,
+  plugin, sessions, or delegate, and no plugin/python wiring at all. The
+  operator's interactive allow is untouched: only the fire worker
+  resolves to the ten. The key guard (`guard.go`) refuses a tool call that
+  names the hot key; landlock falls back to the operator's sandbox with one
+  line where the kernel lacks it; the chain tunnel forwards only the
+  indexer, RPC and airdrop hosts.
 - **Reads stay keyless**: project list, agent list, vault show, and board
   read load read mode (RPC only, no vault creator, no agent key).
 - **Bootstrap** prints the unsigned vault-admin instructions as JSON for
@@ -86,5 +107,12 @@ dispatch.
 - The orbit tools are natives: `orbitToolNames` rides `nativeToolNames`
   (the wire toolset is built from that table) and `appendOrbitTools`
   admits them to an allow-list that names none of them. A tool that is
-  registered but not named there is invisible to the model — every
-  session, the fires included.
+  registered but not named there is invisible to the model. The fire is
+  the exception by design: `fireToolNames` is the fire's whole wire.
+- The fire's floor, jail, and tunnel are rig-shaped: the scratch home
+  (`<job cwd>/.rig-job`), the netless sandbox, and the socket proxy all
+  come from the pinned rig v1.6.0. A rig upgrade that renames the scratch,
+  stops pinning `RIG_HOME`, or changes the netless guarantee must be
+  checked here first.
+- The fire's sandbox refuses when the box cannot provide it (landlock ABI
+  < 4, or a kernel without the netless guarantee): no sandbox, no fire.

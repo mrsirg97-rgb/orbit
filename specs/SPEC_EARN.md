@@ -15,7 +15,7 @@ natives, the `/earn` command beside `command.All()`, and the orbit title
   theme is orbit's shipped one: the embedded default when the home has
   no theme.json (a home theme.json wins entirely). The status function
   adds the earn rows under the footer — painted dim, the same grey as
-  the model rows: projects held, open claims, last memo, PnL since
+  the model rows: projects held, open claims, last memo, earnings since
   start. The same rows are what `/earn status` prints. The tick re-reads
   the status function while the input loop is idle (zero is off; a
   fire's write shows up without a command).
@@ -33,14 +33,18 @@ natives, the `/earn` command beside `command.All()`, and the orbit title
   signing step the path is asked once and remembered as
   `ORBIT_OPERATOR_KEY_PATH` in the config — the path, never the key.
   Before any chain spend, one preflight line names what exists and what
-  will happen. The setup is safe to rerun: create checks
-  `TorchVaultPDA(creator)` on chain against the recorded creator and
-  records the creator without sending when the vault exists, link and
-  deposit confirm the signature before returning, and deposit is gated
-  on the recorded `ORBIT_VAULT_DEPOSITED` marker or the vault record's
-  `total_deposited` (never the running balance). The model check runs
-  before any chain spend; a role whose job exists is refreshed, otherwise
-  created.
+  will happen; the preflight also reads the hot wallet balance and, under
+  the 0.005 SOL floor, names the pubkey and `send devnet SOL or wait for
+  the faucet` — the hot wallet pays every write's rent and fees. A wallet
+  under the floor retries the airdrop through init, and the setup refuses
+  before any chain spend if the retry leaves it there. The setup is safe
+  to rerun: create checks `TorchVaultPDA(creator)` on chain against the
+  recorded creator and records the creator without sending when the vault
+  exists, link and deposit confirm the signature before returning, and
+  deposit is gated on the recorded `ORBIT_VAULT_DEPOSITED` marker or the
+  vault record's `total_deposited` (never the running balance). The model
+  check runs before any chain spend; a role whose job exists is refreshed,
+  otherwise created.
 - **/earn roles**: lists the roster. **/earn roles add|remove <role>**:
   registers one role and its job, or removes the role's identity row and
   job.
@@ -88,7 +92,7 @@ the fold trusts).
 
 ### 4. The footer rows are a local snapshot, never the chain
 
-`earn.Status` reads the wallet (held projects, PnL since start) and the
+`earn.Status` reads the wallet (held projects, earnings since start) and the
 board cache (the wallet's open claims, its last memo) — command time
 only. `/earn status` and each agent fire write the rows to the local
 snapshot (`<orbit home>/status.json`), and the TUI's status callback

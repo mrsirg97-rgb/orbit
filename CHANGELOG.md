@@ -1,4 +1,108 @@
 # Changelog
+## [0.5.1] — one world, one vocabulary
+
+A pass over every word the agent can see, so nothing in its environment
+contradicts anything else. The project id is PID (the last 8 chars of
+the mint), never FID; every tool takes it as `project`, never `mint`.
+The `market` tool is now `project`: one project, read plus the six acts,
+beside `projects` for discovery; the fire wire and the allow list name
+it. `intel` keeps its name and is described as the gossip. The agent is
+told "turn", never "fire" (the scheduler's word). The PROJECTS table
+drops FOUNDED (always F) and COMMIT (a flag the COMMITMENTS line already
+carries); the LEGEND defines `"*"` as the memo beside `$` as the PID.
+
+The `projects` tool and command speak the state words (private, funded,
+public) in the list, the show, and the filter, print BACKING rather than
+treasury, and read the state from one source (`brief.StateWord`). The
+wallet tool's actions are earnings, commitments, standing, reputation.
+The board's refusals say "the board refuses" and "wrong state", not
+"fold" and "foreign"; a memo the cache has not caught up to replies
+"pending: the board has not seen it yet"; the indexer and the RPC are
+never named to the agent. The footer says earnings since start. The
+gossip lexicon learns the acts (invest, contract, work bullish; release,
+short, washed bearish). The role names drop the torch prefix and their
+bios describe the acts: the architect signs with accept, the worker
+contracts or works and releases at a surplus, the reviewer rejects with a
+reason and shorts what it can disprove, and only the funder's accept
+counts. The site's agent door and sample block say the same.
+
+## [0.5.0] — work is a position
+
+SPEC_WORK lands: two states, six acts, and a claim that is capital. A
+project is private until it is funded and public after (torch's
+bonding/ready/migrated/reclaimed read as private/funded/public/closed);
+the board's work verbs (task, claim, complete, accept, reject, release)
+fold only on a public project, while goal, brief, note and post stand in
+every state. A claim is honoured only when its transaction carries
+capital: a buy above the memo stake is a contract, an
+`open_long_via_vault` is work; a claim with only the memo stake is
+foreign. The grammar grows by one verb, `release <id>`, which frees a
+held task while the same transaction closes the position or sells the
+holding. A reject that rides `open_short_via_vault` is recorded with its
+collateral beside the verdict. A work claim has no lease: when the
+indexer reports its long ended (closed or liquidated), the fold releases
+the task; the lease stays for contract claims.
+
+The board store carries the ledger beside the log: the project's torch
+status, the carrier of every claim and reject row (read once from the
+transaction through the RPC seam), and the indexer's ended long
+positions, in hand tables under `extra.sql` (schema v5). The acts are
+`Contract`, `Work`, `Release` (a partial close under 10000 bps keeps the
+task), `ShortReject`, and `Held`; every act goes through the one path
+(sync, refuse what the fold would refuse with the candidate's carrier,
+write, confirm, await), and the state gate is refused by name before any
+spend. The render names the backing: `contract 0.0050 SOL`, `work #2`,
+`short 0.0200 SOL` beside a reject.
+
+The client builds the four position instructions from the IDL's account
+lists and flags (`BuildFromIDL`) over the new PDAs (position, user risk,
+long SOL vault, short vault), writes them through the vault
+(`WritePosition`, refused before migration), picks the next free position
+index by probing the PDAs, reads what a transaction carried (`Carrier`),
+and reads the ended longs (`LongEnds`). `GetTransaction` now resolves
+each instruction's account keys.
+
+The tools speak the acts: `market` reads rate, size, state, backing,
+lends, holdings and gossip and acts with invest, contract, work,
+release, short, post; `board` keeps task, brief, note, complete, accept,
+reject and points claim at the market tool; `wallet` adds the reputation
+ledger (invested, released at a surplus, shorts vindicated, accepts
+received, washed out). `orbit board contract <id> <sol>` and `orbit
+board release <id>` join the subcommand. The discovery count folds an
+uncached window against the project's status and the claims' carriers.
+
+The brief is the gig economy: LEGEND carries the six acts and maps
+orbit's states to torch's names; EARNINGS, GOSSIP, RATE, SIZE, BACKING,
+COMMIT, LENDS replace PNL, SENTIMENT, PRICE, MCAP, TREASURY, LOAN; a
+public project under the lending unlock reads "public, not lending yet";
+risk is said plainly (borrowed budget with a clock on it, washed out
+costs the stake). The compact ACTIONS block points at the LEGEND instead
+of repeating it, so the compact brief stays in its token band.
+
+## [0.4.3] — the hot wallet floor and the fire's fixed wire
+
+Every write's rent and fees are paid by the hot wallet, so funding is now
+a precondition. The earn preflight reads the hot wallet balance and, under
+0.005 SOL, prints the pubkey and `send devnet SOL or wait for the faucet`;
+a fire whose hot wallet is under the floor refuses before spawning with
+the same line. `/earn` retries the airdrop through init when the wallet is
+under the floor, and refuses before any chain spend if the retry leaves it
+there.
+
+Fires get a fixed wire: `market`, `intel`, `wallet`, `board`, `projects`,
+`read`, `rem`, `bash`, `python`, `todo`; never scheduler, plugin,
+sessions, or delegate. The fire worker names itself by the jail's scratch
+home (`RIG_HOME` ending in `.rig-job`), resolves the orbit home, and pins
+both the wire and the allow-list to the ten; the operator's interactive
+allow is untouched. The fire's sandbox is always on (landlock — the
+netless profile, and the only one that runs unprivileged) regardless of
+the interactive setting, and the fire carries its agent id through the
+scratch so the footer's act snapshot keeps working. Because the sandbox
+is netless, the fire's chain traffic tunnels through a unix socket proxy
+in the orbit home (`chainTunnel`), routed by the TLS server name — the
+worker's client dials the socket and the proxy forwards to the named
+host.
+
 ## [0.4.2] — the orbit tools reach the model
 
 The wire toolset is built from the native name table, and orbit's copy of

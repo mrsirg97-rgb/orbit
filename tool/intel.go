@@ -27,14 +27,14 @@ func (t *Intel) client() (*client.TorchClient, error) {
 func (t *Intel) Name() string { return "intel" }
 
 func (t *Intel) Description() string {
-	return "recent messages on held/watched projects: sender, memo, slot. Read-only."
+	return "the gossip: recent memos on the projects, by PID: sender, memo. Read-only."
 }
 
 func (t *Intel) Schema() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
-			"mint": {"type": "string", "description": "Full mint pubkey or 8-char FID. Omit for all held/watched."},
+			"project": {"type": "string", "description": "The PID (8 chars) or the full project mint. Omit for every project."},
 			"limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Default 10."}
 		}
 	}`)
@@ -46,8 +46,8 @@ func (t *Intel) Exec(ctx context.Context, args json.RawMessage) (string, error) 
 		return "", err
 	}
 	var in struct {
-		Mint  string `json:"mint"`
-		Limit int    `json:"limit"`
+		Project string `json:"project"`
+		Limit   int    `json:"limit"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
 		return "", fmt.Errorf("intel: args: %w", err)
@@ -59,8 +59,8 @@ func (t *Intel) Exec(ctx context.Context, args json.RawMessage) (string, error) 
 		in.Limit = 100
 	}
 	mints := []string{}
-	if in.Mint != "" {
-		full, err := resolveMint(ctx, tc, in.Mint)
+	if in.Project != "" {
+		full, err := resolveMint(ctx, tc, in.Project)
 		if err != nil {
 			return "", fmt.Errorf("intel: %w", err)
 		}
@@ -82,7 +82,7 @@ func (t *Intel) Exec(ctx context.Context, args json.RawMessage) (string, error) 
 		}
 		for _, msg := range msgs {
 			lines = append(lines, fmt.Sprintf("%s %s: %s",
-				fid8(msg.Mint), shortAddr(msg.Sender), truncate(msg.MemoText, 160)))
+				pid8(msg.Mint), shortAddr(msg.Sender), truncate(msg.MemoText, 160)))
 		}
 	}
 	if len(lines) == 0 {

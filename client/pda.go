@@ -37,6 +37,10 @@ var (
 	seedDeepPool         = []byte("deep_pool")
 	seedPoolVault        = []byte("pool_vault")
 	seedEventAuthority   = []byte("__event_authority")
+	seedPosition         = []byte("position")
+	seedUserRisk         = []byte("user_risk")
+	seedLongSolVault     = []byte("long_sol_vault")
+	seedShortVault       = []byte("short_vault")
 )
 
 func mustPDA(program string, seeds ...[]byte) string {
@@ -97,6 +101,26 @@ func DeepPoolPDA(program, torchConfig, mint string) string {
 
 func DeepPoolVaultPDA(program, pool string) string {
 	return mustPDA(program, seedPoolVault, must32(pool))
+}
+
+func PositionPDA(program, vault, mint string, side byte, index uint32) string {
+	return mustPDA(program, seedPosition, must32(vault), must32(mint), []byte{side}, leU32(index))
+}
+
+func UserRiskPDA(program, vault, mint string) string {
+	return mustPDA(program, seedUserRisk, must32(vault), must32(mint))
+}
+
+func LongSolVaultPDA(program, vault, mint string, index uint32) string {
+	return mustPDA(program, seedLongSolVault, must32(vault), must32(mint), leU32(index))
+}
+
+func ShortVaultPDA(program, vault, mint string, index uint32) string {
+	return mustPDA(program, seedShortVault, must32(vault), must32(mint), leU32(index))
+}
+
+func leU32(n uint32) []byte {
+	return []byte{byte(n), byte(n >> 8), byte(n >> 16), byte(n >> 24)}
 }
 
 func DeepPoolEventAuthorityPDA(program string) string { return mustPDA(program, seedEventAuthority) }

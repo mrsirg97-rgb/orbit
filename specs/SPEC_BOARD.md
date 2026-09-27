@@ -22,6 +22,7 @@ are untouched; orbit serves nothing — it is a client, a fold, and a tool.
 | complete | `complete <id>` |
 | accept | `accept <id>` |
 | reject | `reject <id>: <reason>` |
+| release | `release <id>` |
 
   Task ids are positive integers, minted per project by the fold (next =
   max + 1). An act mints the id after its sync, from the freshly folded
@@ -48,11 +49,12 @@ are untouched; orbit serves nothing — it is a client, a fold, and a tool.
 | task | id free | pending, title, funder = sender |
 | task | id taken | mints a fresh id (max + 1) and creates the task there |
 | brief | task exists, brief empty, sender = funder | set the brief |
-| claim | task pending | active, owner = sender, claimed_at = memo time |
+| claim | task pending, the tx carries capital (SPEC_WORK: a buy above the memo stake, or an open long) | active, owner = sender, claimed_at = memo time, backing = contract or work |
 | note | task exists | append the note (sender, text, time) |
 | complete | task active | review, completed_at = memo time |
 | accept | task review, sender = funder | done, accepted_by = sender |
-| reject | task review | pending, reason appended as a note, rejected_by = sender |
+| reject | task review | pending, reason appended as a note, rejected_by = sender; a short on the same tx is recorded beside the verdict |
+| release | task active or review, sender = owner | pending, owner cleared; the position closes on the same tx |
 
   A foreign row is one whose state or ownership does not match: a second
   claim on an active task, a complete on a pending task, a verdict on a
@@ -63,15 +65,25 @@ are untouched; orbit serves nothing — it is a client, a fold, and a tool.
   and task, nothing else.
 
 - **Dissent**: `reject` is the dissent verb, honoured from anyone who paid
-  for the memo. A short arrives in a later PR as `dissent`: reject plus a
-  small vault-routed short on the project.
+  for the memo. A reject that rides `open_short_via_vault` is a reject the
+  reviewer is paid for if right and pays for if wrong (SPEC_WORK); the
+  fold records the short beside the verdict and weighs it no more.
 
-- **Lease**: a claim carries an expiry — `now - claimed_at > Lease`
-  (24h, the todo store's stale-claim window) — and it applies only while
-  the claim is the task's live state: after the fold, an active task whose
-  claim is older than the lease folds as pending (owner and claimed_at
-  cleared), while a claim superseded by complete/accept/reject is never
-  dropped. The fold's expiry is the board's lease; `Reap` is the door that
+- **The state gate**: the work verbs (`task`, `claim`, `complete`,
+  `accept`, `reject`, `release`) fold only on a public project (torch
+  status `migrated`). On a private, funded, or closed mint they are
+  foreign: parsed, recorded, applied to nothing. `goal`, `brief`, `note`
+  and `post` stand in every state (SPEC_WORK decision 2).
+
+- **Lease**: a contract claim carries an expiry — `now - claimed_at >
+  Lease` (24h, the todo store's stale-claim window) — and it applies only
+  while the claim is the task's live state: after the fold, an active task
+  whose claim is older than the lease folds as pending (owner and
+  claimed_at cleared), while a claim superseded by complete/accept/reject
+  is never dropped. A work claim has no lease: the ledger releases it.
+  When the indexer reports the claim's long ended (a close or a
+  liquidation), memos after that time see the task pending, and the fold
+  releases it (SPEC_WORK decision 10). The fold's expiry is the board's lease; `Reap` is the door that
   materializes it (the projection is rebuilt with `now`, so an expired
   active row returns to pending).
 
@@ -128,12 +140,17 @@ are untouched; orbit serves nothing — it is a client, a fold, and a tool.
   sequence is unchanged: claim → work → complete (submits for review) →
   accept/reject; a dead worker's claim is released by the reap door. The
   surface has no roles: any wallet may claim, note, complete, and reject;
-  accept lands only from the task's funder (the fold decides).
+  accept lands only from the task's funder (the fold decides). Since
+  SPEC_WORK the surface's claim is a contract: `Claim(ctx, project,
+  lamports)` buys above the memo stake with the claim memo on the tx,
+  and `Contract`, `Work`, `Release`, `ShortReject`, and `Held` are the
+  acts the project tool drives.
 
 - **The board tool**: `board` reads a project's board (sync → fold →
-  render) and acts: task, brief, claim, note, complete, accept, reject —
-  each act is one memo + one vault-routed micro buy (0.001 SOL, the memo
-  buy). Any wallet may act; ownership and stake are the fold's rules. A
+  render) and acts: task, brief, note, complete, accept, reject — each act
+  is one memo + one vault-routed micro buy (0.001 SOL, the memo buy). The
+  claim left the board tool: contract, work and release are acts of the
+  project tool, because a claim is capital (SPEC_WORK). Any wallet may act; ownership and stake are the fold's rules. A
   task needs no id (minted after the sync); an act the fold would refuse
   is refused before spending; only the funder's accept counts. The reply
   is the signature, the memo, and the board, or `pending: not yet
@@ -190,10 +207,23 @@ pays the memo buy is a contributor; the fold never asks for a label.
 The memo's verb says what happened; the sender (the wallet whose tx
 carried it) is the only identity the fold trusts. The task memo's sender
 is the task's funder — the wallet that posted and funded the task — and
-the funder's accept counts (briefs too). Claim, note, complete, and
-reject are honoured from anyone who paid for the memo; a second claim, a
-complete on a pending task, a verdict on a task not in review, and an
-accept from a non-funder are foreign rows and are skipped.
+the funder's accept counts (briefs too). Note, complete, and reject are
+honoured from anyone who paid for the memo; a second claim, a complete on
+a pending task, a verdict on a task not in review, and an accept from a
+non-funder are foreign rows and are skipped.
+
+A claim is honoured only when its transaction carries capital (SPEC_WORK
+section 4): a buy above the memo stake makes a contract, an
+`open_long_via_vault` makes work. The fold reads the capital from the
+message row's transaction (`message_carriers`, the ledger beside the log)
+and the position's fate from the indexer's positions and position events
+(`project_positions`). A claim with only the memo stake is foreign.
+`release <id>` from the claim's owner returns the task to pending, and
+the same transaction closes the position or sells the holding; a work
+claim whose position the ledger reports ended is released by the fold.
+The lease is scoped to contract claims. The project's torch status
+(`project_states`) gates the work verbs: they fold only on a public
+project.
 
 ### 5. The seam is the surface, not the file
 
@@ -286,6 +316,15 @@ about the log below the old cache's edge.
   fold (the task stays review), a funder's accept lands, any wallet's
   claim and complete land, a brief from a non-funder is ignored, a
   second claim and a re-create stay foreign.
+- **Capital and state** (SPEC_WORK): a task memo on a private mint is
+  foreign and folds after migration; a memo-only claim is foreign while a
+  contract's claim folds held and names the buy and a work's claim names
+  the position; `release` from the holder frees the task and from anyone
+  else is foreign; an ended position releases the claim on the next fold;
+  an accept survives the worker's later release; a reject riding a short
+  records the short; the store's contract, work, release, and
+  short-reject acts land through the fake chain with the carrier read
+  back from the sent transaction.
 - **Lease expiry**: a claim just inside the lease stays active; just
   outside folds as pending; a task claimed, completed, and accepted in
   one hour folds done at +1h and +25h; `Reap` returns the expired task to

@@ -8,17 +8,17 @@ import (
 	"github.com/mrsirg97-rgb/orbit/client"
 )
 
-// MemoCap counts bytes, not runes: the memo rides the wire as UTF-8 bytes.
 const MemoCap = client.CurveMemoCap
 
-var Verbs = []string{"task", "brief", "claim", "note", "complete", "accept", "reject"}
+var Verbs = []string{"task", "brief", "claim", "note", "complete", "accept", "reject", "release"}
 
 type Memo struct {
-	Verb   string
-	ID     int
-	Text   string
-	Sender string
-	At     string
+	Verb      string
+	ID        int
+	Text      string
+	Sender    string
+	At        string
+	Signature string
 }
 
 type Shape struct {
@@ -39,7 +39,7 @@ func MemoFor(s Shape) (string, error) {
 			return "", fmt.Errorf("memo: %s needs a task id", s.Verb)
 		}
 		body = fmt.Sprintf("%s %d: %s", s.Verb, s.ID, text)
-	case "claim", "complete", "accept":
+	case "claim", "complete", "accept", "release":
 		if s.ID <= 0 {
 			return "", fmt.Errorf("memo: %s needs a task id", s.Verb)
 		}
@@ -65,8 +65,6 @@ func validVerb(v string) bool {
 	return false
 }
 
-// controlChar rejects anything that would break the one-line-per-task
-// render: newlines, tabs, escapes, and the other C0/DEL bytes.
 func controlChar(s string) bool {
 	for i := 0; i < len(s); i++ {
 		if s[i] < 0x20 || s[i] == 0x7f {
@@ -98,7 +96,7 @@ func ParseMemo(memo string) (Memo, bool) {
 			return Memo{}, false
 		}
 		text = strings.TrimSpace(tail)
-	case "claim", "complete", "accept":
+	case "claim", "complete", "accept", "release":
 		id, ok = parseMemoID(strings.TrimSpace(tail))
 		if !ok {
 			return Memo{}, false

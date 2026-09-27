@@ -4,6 +4,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/mrsirg97-rgb/orbit/client"
 )
 
 const Lease = 24 * time.Hour
@@ -36,18 +38,30 @@ type Task struct {
 	CreatedAt   string
 	UpdatedAt   string
 	Notes       []Note
+	Backing     string
+	Stake       uint64
+	Position    client.PositionKey
+	RejectShort uint64
 }
 
-func Fold(project string, memos []Memo, now time.Time) []Task {
+func gated(verb string) bool {
+	switch verb {
+	case "task", "claim", "complete", "accept", "reject", "release":
+		return true
+	}
+	return false
+}
+
+func Fold(project string, memos []Memo, ledger Ledger, now time.Time) []Task {
 	states := map[int]*Task{}
 	maxID := 0
 	for _, m := range memos {
 		if !ParseAllowed(m) {
 			continue
 		}
-		// A task memo whose id is already taken was minted from a stale
-		// cache: the fold mints a fresh id in log order (the memo's id is
-		// a hint; the board references the fold's ids).
+		if gated(m.Verb) && !ledger.Public {
+			continue
+		}
 		if m.Verb == "task" && states[m.ID] != nil {
 			m.ID = maxID + 1
 		}
@@ -65,13 +79,7 @@ func Fold(project string, memos []Memo, now time.Time) []Task {
 			}
 			continue
 		}
-		// A memo landing after the lease expired sees the claim dead: the
-		// task returns to pending before the memo applies.
-		if st.Status == StatusActive && leaseExpired(st.ClaimedAt, parseAt(m.At)) {
-			st.Status = StatusPending
-			st.Owner = ""
-			st.ClaimedAt = ""
-		}
+		expire(st, ledger, parseAt(m.At))
 		switch m.Verb {
 		case "task":
 			continue
@@ -85,10 +93,20 @@ func Fold(project string, memos []Memo, now time.Time) []Task {
 			if st.Status != StatusPending {
 				continue
 			}
+			c := ledger.Carriers[m.Signature]
+			backing := backingOf(c)
+			if backing == "" {
+				continue
+			}
 			st.Status = StatusActive
 			st.Owner = m.Sender
 			st.ClaimedAt = m.At
 			st.UpdatedAt = m.At
+			st.Backing = backing
+			st.Stake = c.Lamports
+			if backing == BackingWork {
+				st.Position = client.PositionKey{Vault: c.Vault, Index: c.Index}
+			}
 		case "note":
 			st.Notes = append(st.Notes, Note{Sender: m.Sender, Text: m.Text, At: m.At})
 			st.UpdatedAt = m.At
@@ -110,22 +128,24 @@ func Fold(project string, memos []Memo, now time.Time) []Task {
 			if st.Status != StatusReview {
 				continue
 			}
-			st.Status = StatusPending
-			st.Owner = ""
-			st.ClaimedAt = ""
+			release(st)
 			st.RejectedBy = m.Sender
+			st.RejectShort = 0
+			if c := ledger.Carriers[m.Signature]; c.Short {
+				st.RejectShort = c.Collateral
+			}
 			st.UpdatedAt = m.At
 			st.Notes = append(st.Notes, Note{Sender: m.Sender, Text: m.Text, At: m.At})
+		case "release":
+			if (st.Status != StatusActive && st.Status != StatusReview) || m.Sender != st.Owner {
+				continue
+			}
+			release(st)
+			st.UpdatedAt = m.At
 		}
 	}
-	// The lease expires the claim only while it is still the task's live
-	// state: a task that moved on (complete/accept/reject) keeps its state.
 	for _, st := range states {
-		if st.Status == StatusActive && leaseExpired(st.ClaimedAt, now) {
-			st.Status = StatusPending
-			st.Owner = ""
-			st.ClaimedAt = ""
-		}
+		expire(st, ledger, now)
 	}
 	tasks := make([]Task, 0, len(states))
 	for _, st := range states {
@@ -135,6 +155,30 @@ func Fold(project string, memos []Memo, now time.Time) []Task {
 		return tasks[i].ID < tasks[j].ID
 	})
 	return tasks
+}
+
+func expire(st *Task, ledger Ledger, ref time.Time) {
+	if st.Backing == BackingWork {
+		if st.Status != StatusActive && st.Status != StatusReview {
+			return
+		}
+		if end, ok := ledger.Ends[st.Position]; ok && parseAt(end).Before(ref) {
+			release(st)
+		}
+		return
+	}
+	if st.Status == StatusActive && leaseExpired(st.ClaimedAt, ref) {
+		release(st)
+	}
+}
+
+func release(st *Task) {
+	st.Status = StatusPending
+	st.Owner = ""
+	st.ClaimedAt = ""
+	st.Backing = ""
+	st.Stake = 0
+	st.Position = client.PositionKey{}
 }
 
 func leaseExpired(claimedAt string, ref time.Time) bool {

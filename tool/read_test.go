@@ -88,7 +88,7 @@ func TestResolveMintAcceptsOnlyDecodedPubkeys(t *testing.T) {
 	}
 
 	invalid := strings.Repeat("!", 44)
-	if _, err := resolveMint(ctx, tc, invalid); err == nil || !strings.Contains(err.Error(), "no project with FID") {
+	if _, err := resolveMint(ctx, tc, invalid); err == nil || !strings.Contains(err.Error(), "no project with PID") {
 		t.Fatalf("a 44-char non-base58 string must not be treated as a mint: %v", err)
 	}
 	if api.marketCalls != 1 {
@@ -102,7 +102,7 @@ func TestResolveMintAcceptsOnlyDecodedPubkeys(t *testing.T) {
 	rpc := &resolveMintRPC{}
 	tc2 := &client.TorchClient{Config: client.Config{Indexer: "https://api.torchmarket.dev"}, API: api, RPC: rpc}
 	b := &Board{Client: func() (*client.TorchClient, error) { return tc2, nil }, Store: &board.Store{Client: func() (*client.TorchClient, error) { return tc2, nil }}}
-	if _, err := b.resolveMint(ctx, invalid); err == nil || !strings.Contains(err.Error(), "no project with FID") {
+	if _, err := b.resolveMint(ctx, invalid); err == nil || !strings.Contains(err.Error(), "no project with PID") {
 		t.Fatalf("board resolveMint accepted a non-base58 44-char string: %v", err)
 	}
 	if rpc.calls != 0 {

@@ -21,6 +21,15 @@ import (
 	"github.com/mrsirg97-rgb/orbit/sol"
 )
 
+const (
+	FundingFloorLamports uint64 = 5_000_000
+	FundingFloorSOL             = "0.005"
+)
+
+func FundingLine(pubkey string) string {
+	return fmt.Sprintf("hot wallet %s under %s SOL: send devnet SOL or wait for the faucet", pubkey, FundingFloorSOL)
+}
+
 type Command struct {
 	Getenv    func(string) string
 	Client    func() (*client.TorchClient, error)
@@ -51,7 +60,7 @@ func (c *Command) Sub() []command.Sub {
 		{Name: "join", Desc: "join [roles]: set up (init, vault, link, deposit) and register the roles; worker by default"},
 		{Name: "roles", Desc: "roles: the roster; roles add|remove <role> registers or removes one role and its job"},
 		{Name: "goal", Desc: "goal \"<paragraph>\": set or change the architect's goal; registers an architect if none"},
-		{Name: "status", Desc: "status: the footer rows — projects held, open claims, last memo, PnL since start"},
+		{Name: "status", Desc: "status: the footer rows — projects held, open claims, last memo, earnings since start"},
 		{Name: "stop", Desc: "stop: pause every registered job"},
 		{Name: "start", Desc: "start: resume the paused jobs"},
 	}
@@ -366,6 +375,15 @@ func (c *Command) ensureSetup(ctx context.Context, in args) (*client.TorchClient
 			return nil, nil, fmt.Errorf("earn: config: %w", err)
 		}
 	}
+	tc, err := c.client(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if line, err := c.ensureFunded(ctx, tc); err != nil {
+		return nil, nil, err
+	} else if line != "" {
+		steps = append(steps, line)
+	}
 	if line, err := c.vaultCreate(ctx, in); err != nil {
 		return nil, nil, err
 	} else if line != "" {
@@ -374,10 +392,6 @@ func (c *Command) ensureSetup(ctx context.Context, in args) (*client.TorchClient
 		if err != nil {
 			return nil, nil, fmt.Errorf("earn: config: %w", err)
 		}
-	}
-	tc, err := c.client(ctx)
-	if err != nil {
-		return nil, nil, err
 	}
 	if line, err := c.vaultLink(ctx, tc, in); err != nil {
 		return nil, nil, err
@@ -390,6 +404,24 @@ func (c *Command) ensureSetup(ctx context.Context, in args) (*client.TorchClient
 		steps = append(steps, line)
 	}
 	return tc, steps, nil
+}
+
+func (c *Command) ensureFunded(ctx context.Context, tc *client.TorchClient) (string, error) {
+	balance, err := tc.RPC.GetBalance(ctx, tc.AgentPublic())
+	if err != nil {
+		return "", fmt.Errorf("earn: hot wallet balance: %w", err)
+	}
+	if balance >= FundingFloorLamports {
+		return "", nil
+	}
+	res, err := c.Init()
+	if err != nil {
+		return "", err
+	}
+	if res.Balance < FundingFloorLamports {
+		return "", fmt.Errorf("earn: %s", FundingLine(res.Pubkey))
+	}
+	return fmt.Sprintf("init: airdrop retried, balance %s SOL", client.FormatSOL(res.Balance)), nil
 }
 
 type setupPlan struct {
@@ -484,7 +516,26 @@ func (c *Command) preflight(ctx context.Context, roles []identity.Role) (string,
 		roleNames[i] = string(role)
 	}
 	todo := append(append([]string{}, plan.todo...), "register "+strings.Join(roleNames, ", "))
-	return "preflight: " + exists + "; will: " + strings.Join(todo, ", "), nil
+	line := "preflight: " + exists + "; will: " + strings.Join(todo, ", ")
+	getenv := c.getenv()
+	cfgMap, err := onboard.Load(getenv)
+	if err != nil {
+		return "", fmt.Errorf("earn: preflight: %w", err)
+	}
+	if c.hotAvailable(cfgMap, getenv) {
+		tc, err := c.client(ctx)
+		if err != nil {
+			return "", err
+		}
+		balance, err := tc.RPC.GetBalance(ctx, tc.AgentPublic())
+		if err != nil {
+			return "", fmt.Errorf("earn: preflight: hot wallet balance: %w", err)
+		}
+		if balance < FundingFloorLamports {
+			line += "\n" + FundingLine(tc.AgentPublic())
+		}
+	}
+	return line, nil
 }
 
 func (c *Command) hotAvailable(cfgMap map[string]string, getenv func(string) string) bool {

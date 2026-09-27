@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mrsirg97-rgb/orbit/client"
+	"github.com/mrsirg97-rgb/orbit/idl"
 )
 
 const (
@@ -68,6 +69,7 @@ func (f *projectsIndexer) Swaps(context.Context, url.Values) ([]client.SwapRow, 
 
 type projectsRPC struct {
 	accounts map[string]client.AccountInfo
+	txs      map[string]*client.Transaction
 }
 
 func (f *projectsRPC) GetAccountInfo(_ context.Context, pubkey string) (client.AccountInfo, error) {
@@ -88,8 +90,8 @@ func (f *projectsRPC) RequestAirdrop(context.Context, string, uint64) (string, e
 func (f *projectsRPC) GetSignaturesForAddress(context.Context, string, int, string) ([]client.SignatureInfo, error) {
 	return nil, nil
 }
-func (f *projectsRPC) GetTransaction(context.Context, string) (*client.Transaction, error) {
-	return nil, nil
+func (f *projectsRPC) GetTransaction(_ context.Context, sig string) (*client.Transaction, error) {
+	return f.txs[sig], nil
 }
 
 func projectsToolClient(t *testing.T) *client.TorchClient {
@@ -97,7 +99,7 @@ func projectsToolClient(t *testing.T) *client.TorchClient {
 	now := time.Now().UTC().Format(time.RFC3339)
 	api := &projectsIndexer{
 		markets: []client.MarketRow{
-			{Mint: projectsMintA, Name: "Context Compaction", Symbol: "CONTEX", Status: client.StatusBonding},
+			{Mint: projectsMintA, Name: "Context Compaction", Symbol: "CONTEX", Status: client.StatusMigrated},
 			{Mint: projectsMintB, Name: "Sentiment Alpha", Symbol: "SENTIM", Status: client.StatusComplete},
 		},
 		messages: map[string][]client.MessageRow{
@@ -105,7 +107,7 @@ func projectsToolClient(t *testing.T) *client.TorchClient {
 				{MessageID: 7, Mint: projectsMintA, Sender: "funder", MemoText: "task 3: Summarize the log.", CreatedAt: now},
 				{MessageID: 6, Mint: projectsMintA, Sender: "funder", MemoText: "accept 1", CreatedAt: now},
 				{MessageID: 5, Mint: projectsMintA, Sender: "walletX", MemoText: "complete 1", CreatedAt: now},
-				{MessageID: 4, Mint: projectsMintA, Sender: "walletX", MemoText: "claim 1", CreatedAt: now},
+				{MessageID: 4, Mint: projectsMintA, Sender: "walletX", MemoText: "claim 1", CreatedAt: now, Signature: "sigA4"},
 				{MessageID: 3, Mint: projectsMintA, Sender: "funder", MemoText: "task 2: Draft the research memo.", CreatedAt: now},
 				{MessageID: 2, Mint: projectsMintA, Sender: "funder", MemoText: "task 1: Read the transcript.", CreatedAt: now},
 				{MessageID: 1, Mint: projectsMintA, Sender: "funder", MemoText: "goal: Research whether sentiment predicts price.", CreatedAt: now},
@@ -124,9 +126,16 @@ func projectsToolClient(t *testing.T) *client.TorchClient {
 			Lamports: client.RentExemptZeroData + 5_000_000_000, Exists: true,
 		},
 	}
+	id, err := idl.LoadIDL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	buy := append([]byte{213, 46, 240, 54, 205, 19, 39, 25}, idl.LeU64(5_000_000)...)
+	buy = append(buy, idl.LeU64(1)...)
+	txs := map[string]*client.Transaction{"sigA4": {Keys: []string{"walletX"}, Ixs: []client.TxInstruction{{ProgramID: client.DevnetProgramID, Data: buy}}}}
 	return &client.TorchClient{
 		Config: client.Config{Indexer: "http://127.0.0.1:1", RPC: "http://127.0.0.1:2", ProgramID: client.DevnetProgramID},
-		API:    api, RPC: &projectsRPC{accounts: accounts},
+		IDL:    id, API: api, RPC: &projectsRPC{accounts: accounts, txs: txs},
 	}
 }
 
@@ -138,13 +147,13 @@ func TestProjectsToolListsFoldedOpenTasks(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out, "[oxPkrZBG]") || !strings.Contains(out, "Context Compaction") {
-		t.Errorf("list missed the bonded project:\n%s", out)
+		t.Errorf("list missed the public project:\n%s", out)
 	}
 	if !strings.Contains(out, "2 open") {
-		t.Errorf("the bonded project's open task count is missing:\n%s", out)
+		t.Errorf("the public project's open task count is missing:\n%s", out)
 	}
-	if !strings.Contains(out, "1 open") {
-		t.Errorf("the ready project's open task count is missing:\n%s", out)
+	if !strings.Contains(out, "0 open") {
+		t.Errorf("the funded project accepts no work yet:\n%s", out)
 	}
 	if !strings.Contains(out, "12.340000000") || !strings.Contains(out, "5.000000000") {
 		t.Errorf("treasury floats missing:\n%s", out)
@@ -154,15 +163,15 @@ func TestProjectsToolListsFoldedOpenTasks(t *testing.T) {
 func TestProjectsToolFilters(t *testing.T) {
 	tc := projectsToolClient(t)
 	p := &Projects{Client: func() (*client.TorchClient, error) { return tc, nil }}
-	out, err := p.Exec(context.Background(), json.RawMessage(`{"action":"list","status":"bonding"}`))
+	out, err := p.Exec(context.Background(), json.RawMessage(`{"action":"list","status":"public"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(out, "Sentiment Alpha") {
-		t.Errorf("bonding filter kept the ready project:\n%s", out)
+		t.Errorf("migrated filter kept the ready project:\n%s", out)
 	}
 	if !strings.Contains(out, "Context Compaction") {
-		t.Errorf("bonding filter dropped the bonded project:\n%s", out)
+		t.Errorf("migrated filter dropped the public project:\n%s", out)
 	}
 	goalOnly, err := p.Exec(context.Background(), json.RawMessage(`{"action":"list","goal":true}`))
 	if err != nil {
@@ -176,7 +185,7 @@ func TestProjectsToolFilters(t *testing.T) {
 func TestProjectsToolShowNamesTheGoal(t *testing.T) {
 	tc := projectsToolClient(t)
 	p := &Projects{Client: func() (*client.TorchClient, error) { return tc, nil }}
-	out, err := p.Exec(context.Background(), json.RawMessage(`{"action":"show","mint":"oxPkrZBG"}`))
+	out, err := p.Exec(context.Background(), json.RawMessage(`{"action":"show","project":"oxPkrZBG"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +202,7 @@ func TestProjectsToolShowNamesTheGoal(t *testing.T) {
 
 func TestProjectsToolDescriptionNamesWhereToPick(t *testing.T) {
 	desc := (&Projects{}).Description()
-	if !strings.Contains(desc, "before it claims") || !strings.Contains(desc, "list") || !strings.Contains(desc, "show") {
+	if !strings.Contains(desc, "before it contracts") || !strings.Contains(desc, "list") || !strings.Contains(desc, "show") {
 		t.Errorf("description = %q", desc)
 	}
 }

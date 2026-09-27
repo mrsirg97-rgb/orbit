@@ -33,7 +33,7 @@ and the treasury float. Devnet only, like every write.
 - **List**: `project list` reads `/api/markets` (limit 50) and, per market,
   `/api/messages?mint=...` (limit 50) to find the first `goal:`
   memo. The treasury float is the `treasury_sol_vault` PDA balance minus the
-  rent floor, read through the RPC seam. Rows: FID, name, symbol, status,
+  rent floor, read through the RPC seam. Rows: PID, name, symbol, state,
   treasury SOL, goal, open tasks; a market without a goal memo shows `-`.
   The open-task count is folded from the same message log with the
   board's pure fold (a task log deeper than the 50-message window counts
@@ -42,7 +42,7 @@ and the treasury float. Devnet only, like every write.
 - **Show** (`projects`): one project's discovery read — market detail,
   the goal, the treasury float, the board summary (n/m done, open
   claims) folded from the same message log, and the last three memos.
-  `projects show <mint|fid>` resolves the 8-char FID or the full mint
+  `projects show <pid|mint>` resolves the 8-char PID or the full mint
   against the indexer.
 
 - **Symbol**: derived deterministically from the name — uppercase
@@ -95,7 +95,7 @@ uses: the indexer's markets and message log, the board's pure fold, and
 the RPC treasury float — no chain writes, no agent key, no vault
 creator. The `projects` tool and the `/projects` command load read mode
 (`LoadReadConfig` + `NewRead`); the list filters by status
-(bonding|ready|migrated) or goal-only and sorts by treasury descending,
+(private|funded|public) or goal-only and sorts by backing descending,
 the economic signal that decides what a worker joins. The indexer serves
 newest-first; the fold sorts into log order by `message_id` before
 `board.Fold`, and the goal is the first `goal:` memo in the indexer's
