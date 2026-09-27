@@ -412,6 +412,63 @@ func TestPreflightNamesWhatExistsAndWillHappen(t *testing.T) {
 	}
 }
 
+func TestPreflightNamesTheFundingFloor(t *testing.T) {
+	h := newHarness(t, nil)
+	defer h.idb.DB.Close()
+	defer h.sdb.DB.Close()
+	h.rpc.balance = 0
+	out, err := h.cmd.Run(context.Background(), "join worker", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"0.005", "send devnet SOL or wait for the faucet", h.tc.AgentPublic()} {
+		if !strings.Contains(out, want) {
+			t.Errorf("preflight output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestJoinAirdropRetriedWhenUnderFloor(t *testing.T) {
+	h := newHarness(t, nil)
+	defer h.idb.DB.Close()
+	defer h.sdb.DB.Close()
+	h.rpc.balance = 0
+	calls := 0
+	h.cmd.Init = func() (onboard.InitResult, error) {
+		calls++
+		return onboard.InitResult{Pubkey: h.tc.AgentPublic(), Balance: 1_000_000_000}, nil
+	}
+	out, err := h.cmd.Run(context.Background(), "join worker", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Errorf("Init calls: %d, want 1 (the airdrop retry on /earn)", calls)
+	}
+	if !strings.Contains(out, "airdrop retried") {
+		t.Errorf("output missing the retried step:\n%s", out)
+	}
+}
+
+func TestJoinRefusesWhenHotWalletStaysEmpty(t *testing.T) {
+	h := newHarness(t, nil)
+	defer h.idb.DB.Close()
+	defer h.sdb.DB.Close()
+	h.cmd.Init = func() (onboard.InitResult, error) {
+		return onboard.InitResult{Pubkey: h.tc.AgentPublic(), Balance: 0}, nil
+	}
+	_, err := h.cmd.Run(context.Background(), "join worker", nil)
+	if err == nil {
+		t.Fatal("a join whose wallet stays under the floor must refuse")
+	}
+	if !strings.Contains(err.Error(), "send devnet SOL or wait for the faucet") {
+		t.Errorf("refusal = %v, want the funding line", err)
+	}
+	if h.rpc.sends != 0 {
+		t.Errorf("sendTransaction calls: %d, want 0 (no chain spend under the floor)", h.rpc.sends)
+	}
+}
+
 func TestJoinRunsInitWhenKeyMissing(t *testing.T) {
 	dir := t.TempDir()
 	h := newHarness(t, func(k string) string {
@@ -429,7 +486,7 @@ func TestJoinRunsInitWhenKeyMissing(t *testing.T) {
 	initCalled := false
 	h.cmd.Init = func() (onboard.InitResult, error) {
 		initCalled = true
-		return onboard.InitResult{Pubkey: "hot", Balance: 1}, nil
+		return onboard.InitResult{Pubkey: "hot", Balance: 1_000_000_000}, nil
 	}
 	if _, err := h.cmd.Run(context.Background(), "join worker", nil); err != nil {
 		t.Fatal(err)

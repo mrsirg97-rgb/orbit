@@ -43,6 +43,9 @@ func runJobFire(args []string) int {
 	if err != nil {
 		die("run-job: %v", err)
 	}
+	if err := checkFireFunded(ctx, tc); err != nil {
+		die("%v", err)
+	}
 	snap, text, err := fireBrief(ctx, tc, row)
 	if err != nil {
 		die("run-job: brief: %v", err)
@@ -57,9 +60,15 @@ func runJobFire(args []string) int {
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		die("%v", err)
 	}
+	if err := writeFireAgentID(mustOrbitHome(), row.ID); err != nil {
+		die("run-job: %v", err)
+	}
 	sandbox, swapURL, err := fireSandboxSwap(os.Getenv)
 	if err != nil {
 		die("run-job: settings: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(mustOrbitHome(), "kernel"), 0o755); err != nil {
+		die("run-job: sandbox kernel: %v", err)
 	}
 	run := func(ctx context.Context) error {
 		return sched.RunJob(args[0], sched.RunOpts{
@@ -101,8 +110,9 @@ func fireBrief(ctx context.Context, tc *client.TorchClient, row identity.Row) (b
 }
 
 func fireSandboxSwap(getenv func(string) string) (string, string, error) {
-	// The sandbox and the worker swap URL come from settings.json like main
-	// reads them; env overrides. Neither is hardcoded here.
+	// The fire's sandbox is always on: the operator's interactive setting
+	// never reaches a fire. Only the worker swap URL still comes from
+	// settings.json with the env override.
 	home, err := client.Home(getenv)
 	if err != nil {
 		return "", "", err
@@ -115,18 +125,30 @@ func fireSandboxSwap(getenv func(string) string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	sandbox := cfg.Settings.Sandbox
-	if v := strings.TrimSpace(getenv("ORBIT_SANDBOX")); v != "" {
-		sandbox = v
-	}
-	if sandbox == "" {
-		sandbox = "off"
-	}
 	swapURL := cfg.Settings.SwapURL
 	if v := strings.TrimSpace(getenv("RIG_SWAP_URL")); v != "" {
 		swapURL = v
 	}
-	return sandbox, swapURL, nil
+	return "jailed", swapURL, nil
+}
+
+func checkFireFunded(ctx context.Context, tc *client.TorchClient) error {
+	balance, err := tc.RPC.GetBalance(ctx, tc.AgentPublic())
+	if err != nil {
+		return fmt.Errorf("run-job: hot wallet balance: %w", err)
+	}
+	if balance < earn.FundingFloorLamports {
+		return fmt.Errorf("run-job: %s", earn.FundingLine(tc.AgentPublic()))
+	}
+	return nil
+}
+
+func writeFireAgentID(home, agentID string) error {
+	dir := filepath.Join(home, ".rig-job")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("run-job: fire scratch: %w", err)
+	}
+	return os.WriteFile(filepath.Join(dir, "agent-id"), []byte(agentID), 0o644)
 }
 
 func writeStatusSnapshot(ctx context.Context, tc *client.TorchClient, read brief.ReadState) {

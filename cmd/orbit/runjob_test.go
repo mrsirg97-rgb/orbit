@@ -2,10 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/mrsirg97-rgb/orbit/board"
@@ -17,6 +23,7 @@ import (
 
 type runjobFakeRPC struct {
 	accounts map[string]client.AccountInfo
+	balance  uint64
 }
 
 func (f *runjobFakeRPC) GetLatestBlockhash(context.Context) (string, error) {
@@ -29,7 +36,7 @@ func (f *runjobFakeRPC) GetAccountInfo(ctx context.Context, pubkey string) (clie
 func (f *runjobFakeRPC) GetTokenAccountsByOwner(context.Context, string, string) ([]client.TokenAccount, error) {
 	return nil, nil
 }
-func (f *runjobFakeRPC) GetBalance(context.Context, string) (uint64, error) { return 0, nil }
+func (f *runjobFakeRPC) GetBalance(context.Context, string) (uint64, error) { return f.balance, nil }
 func (f *runjobFakeRPC) GetSignatureStatus(context.Context, string) (client.SignatureStatus, error) {
 	return client.SignatureStatus{Exists: true, Confirmed: true}, nil
 }
@@ -91,6 +98,28 @@ func runjobClient(t *testing.T) *client.TorchClient {
 	}
 }
 
+func TestFireRefusesWhenHotWalletEmpty(t *testing.T) {
+	tc := runjobClient(t)
+	err := checkFireFunded(context.Background(), tc)
+	if err == nil {
+		t.Fatal("a fire with an empty hot wallet must refuse before spawn")
+	}
+	msg := err.Error()
+	for _, want := range []string{"send devnet SOL or wait for the faucet", "0.005", tc.AgentPublic()} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("refusal missing %q: %v", want, msg)
+		}
+	}
+}
+
+func TestFireAboveFloorPassesTheCheck(t *testing.T) {
+	tc := runjobClient(t)
+	tc.RPC.(*runjobFakeRPC).balance = earn.FundingFloorLamports
+	if err := checkFireFunded(context.Background(), tc); err != nil {
+		t.Fatalf("a wallet at the floor must fund the fire: %v", err)
+	}
+}
+
 func TestFireBriefCarriesGoal(t *testing.T) {
 	row := identity.Row{Name: "architect", Bio: "Frames the brief.", Goal: "Research whether compact briefs degrade decisions."}
 	_, text, err := fireBrief(context.Background(), runjobClient(t), row)
@@ -102,16 +131,20 @@ func TestFireBriefCarriesGoal(t *testing.T) {
 	}
 }
 
-func TestFireSandboxAndSwapFromSettingsAndEnv(t *testing.T) {
+func TestFireSandboxIsAlwaysOn(t *testing.T) {
 	home := t.TempDir()
 	if err := os.WriteFile(filepath.Join(home, "settings.json"),
-		[]byte(`{"sandbox": "jailed", "swapUrl": "http://10.0.0.1:9000"}`), 0o600); err != nil {
+		[]byte(`{"sandbox": "off", "swapUrl": "http://10.0.0.1:9000"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	getenv := func(k string) string {
 		switch k {
 		case "RIG_HOME":
 			return home
+		case "ORBIT_SANDBOX":
+			return "off"
+		case "RIG_SWAP_URL":
+			return "http://10.0.0.2:9000"
 		}
 		return ""
 	}
@@ -120,32 +153,114 @@ func TestFireSandboxAndSwapFromSettingsAndEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	if sandbox != "jailed" {
-		t.Errorf("sandbox %q, want settings.json's jailed", sandbox)
+		t.Errorf("fire sandbox %q, want jailed (always on, settings and env ignored)", sandbox)
 	}
-	if swapURL != "http://10.0.0.1:9000" {
-		t.Errorf("swap url %q, want settings.json's", swapURL)
+	if swapURL != "http://10.0.0.2:9000" {
+		t.Errorf("swap url %q, want the env override", swapURL)
+	}
+}
+
+func TestFireWorkerResolvesHomeAndPinsTheWire(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode skips the binary build")
+	}
+	bin := filepath.Join(t.TempDir(), "orbit")
+	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "settings.json"),
+		[]byte(`{"allow": ["bash", "read"], "model": "dsv4"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	models := `[{"id":"dsv4","window":393216,"maxTokens":65536,"reserve":104858,"keepRecent":98304,"role":"interactive","efforts":["low","high","max"]}]`
+	if err := os.WriteFile(filepath.Join(home, "models.json"), []byte(models), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".rig-job"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".rig-job", "agent-id"), []byte("@APxxxx-worker"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
-	env := func(k string) string {
-		switch k {
-		case "RIG_HOME":
+	var mu sync.Mutex
+	var captured string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			_, _ = io.WriteString(w, `{"data":[]}`)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		captured = string(body)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\n")
+	}))
+	defer srv.Close()
+
+	cmd := exec.Command(bin, "-p", "hi", "-base-url", srv.URL, "-model", "dsv4")
+	cmd.Dir = home
+	cmd.Env = append(os.Environ(), "RIG_HOME="+filepath.Join(home, ".rig-job"))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("fire worker: %v\n%s", err, out)
+	}
+	if strings.Contains(string(out), "python kernel host") {
+		t.Errorf("the fire must not wire the python kernel:\n%s", out)
+	}
+
+	mu.Lock()
+	body := captured
+	mu.Unlock()
+	if body == "" {
+		t.Fatal("the worker never asked the model")
+	}
+	var req struct {
+		Tools []struct {
+			Function struct {
+				Name string `json:"name"`
+			} `json:"function"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal([]byte(body), &req); err != nil {
+		t.Fatalf("request: %v\n%s", err, body)
+	}
+	var names []string
+	for _, tool := range req.Tools {
+		names = append(names, tool.Function.Name)
+	}
+	if got, want := strings.Join(names, ","), strings.Join(fireToolNames, ","); got != want {
+		t.Errorf("fire wire on the model request: %s, want %s", got, want)
+	}
+	for _, banned := range []string{"bash", "python", "scheduler", "plugin", "plugins", "sessions", "delegate"} {
+		for _, n := range names {
+			if n == banned {
+				t.Errorf("the fire wire must not name %s: %v", banned, names)
+			}
+		}
+	}
+}
+
+func TestFireSandboxIgnoringInteractiveOnStillNamesTheSwap(t *testing.T) {
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "settings.json"),
+		[]byte(`{"swapUrl": "http://10.0.0.1:9000"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	getenv := func(k string) string {
+		if k == "RIG_HOME" {
 			return home
-		case "ORBIT_SANDBOX":
-			return "landlock"
-		case "RIG_SWAP_URL":
-			return "http://10.0.0.2:9000"
 		}
 		return ""
 	}
-	sandbox, swapURL, err = fireSandboxSwap(env)
+	sandbox, swapURL, err := fireSandboxSwap(getenv)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sandbox != "landlock" {
-		t.Errorf("env sandbox %q, want landlock to override settings", sandbox)
-	}
-	if swapURL != "http://10.0.0.2:9000" {
-		t.Errorf("env swap url %q, want the env to override settings", swapURL)
+	if sandbox != "jailed" || swapURL != "http://10.0.0.1:9000" {
+		t.Errorf("fire sandbox %q swap %q, want jailed + settings.json's swap url", sandbox, swapURL)
 	}
 }
 

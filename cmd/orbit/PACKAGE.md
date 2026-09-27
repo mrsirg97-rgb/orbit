@@ -50,12 +50,25 @@ dispatch.
   before approval spends a prompt, perm denies before approval asks and
   before the retry guard counts a failure, guard bounds retries/rounds/
   results, and paths expands `~` outermost so every tool inherits it.
-- **The fire path** (`runJobFire`): the job's identity row -> the live
-  read snapshot -> `brief.Build` at the row's size -> the job prompt
-  refresh -> spawn. The footer snapshot is best-effort: a failed snapshot
-  write never kills the fire. The fire writes it at fire start (the
-  read state), after every board act (the worker's `Store.OnAct` hook
-  refreshes it with the act's role, verb, and task id), and at fire end.
+- **The fire path** (`runJobFire`): the job's identity row -> the hot
+  wallet floor check (`checkFireFunded`: under 0.005 SOL it refuses with
+  the same line the earn preflight prints) -> the live read snapshot ->
+  `brief.Build` at the row's size -> the job prompt refresh -> spawn. The
+  fire's sandbox is always on (`jailed`), the interactive setting never
+  reaches it, and the agent id rides the scratch (`writeFireAgentID`) so
+  the worker's `Store.OnAct` hook keeps the footer's act snapshot. The
+  footer snapshot is best-effort: a failed snapshot write never kills the
+  fire. The fire writes it at fire start (the read state), after every
+  board act (the worker's `Store.OnAct` hook refreshes it with the act's
+  role, verb, and task id), and at fire end.
+- **The fire's fixed wire**: the jailed worker names itself by the
+  scratch home (`isFireJail`: `RIG_HOME` ending in `.rig-job`), resolves
+  the orbit home (`os.Setenv("RIG_HOME", ...)`), and pins both the wire
+  and the allow-list to `fireToolNames` — `market`, `intel`, `wallet`,
+  `board`, `projects`, `read`, `rem` — with no bash, python, scheduler,
+  plugin, sessions, or delegate, and no plugin/python wiring at all. The
+  operator's interactive allow is untouched: only the fire worker
+  resolves to the seven.
 - **Reads stay keyless**: project list, agent list, vault show, and board
   read load read mode (RPC only, no vault creator, no agent key).
 - **Bootstrap** prints the unsigned vault-admin instructions as JSON for
@@ -86,5 +99,9 @@ dispatch.
 - The orbit tools are natives: `orbitToolNames` rides `nativeToolNames`
   (the wire toolset is built from that table) and `appendOrbitTools`
   admits them to an allow-list that names none of them. A tool that is
-  registered but not named there is invisible to the model — every
-  session, the fires included.
+  registered but not named there is invisible to the model. The fire is
+  the exception by design: `fireToolNames` is the fire's whole wire.
+- The fire's floor and jail markers are rig-shaped: the scratch home
+  (`<job cwd>/.rig-job`) and the fire's sandbox both come from the pinned
+  rig v1.6.0. A rig upgrade that renames the scratch or stops pinning
+  `RIG_HOME` must be checked here first.

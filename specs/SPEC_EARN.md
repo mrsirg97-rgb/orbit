@@ -33,14 +33,18 @@ natives, the `/earn` command beside `command.All()`, and the orbit title
   signing step the path is asked once and remembered as
   `ORBIT_OPERATOR_KEY_PATH` in the config — the path, never the key.
   Before any chain spend, one preflight line names what exists and what
-  will happen. The setup is safe to rerun: create checks
-  `TorchVaultPDA(creator)` on chain against the recorded creator and
-  records the creator without sending when the vault exists, link and
-  deposit confirm the signature before returning, and deposit is gated
-  on the recorded `ORBIT_VAULT_DEPOSITED` marker or the vault record's
-  `total_deposited` (never the running balance). The model check runs
-  before any chain spend; a role whose job exists is refreshed, otherwise
-  created.
+  will happen; the preflight also reads the hot wallet balance and, under
+  the 0.005 SOL floor, names the pubkey and `send devnet SOL or wait for
+  the faucet` — the hot wallet pays every write's rent and fees. A wallet
+  under the floor retries the airdrop through init, and the setup refuses
+  before any chain spend if the retry leaves it there. The setup is safe
+  to rerun: create checks `TorchVaultPDA(creator)` on chain against the
+  recorded creator and records the creator without sending when the vault
+  exists, link and deposit confirm the signature before returning, and
+  deposit is gated on the recorded `ORBIT_VAULT_DEPOSITED` marker or the
+  vault record's `total_deposited` (never the running balance). The model
+  check runs before any chain spend; a role whose job exists is refreshed,
+  otherwise created.
 - **/earn roles**: lists the roster. **/earn roles add|remove <role>**:
   registers one role and its job, or removes the role's identity row and
   job.

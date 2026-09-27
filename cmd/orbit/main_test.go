@@ -43,8 +43,8 @@ func TestVersionStartupStaysFast(t *testing.T) {
 
 func TestVersionIsTheFreeze(t *testing.T) {
 
-	if Version != "0.4.2" {
-		t.Fatalf("Version = %q, want 0.4.2", Version)
+	if Version != "0.4.3" {
+		t.Fatalf("Version = %q, want 0.4.3", Version)
 	}
 
 	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(Version) {
@@ -151,7 +151,7 @@ func TestTitleRowsShapeAndFallback(t *testing.T) {
 }
 
 func TestOrbitToolsAreOnTheWire(t *testing.T) {
-	names := registeredNativeNames(nil, false)
+	names := registeredNativeNames(nil, false, false)
 	have := map[string]bool{}
 	for _, n := range names {
 		have[n] = true
@@ -163,6 +163,47 @@ func TestOrbitToolsAreOnTheWire(t *testing.T) {
 	}
 	if have["view"] {
 		t.Error("view must still drop without vision")
+	}
+}
+
+func TestFireWireToolsetIsExactlyTheSeven(t *testing.T) {
+	names := registeredNativeNames(nil, false, true)
+	if got, want := strings.Join(names, ","), strings.Join(fireToolNames, ","); got != want {
+		t.Errorf("fire wire: %s, want %s", got, want)
+	}
+	have := map[string]bool{}
+	for _, n := range names {
+		have[n] = true
+	}
+	for _, banned := range []string{"bash", "write", "edit", "python", "scheduler", "plugin", "plugins", "sessions", "delegate", "view", "todo", "diff"} {
+		if have[banned] {
+			t.Errorf("the fire wire must not name %s: %v", banned, names)
+		}
+	}
+}
+
+func TestFireAllowIsFixedAndInteractiveUntouched(t *testing.T) {
+	noEnv := func(string) string { return "" }
+	fireAllow := effectiveAllow([]string{"bash", "read"}, noEnv, "", false, true)
+	if got, want := strings.Join(fireAllow, ","), strings.Join(fireToolNames, ","); got != want {
+		t.Errorf("fire allow: %s, want %s", got, want)
+	}
+	interactive := effectiveAllow([]string{"bash", "read"}, noEnv, "", false, false)
+	if got := strings.Join(interactive, ","); got != "bash,read,market,intel,wallet,board,projects" {
+		t.Errorf("interactive allow changed: %s", got)
+	}
+	operator := effectiveAllow([]string{"read", "board"}, noEnv, "", false, false)
+	if got := strings.Join(operator, ","); got != "read,board" {
+		t.Errorf("an operator allow naming an orbit tool must stay verbatim: %s", got)
+	}
+}
+
+func TestFireJailIsTheRigHomeScratch(t *testing.T) {
+	if !isFireJail(filepath.Join(t.TempDir(), ".rig-job")) {
+		t.Error("a RIG_HOME ending in .rig-job must read as a fire jail")
+	}
+	if isFireJail(filepath.Join(t.TempDir(), "home")) {
+		t.Error("a normal RIG_HOME must not read as a fire jail")
 	}
 }
 

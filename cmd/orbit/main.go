@@ -69,7 +69,7 @@ import (
 	orbittool "github.com/mrsirg97-rgb/orbit/tool"
 )
 
-const Version = "0.4.2"
+const Version = "0.4.3"
 
 //go:embed theme.json
 var shippedTheme []byte
@@ -94,6 +94,7 @@ type root struct {
 	retries   int
 	rounds    int
 	resultCap int
+	fire      bool
 
 	middleware []core.ToolMiddleware
 
@@ -216,7 +217,7 @@ func wire(r *root) *rig.Kernel {
 	r.live.SetPlugins(r.pluginNames()...)
 	if r.natives == nil {
 		r.natives = make(map[string]bool)
-		for _, name := range effectiveNativeNames(r.workers) {
+		for _, name := range effectiveNativeNames(r.workers, r.fire) {
 			r.natives[name] = true
 		}
 	}
@@ -286,7 +287,7 @@ func remRow(m remdom.Memory) command.RemRow {
 }
 
 func (r *root) nativeTools() []core.Tool {
-	names := registeredNativeNames(r.workers, r.row.Vision)
+	names := registeredNativeNames(r.workers, r.row.Vision, r.fire)
 	out := make([]core.Tool, 0, len(names))
 	for _, name := range names {
 		tool, ok := r.tools[name]
@@ -694,7 +695,15 @@ func appendOrbitTools(allow []string) []string {
 
 var workerToolNames = []string{"scheduler", "delegate"}
 
-func effectiveNativeNames(workers *config.Workers) []string {
+// fireToolNames are the fire's fixed wire toolset: the model in a fire sees
+// exactly these and nothing else. The operator's interactive allow is
+// untouched; only the fire worker resolves to this list.
+var fireToolNames = []string{"market", "intel", "wallet", "board", "projects", "read", "rem"}
+
+func effectiveNativeNames(workers *config.Workers, fire bool) []string {
+	if fire {
+		return fireToolNames
+	}
 	drop := workers == nil
 	out := make([]string, 0, len(nativeToolNames))
 	for _, name := range nativeToolNames {
@@ -706,9 +715,9 @@ func effectiveNativeNames(workers *config.Workers) []string {
 	return out
 }
 
-func registeredNativeNames(workers *config.Workers, vision bool) []string {
-	names := effectiveNativeNames(workers)
-	if vision {
+func registeredNativeNames(workers *config.Workers, vision, fire bool) []string {
+	names := effectiveNativeNames(workers, fire)
+	if fire || vision {
 		return names
 	}
 	out := make([]string, 0, len(names))
@@ -719,6 +728,40 @@ func registeredNativeNames(workers *config.Workers, vision bool) []string {
 		out = append(out, name)
 	}
 	return out
+}
+
+// effectiveAllow resolves the allow-list the same way main does and pins it
+// to the fixed seven for a fire.
+func effectiveAllow(settingsAllow []string, getenv func(string) string, allowFlag string, passedAllow, fire bool) []string {
+	allow := settingsAllow
+	if v := strings.TrimSpace(getenv("RIG_ALLOW")); v != "" {
+		allow = splitCSV(v)
+	}
+	if passedAllow {
+		allow = splitCSV(allowFlag)
+	}
+	if !passedAllow && strings.TrimSpace(getenv("RIG_ALLOW")) == "" {
+		allow = appendOrbitTools(allow)
+	}
+	if fire {
+		allow = fireToolNames
+	}
+	return allow
+}
+
+// isFireJail names the worker jail's scratch home: rig pins RIG_HOME to
+// <job cwd>/.rig-job for every jailed worker, so the fire worker resolves
+// its own home and the fixed toolset from that marker.
+func isFireJail(home string) bool {
+	return filepath.Base(home) == ".rig-job"
+}
+
+func fireAgentID(home string) string {
+	b, err := os.ReadFile(filepath.Join(home, ".rig-job", "agent-id"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
 }
 
 func isWorkerTool(name string) bool {
@@ -943,6 +986,14 @@ func main() {
 		fmt.Fprintln(os.Stderr, "orbit:", err)
 		os.Exit(1)
 	}
+	fire := isFireJail(cfgDir)
+	if fire {
+		cfgDir = filepath.Dir(cfgDir)
+		if err := os.Setenv("RIG_HOME", cfgDir); err != nil {
+			fmt.Fprintln(os.Stderr, "rig:", err)
+			os.Exit(1)
+		}
+	}
 	cfg, err := config.Load(cfgDir, cwd)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "rig:", err)
@@ -976,16 +1027,7 @@ func main() {
 	if passed["system"] {
 		systemPrompt = *system
 	}
-	allowList := cfg.Settings.Allow
-	if v := os.Getenv("RIG_ALLOW"); v != "" {
-		allowList = splitCSV(v)
-	}
-	if passed["allow"] {
-		allowList = splitCSV(*allow)
-	}
-	if !passed["allow"] && os.Getenv("RIG_ALLOW") == "" {
-		allowList = appendOrbitTools(allowList)
-	}
+	allowList := effectiveAllow(cfg.Settings.Allow, os.Getenv, *allow, passed["allow"], fire)
 	envInt := func(key string, def int) int {
 		v := os.Getenv(key)
 		if v == "" {
@@ -1011,13 +1053,16 @@ func main() {
 
 	row := resolveModel(modelID, cfg.Models)
 
-	py := pythontool.New()
-	if python := envOr("RIG_PYTHON", cfg.Settings.Python); python != "" {
-		py = pythontool.NewWith(python, pythontool.DefaultHost())
+	var py *pythontool.Tool
+	if !fire {
+		py = pythontool.New()
+		if python := envOr("RIG_PYTHON", cfg.Settings.Python); python != "" {
+			py = pythontool.NewWith(python, pythontool.DefaultHost())
+		}
+		py.SetCwd(cwd)
+		defer py.Close()
+		fmt.Fprintf(os.Stderr, "rig: python kernel host: %s\n", py.Host())
 	}
-	py.SetCwd(cwd)
-	defer py.Close()
-	fmt.Fprintf(os.Stderr, "rig: python kernel host: %s\n", py.Host())
 
 	webSearch := webtool.NewSearch(webtool.SearchConfig{BaseURL: envOr("RIG_SEARXNG_URL", cfg.Settings.SearXNG)})
 	proxy := ""
@@ -1034,16 +1079,22 @@ func main() {
 	webFetch := webtool.NewFetch(webtool.FetchConfig{Proxy: proxy, Trafilatura: traf})
 
 	pluginsDir := filepath.Join(cfgDir, "plugins")
-	if err := os.MkdirAll(filepath.Join(pluginsDir, "pending"), 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "rig: plugins: create the pending zone: %v\n", err)
-	}
-	pluginFiles, err := plugins.List(cfgDir)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "rig:", err)
-		os.Exit(1)
+	pluginsHome := cfgDir
+	var pluginFiles []string
+	if fire {
+		pluginsHome = ""
+	} else {
+		if err := os.MkdirAll(filepath.Join(pluginsDir, "pending"), 0o755); err != nil {
+			fmt.Fprintf(os.Stderr, "rig: plugins: create the pending zone: %v\n", err)
+		}
+		pluginFiles, err = plugins.List(cfgDir)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "rig:", err)
+			os.Exit(1)
+		}
 	}
 	native := make(map[string]bool)
-	for _, name := range effectiveNativeNames(cfg.Workers) {
+	for _, name := range effectiveNativeNames(cfg.Workers, fire) {
 		native[name] = true
 	}
 	pluginReports := make([]plugins.Report, 0)
@@ -1167,6 +1218,7 @@ func main() {
 		retries:    retriesN,
 		rounds:     roundsN,
 		resultCap:  resultCapN,
+		fire:       fire,
 		sdb:        sdb,
 		remDB:      rdb,
 		cwd:        cwd,
@@ -1188,7 +1240,7 @@ func main() {
 		workers:     cfg.Workers,
 		pluginTools: pluginTools,
 		py:          py,
-		pluginsHome: cfgDir,
+		pluginsHome: pluginsHome,
 		pluginInfos: pluginInfos,
 	}
 
@@ -1259,7 +1311,11 @@ func main() {
 	defer bdb.DB.Close()
 	snapshotPath := filepath.Join(cfgDir, "status.json")
 	r.board = &board.Store{Client: cp.Torch, DB: bdb}
-	if agentID := os.Getenv("ORBIT_AGENT_ID"); agentID != "" {
+	agentID := os.Getenv("ORBIT_AGENT_ID")
+	if agentID == "" && fire {
+		agentID = fireAgentID(cfgDir)
+	}
+	if agentID != "" {
 		r.board.OnAct = func(ctx context.Context, shape board.Shape) {
 			tc, err := cp.Torch()
 			if err != nil {
