@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mrsirg97-rgb/orbit/board"
 	"github.com/mrsirg97-rgb/orbit/client"
 	"github.com/mrsirg97-rgb/orbit/projects"
 )
 
 type Projects struct {
 	Client func() (*client.TorchClient, error)
+	Store  *board.Store
 }
 
 func (p *Projects) client() (*client.TorchClient, error) {
@@ -66,7 +68,7 @@ func (p *Projects) Exec(ctx context.Context, args json.RawMessage) (string, erro
 		if in.Mint == "" {
 			return "", errors.New("projects: show needs a mint or FID")
 		}
-		s, err := projects.Show(ctx, tc, in.Mint)
+		s, err := projects.Show(ctx, tc, p.Store, in.Mint)
 		if err != nil {
 			return "", fmt.Errorf("projects: %w", err)
 		}
@@ -77,7 +79,7 @@ func (p *Projects) Exec(ctx context.Context, args json.RawMessage) (string, erro
 }
 
 func (p *Projects) list(ctx context.Context, tc *client.TorchClient, f projects.Filter) (string, error) {
-	rows, err := projects.List(ctx, tc, f)
+	rows, err := projects.List(ctx, tc, p.Store, f)
 	if err != nil {
 		return "", err
 	}
@@ -86,9 +88,9 @@ func (p *Projects) list(ctx context.Context, tc *client.TorchClient, f projects.
 	}
 	lines := make([]string, 0, len(rows))
 	for _, r := range rows {
-		lines = append(lines, fmt.Sprintf("[%s] %s · %s · treasury %s SOL · %d open · goal %s",
+		lines = append(lines, fmt.Sprintf("[%s] %s · %s · treasury %s SOL · %s open · goal %s",
 			fid8(r.Mint), r.Name, projects.StatusWord(r.Status), client.FormatSOL(r.TreasurySOL),
-			r.OpenTasks, dash(r.Goal)))
+			projects.TasksText(r.OpenTasks), dash(r.Goal)))
 	}
 	return strings.Join(lines, "\n"), nil
 }

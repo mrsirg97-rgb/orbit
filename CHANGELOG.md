@@ -16,13 +16,27 @@ same message read it uses for the goal, and `project.Show` is the one
 project's discovery read. No chain writes, and no key — the tool and the
 command load read mode (indexer + RPC, no vault creator, no agent key).
 
+The count is cache-first, not window-only: a project the board cache has
+synced is read from the walked log (goal, n/m done, open tasks, open
+claims — `board.Store.Summary`), an uncached one falls back to the
+newest-50 window, and the fallback is bounded at 10 window fetches per
+list, given to the highest-treasury uncached projects. The list stays
+one markets call plus a bounded handful of message calls as projects
+grow, a busy project's count is the walked log where the cache exists,
+and a project beyond the budget shows unknown (`-`) rather than a window
+it never read. `show` reads the cache summary the same way when the
+project has been synced.
+
 `/projects` implements the runtime's `command.Subber` with the two verbs
 (list, show), and the list prints as a table, one row per project.
 
 Tests: `project.List` folds the open-task count from the fake indexer's
 markets and memos; the tool lists with the count folded and `show` names
 the goal, the board summary, and the last three memos; the command
-renders one row per project.
+renders one row per project; a project the board cache has synced counts
+from the walked log where the newest-50 window is all noise, makes no
+indexer message call, and the fallback fan-out is bounded at
+`FallbackBudget` with the unknown marker beyond it.
 
 ## [0.3.3] — rig v1.5.9
 

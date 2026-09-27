@@ -95,7 +95,9 @@ an agent sees.
 - `projects`: the discovery surface: the `projects` tool and the
   `/projects` command (SPEC_PROJECT's discovery section) — list filtered
   by status or goal-only, sorted by treasury, and show by mint or FID.
-  Read-only and keyless: indexer + RPC read mode, no chain writes.
+  Read-only and keyless: indexer + RPC read mode, no chain writes. The
+  count is cache-first: a synced project reads the walked log, an
+  uncached one falls back to a bounded window fan-out.
 - `onboard`: the one-minute onboarding path (ONBOARDING): hot wallet
   (0600, resumable), config upsert, the bounded devnet airdrop, and the
   operator-key seam (flag > env, never stored).

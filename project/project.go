@@ -124,7 +124,7 @@ func List(ctx context.Context, api client.API, rpc client.RPC, programID string,
 		}
 		rows = append(rows, Row{
 			Mint: m.Mint, Name: m.Name, Symbol: m.Symbol, Status: string(m.Status),
-			TreasurySOL: treasury, Goal: goal, OpenTasks: openTasks(m.Mint, msgs),
+			TreasurySOL: treasury, Goal: goal, OpenTasks: OpenTasks(m.Mint, msgs),
 		})
 	}
 	return rows, nil
@@ -177,7 +177,7 @@ func boardCounts(tasks []board.Task) (total, done, claims int) {
 	return total, done, claims
 }
 
-func openTasks(mint string, msgs []client.MessageRow) int {
+func OpenTasks(mint string, msgs []client.MessageRow) int {
 	total, done, _ := boardCounts(foldTasks(mint, msgs))
 	return total - done
 }

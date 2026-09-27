@@ -1246,7 +1246,7 @@ func main() {
 	r.tools["intel"] = &orbittool.Intel{Client: cp.Torch}
 	r.tools["wallet"] = &orbittool.Wallet{Client: cp.Torch}
 	r.tools["board"] = &orbittool.Board{Store: r.board, Client: cp.Torch}
-	r.tools["projects"] = &orbittool.Projects{Client: cp.Read}
+	r.tools["projects"] = &orbittool.Projects{Client: cp.Read, Store: r.board}
 	r.client = cp
 	r.earn = &earn.Command{
 		Getenv: os.Getenv,
@@ -1268,7 +1268,7 @@ func main() {
 		Model:        func() string { return r.activeID },
 		SnapshotPath: snapshotPath,
 	}
-	r.projects = &projects.Command{Client: cp.Read}
+	r.projects = &projects.Command{Client: cp.Read, Store: r.board}
 
 	workersEnv := command.Workers{File: filepath.Join(cfgDir, "workers.json")}
 	if cfg.Workers != nil {

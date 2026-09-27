@@ -681,6 +681,65 @@ func (s *Store) goalOf(bound context.Context, mint string) (string, error) {
 	return "", nil
 }
 
+type Summary struct {
+	Goal       string
+	TotalTasks int
+	DoneTasks  int
+	OpenTasks  int
+	OpenClaims int
+}
+
+func (s *Store) Summary(ctx context.Context, mint string) (Summary, bool, error) {
+	bound, tx, err := s.DB.TxReadOnly(ctx)
+	if err != nil {
+		return Summary{}, false, err
+	}
+	defer tx.Rollback()
+	cached, err := cachedIn(bound, mint)
+	if err != nil {
+		return Summary{}, false, err
+	}
+	if !cached {
+		return Summary{}, false, nil
+	}
+	goal, err := s.goalOf(bound, mint)
+	if err != nil {
+		return Summary{}, false, err
+	}
+	rows, err := domain.NewTaskDomain().WindowTaskByProject(bound, mint, "", "\uffff", 1<<30).Rows()
+	if err != nil {
+		return Summary{}, false, err
+	}
+	sum := Summary{Goal: goal}
+	for _, r := range rows {
+		sum.TotalTasks++
+		switch r.Status {
+		case StatusDone:
+			sum.DoneTasks++
+		case StatusActive:
+			sum.OpenClaims++
+		}
+	}
+	sum.OpenTasks = sum.TotalTasks - sum.DoneTasks
+	return sum, true, nil
+}
+
+func cachedIn(bound context.Context, mint string) (bool, error) {
+	tx, err := sqlx.TxFrom(bound)
+	if err != nil {
+		return false, err
+	}
+	var one int
+	err = tx.QueryRowContext(bound, `SELECT 1 FROM project_sources WHERE project = ?`, mint).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *Store) Task(ctx context.Context, p Project, id string) (TaskInfo, error) {
 	bound, tx, err := s.DB.TxReadOnly(ctx)
 	if err != nil {

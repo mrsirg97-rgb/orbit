@@ -8,12 +8,14 @@ import (
 
 	"github.com/mrsirg97-rgb/rig/command"
 
+	"github.com/mrsirg97-rgb/orbit/board"
 	"github.com/mrsirg97-rgb/orbit/client"
 	"github.com/mrsirg97-rgb/orbit/project"
 )
 
 type Command struct {
 	Client func() (*client.TorchClient, error)
+	Store  *board.Store
 }
 
 func (c *Command) Name() string { return "projects" }
@@ -72,7 +74,7 @@ func (c *Command) client(ctx context.Context) (*client.TorchClient, error) {
 }
 
 func (c *Command) list(ctx context.Context, tc *client.TorchClient, f Filter) (string, error) {
-	rows, err := List(ctx, tc, f)
+	rows, err := List(ctx, tc, c.Store, f)
 	if err != nil {
 		return "", err
 	}
@@ -88,7 +90,7 @@ func (c *Command) list(ctx context.Context, tc *client.TorchClient, f Filter) (s
 }
 
 func (c *Command) show(ctx context.Context, tc *client.TorchClient, input string) (string, error) {
-	s, err := Show(ctx, tc, input)
+	s, err := Show(ctx, tc, c.Store, input)
 	if err != nil {
 		return "", err
 	}
@@ -96,9 +98,9 @@ func (c *Command) show(ctx context.Context, tc *client.TorchClient, input string
 }
 
 func rowLine(r project.Row) string {
-	return fmt.Sprintf("%-10s %-20s %-9s %-14s %-4d %s\n",
+	return fmt.Sprintf("%-10s %-20s %-9s %-14s %-4s %s\n",
 		fid8(r.Mint), truncate(r.Name, 20), StatusWord(r.Status), client.FormatSOL(r.TreasurySOL),
-		r.OpenTasks, dash(r.Goal))
+		TasksText(r.OpenTasks), dash(r.Goal))
 }
 
 func parseFilter(fields []string) (Filter, error) {

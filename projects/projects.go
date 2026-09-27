@@ -6,9 +6,15 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mrsirg97-rgb/orbit/board"
 	"github.com/mrsirg97-rgb/orbit/client"
 	"github.com/mrsirg97-rgb/orbit/project"
 	solpkg "github.com/mrsirg97-rgb/orbit/sol"
+)
+
+const (
+	FallbackBudget = 10
+	UnknownTasks   = -1
 )
 
 type Filter struct {
@@ -16,33 +22,92 @@ type Filter struct {
 	GoalOnly bool
 }
 
-func List(ctx context.Context, tc *client.TorchClient, f Filter) ([]project.Row, error) {
-	rows, err := project.List(ctx, tc.API, tc.RPC, tc.ProgramID, 50)
+func List(ctx context.Context, tc *client.TorchClient, store *board.Store, f Filter) ([]project.Row, error) {
+	markets, err := tc.API.Markets(ctx, client.Q("limit", "50"))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("projects list: markets: %w", err)
 	}
-	out := make([]project.Row, 0, len(rows))
-	for _, r := range rows {
-		if f.Status != "" && StatusWord(r.Status) != f.Status {
+	rows := make([]project.Row, 0, len(markets))
+	for _, m := range markets {
+		if f.Status != "" && StatusWord(string(m.Status)) != f.Status {
 			continue
 		}
-		if f.GoalOnly && r.Goal == "" {
-			continue
+		treasury, err := treasurySOL(ctx, tc, m.Mint)
+		if err != nil {
+			return nil, fmt.Errorf("projects list: treasury %s: %w", m.Mint, err)
 		}
-		out = append(out, r)
+		rows = append(rows, project.Row{
+			Mint: m.Mint, Name: m.Name, Symbol: m.Symbol, Status: string(m.Status),
+			TreasurySOL: treasury, OpenTasks: UnknownTasks,
+		})
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		return out[i].TreasurySOL > out[j].TreasurySOL
+	sort.SliceStable(rows, func(i, j int) bool {
+		return rows[i].TreasurySOL > rows[j].TreasurySOL
 	})
-	return out, nil
+	budget := FallbackBudget
+	for i := range rows {
+		if store != nil {
+			sum, ok, err := store.Summary(ctx, rows[i].Mint)
+			if err != nil {
+				return nil, fmt.Errorf("projects list: board summary %s: %w", rows[i].Mint, err)
+			}
+			if ok {
+				rows[i].Goal = sum.Goal
+				rows[i].OpenTasks = sum.OpenTasks
+				continue
+			}
+		}
+		if budget <= 0 {
+			continue
+		}
+		budget--
+		msgs, err := tc.API.Messages(ctx, client.Q("mint", rows[i].Mint, "limit", "50"))
+		if err != nil {
+			return nil, fmt.Errorf("projects list: messages %s: %w", rows[i].Mint, err)
+		}
+		for _, msg := range msgs {
+			if rows[i].Goal == "" {
+				if g, ok := project.GoalFrom(msg.MemoText); ok {
+					rows[i].Goal = g
+				}
+			}
+		}
+		rows[i].OpenTasks = project.OpenTasks(rows[i].Mint, msgs)
+	}
+	if f.GoalOnly {
+		kept := rows[:0]
+		for _, r := range rows {
+			if r.Goal != "" {
+				kept = append(kept, r)
+			}
+		}
+		rows = kept
+	}
+	return rows, nil
 }
 
-func Show(ctx context.Context, tc *client.TorchClient, input string) (project.ShowView, error) {
+func Show(ctx context.Context, tc *client.TorchClient, store *board.Store, input string) (project.ShowView, error) {
 	mint, err := resolveMint(ctx, tc, input)
 	if err != nil {
 		return project.ShowView{}, err
 	}
-	return project.Show(ctx, tc.API, tc.RPC, tc.ProgramID, mint)
+	s, err := project.Show(ctx, tc.API, tc.RPC, tc.ProgramID, mint)
+	if err != nil {
+		return project.ShowView{}, err
+	}
+	if store != nil {
+		sum, ok, err := store.Summary(ctx, mint)
+		if err != nil {
+			return project.ShowView{}, fmt.Errorf("projects show: board summary %s: %w", mint, err)
+		}
+		if ok {
+			s.Goal = sum.Goal
+			s.TotalTasks = sum.TotalTasks
+			s.DoneTasks = sum.DoneTasks
+			s.OpenClaims = sum.OpenClaims
+		}
+	}
+	return s, nil
 }
 
 func ShowText(s project.ShowView) string {
@@ -70,6 +135,24 @@ func StatusWord(status string) string {
 	default:
 		return status
 	}
+}
+
+func TasksText(n int) string {
+	if n == UnknownTasks {
+		return "-"
+	}
+	return fmt.Sprintf("%d", n)
+}
+
+func treasurySOL(ctx context.Context, tc *client.TorchClient, mint string) (uint64, error) {
+	info, err := tc.RPC.GetAccountInfo(ctx, client.TreasurySolVaultPDA(tc.ProgramID, mint))
+	if err != nil {
+		return 0, err
+	}
+	if !info.Exists || info.Lamports < client.RentExemptZeroData {
+		return 0, nil
+	}
+	return info.Lamports - client.RentExemptZeroData, nil
 }
 
 func resolveMint(ctx context.Context, c *client.TorchClient, input string) (string, error) {

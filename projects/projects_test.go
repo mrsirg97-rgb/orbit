@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/mrsirg97-rgb/orbit/board"
 	"github.com/mrsirg97-rgb/orbit/client"
+	solpkg "github.com/mrsirg97-rgb/orbit/sol"
 )
 
 const (
@@ -20,8 +23,9 @@ const (
 )
 
 type fakeIndexer struct {
-	markets  []client.MarketRow
-	messages map[string][]client.MessageRow
+	markets       []client.MarketRow
+	messages      map[string][]client.MessageRow
+	messagesCalls int
 }
 
 func (f *fakeIndexer) Markets(context.Context, url.Values) ([]client.MarketRow, error) {
@@ -36,6 +40,7 @@ func (f *fakeIndexer) Market(_ context.Context, mint string) (client.MarketDetai
 	return client.MarketDetail{}, fmt.Errorf("no market %s", mint)
 }
 func (f *fakeIndexer) Messages(_ context.Context, q url.Values) ([]client.MessageRow, error) {
+	f.messagesCalls++
 	mint := q.Get("mint")
 	limit := 50
 	if v := q.Get("limit"); v != "" {
@@ -105,22 +110,22 @@ func indexerFixture() *fakeIndexer {
 		},
 		messages: map[string][]client.MessageRow{
 			mintA: {
-				{MessageID: 9, Mint: mintA, Sender: "walletX", MemoText: "note 2: Notes on the draft.", CreatedAt: now},
-				{MessageID: 8, Mint: mintA, Sender: "walletY", MemoText: "claim 3", CreatedAt: now},
-				{MessageID: 7, Mint: mintA, Sender: "walletX", MemoText: "task 3: Summarize the log.", CreatedAt: now},
-				{MessageID: 6, Mint: mintA, Sender: "walletX", MemoText: "task 2: Draft the research memo.", CreatedAt: now},
-				{MessageID: 5, Mint: mintA, Sender: "funder", MemoText: "accept 1", CreatedAt: now},
-				{MessageID: 4, Mint: mintA, Sender: "walletY", MemoText: "complete 1", CreatedAt: now},
-				{MessageID: 3, Mint: mintA, Sender: "walletY", MemoText: "claim 1", CreatedAt: now},
-				{MessageID: 2, Mint: mintA, Sender: "funder", MemoText: "task 1: Read the transcript.", CreatedAt: now},
-				{MessageID: 1, Mint: mintA, Sender: "funder", MemoText: "goal: Research whether sentiment predicts price.", CreatedAt: now},
+				{MessageID: 9, Mint: mintA, Sender: "walletX", MemoText: "note 2: Notes on the draft.", CreatedAt: now, Signature: "sigA9"},
+				{MessageID: 8, Mint: mintA, Sender: "walletY", MemoText: "claim 3", CreatedAt: now, Signature: "sigA8"},
+				{MessageID: 7, Mint: mintA, Sender: "walletX", MemoText: "task 3: Summarize the log.", CreatedAt: now, Signature: "sigA7"},
+				{MessageID: 6, Mint: mintA, Sender: "walletX", MemoText: "task 2: Draft the research memo.", CreatedAt: now, Signature: "sigA6"},
+				{MessageID: 5, Mint: mintA, Sender: "funder", MemoText: "accept 1", CreatedAt: now, Signature: "sigA5"},
+				{MessageID: 4, Mint: mintA, Sender: "walletY", MemoText: "complete 1", CreatedAt: now, Signature: "sigA4"},
+				{MessageID: 3, Mint: mintA, Sender: "walletY", MemoText: "claim 1", CreatedAt: now, Signature: "sigA3"},
+				{MessageID: 2, Mint: mintA, Sender: "funder", MemoText: "task 1: Read the transcript.", CreatedAt: now, Signature: "sigA2"},
+				{MessageID: 1, Mint: mintA, Sender: "funder", MemoText: "goal: Research whether sentiment predicts price.", CreatedAt: now, Signature: "sigA1"},
 			},
 			mintB: {
-				{MessageID: 2, Mint: mintB, Sender: "funder", MemoText: "task 1: Build the sentiment scorer.", CreatedAt: now},
-				{MessageID: 1, Mint: mintB, Sender: "funder", MemoText: "goal: Research whether the board sentiment scores predict moves.", CreatedAt: now},
+				{MessageID: 2, Mint: mintB, Sender: "funder", MemoText: "task 1: Build the sentiment scorer.", CreatedAt: now, Signature: "sigB2"},
+				{MessageID: 1, Mint: mintB, Sender: "funder", MemoText: "goal: Research whether the board sentiment scores predict moves.", CreatedAt: now, Signature: "sigB1"},
 			},
 			mintC: {
-				{MessageID: 1, Mint: mintC, Sender: "funder", MemoText: "goal: Accumulate the treasury.", CreatedAt: now},
+				{MessageID: 1, Mint: mintC, Sender: "funder", MemoText: "goal: Accumulate the treasury.", CreatedAt: now, Signature: "sigC1"},
 			},
 		},
 	}
@@ -150,7 +155,7 @@ func fixtureClient(t *testing.T) *client.TorchClient {
 
 func TestListFoldsOpenTasksAndSortsByTreasury(t *testing.T) {
 	tc := fixtureClient(t)
-	rows, err := List(context.Background(), tc, Filter{})
+	rows, err := List(context.Background(), tc, nil, Filter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,21 +185,21 @@ func TestListFoldsOpenTasksAndSortsByTreasury(t *testing.T) {
 func TestListFiltersStatusAndGoal(t *testing.T) {
 	tc := fixtureClient(t)
 	ctx := context.Background()
-	bonding, err := List(ctx, tc, Filter{Status: "bonding"})
+	bonding, err := List(ctx, tc, nil, Filter{Status: "bonding"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(bonding) != 1 || bonding[0].Mint != mintA {
 		t.Errorf("bonding filter: %+v", bonding)
 	}
-	ready, err := List(ctx, tc, Filter{Status: "ready"})
+	ready, err := List(ctx, tc, nil, Filter{Status: "ready"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(ready) != 1 || ready[0].Mint != mintB {
 		t.Errorf("ready filter: %+v", ready)
 	}
-	goalOnly, err := List(ctx, tc, Filter{GoalOnly: true})
+	goalOnly, err := List(ctx, tc, nil, Filter{GoalOnly: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +215,7 @@ func TestListFiltersStatusAndGoal(t *testing.T) {
 
 func TestShowNamesGoalSummaryAndLastMemos(t *testing.T) {
 	tc := fixtureClient(t)
-	s, err := Show(context.Background(), tc, "oxPkrZBG")
+	s, err := Show(context.Background(), tc, nil, "oxPkrZBG")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,5 +306,173 @@ func TestCommandListFilterTokenAndUnknownFilter(t *testing.T) {
 	}
 	if _, err := cmd.Run(context.Background(), "list hype", nil); err == nil || !strings.Contains(err.Error(), "unknown filter") {
 		t.Fatalf("unknown filter: %v", err)
+	}
+}
+
+func busyMessages() []client.MessageRow {
+	now := time.Now().UTC().Format(time.RFC3339)
+	rows := make([]client.MessageRow, 0, 57)
+	for id := 57; id >= 8; id-- {
+		rows = append(rows, client.MessageRow{
+			MessageID: int32(id), Mint: mintA, Sender: "walletX",
+			MemoText: fmt.Sprintf("back 0.01: noise %d", id), CreatedAt: now, Signature: fmt.Sprintf("sigN-%d", id),
+		})
+	}
+	rows = append(rows, []client.MessageRow{
+		{MessageID: 7, Mint: mintA, Sender: "funder", MemoText: "accept 1", CreatedAt: now, Signature: "sigB7"},
+		{MessageID: 6, Mint: mintA, Sender: "walletY", MemoText: "complete 1", CreatedAt: now, Signature: "sigB6"},
+		{MessageID: 5, Mint: mintA, Sender: "walletY", MemoText: "claim 1", CreatedAt: now, Signature: "sigB5"},
+		{MessageID: 4, Mint: mintA, Sender: "funder", MemoText: "task 3: Summarize the log.", CreatedAt: now, Signature: "sigB4"},
+		{MessageID: 3, Mint: mintA, Sender: "funder", MemoText: "task 2: Draft the research memo.", CreatedAt: now, Signature: "sigB3"},
+		{MessageID: 2, Mint: mintA, Sender: "funder", MemoText: "task 1: Read the transcript.", CreatedAt: now, Signature: "sigB2"},
+		{MessageID: 1, Mint: mintA, Sender: "funder", MemoText: "goal: Research whether sentiment predicts price.", CreatedAt: now, Signature: "sigB1"},
+	}...)
+	return rows
+}
+
+func cachedBoardStore(t *testing.T, tc *client.TorchClient) *board.Store {
+	t.Helper()
+	db, err := board.Open(filepath.Join(t.TempDir(), "board.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.DB.Close() })
+	return &board.Store{Client: func() (*client.TorchClient, error) { return tc, nil }, DB: db}
+}
+
+func TestListCountsFromTheCacheWhenOneExists(t *testing.T) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	api := &fakeIndexer{
+		markets: []client.MarketRow{
+			{Mint: mintA, Name: "Context Compaction", Symbol: "CONTEX", Status: client.StatusBonding},
+			{Mint: mintB, Name: "Sentiment Alpha", Symbol: "SENTIM", Status: client.StatusComplete},
+		},
+		messages: map[string][]client.MessageRow{
+			mintA: busyMessages(),
+			mintB: {
+				{MessageID: 2, Mint: mintB, Sender: "funder", MemoText: "task 1: Build the sentiment scorer.", CreatedAt: now, Signature: "sigB2"},
+				{MessageID: 1, Mint: mintB, Sender: "funder", MemoText: "goal: Research whether the board sentiment scores predict moves.", CreatedAt: now, Signature: "sigB1"},
+			},
+		},
+	}
+	rpc := &fakeRPC{accounts: map[string]client.AccountInfo{
+		client.TreasurySolVaultPDA(client.DevnetProgramID, mintA): {
+			Lamports: client.RentExemptZeroData + 12_340_000_000, Exists: true,
+		},
+		client.TreasurySolVaultPDA(client.DevnetProgramID, mintB): {
+			Lamports: client.RentExemptZeroData + 5_000_000_000, Exists: true,
+		},
+	}}
+	tc := &client.TorchClient{
+		Config: client.Config{Indexer: "http://127.0.0.1:1", RPC: "http://127.0.0.1:2", ProgramID: client.DevnetProgramID},
+		API:    api, RPC: rpc,
+	}
+	st := cachedBoardStore(t, tc)
+	if err := st.Sync(context.Background(), board.Project{Mint: mintA}, 100); err != nil {
+		t.Fatal(err)
+	}
+	api.messagesCalls = 0
+
+	ctx := context.Background()
+	windowed, err := List(ctx, tc, nil, Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if windowed[0].Mint != mintA || windowed[0].OpenTasks != 0 || windowed[0].Goal != "" {
+		t.Errorf("window list: %+v (the newest-50 window is all noise)", windowed[0])
+	}
+	api.messagesCalls = 0
+	cached, err := List(ctx, tc, st, Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cached[0].Mint != mintA || cached[0].OpenTasks != 2 || cached[0].Goal != "Research whether sentiment predicts price." {
+		t.Errorf("cached list row: %+v", cached[0])
+	}
+	if cached[1].OpenTasks != 1 {
+		t.Errorf("uncached fallback row: %+v", cached[1])
+	}
+	if api.messagesCalls != 1 {
+		t.Errorf("messages calls: %d, want 1 (the cached project must not hit the indexer)", api.messagesCalls)
+	}
+}
+
+func TestShowReadsTheCacheSummary(t *testing.T) {
+	api := &fakeIndexer{
+		markets: []client.MarketRow{
+			{Mint: mintA, Name: "Context Compaction", Symbol: "CONTEX", Status: client.StatusBonding},
+		},
+		messages: map[string][]client.MessageRow{mintA: busyMessages()},
+	}
+	rpc := &fakeRPC{accounts: map[string]client.AccountInfo{
+		client.TreasurySolVaultPDA(client.DevnetProgramID, mintA): {
+			Lamports: client.RentExemptZeroData + 12_340_000_000, Exists: true,
+		},
+	}}
+	tc := &client.TorchClient{
+		Config: client.Config{Indexer: "http://127.0.0.1:1", RPC: "http://127.0.0.1:2", ProgramID: client.DevnetProgramID},
+		API:    api, RPC: rpc,
+	}
+	st := cachedBoardStore(t, tc)
+	if err := st.Sync(context.Background(), board.Project{Mint: mintA}, 100); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Show(context.Background(), tc, st, "oxPkrZBG")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Goal != "Research whether sentiment predicts price." {
+		t.Errorf("goal: %q", s.Goal)
+	}
+	if s.TotalTasks != 3 || s.DoneTasks != 1 || s.OpenClaims != 0 {
+		t.Errorf("board summary: %d/%d done, %d claims", s.DoneTasks, s.TotalTasks, s.OpenClaims)
+	}
+	if len(s.Memos) != 3 {
+		t.Errorf("memos: %d, want 3", len(s.Memos))
+	}
+}
+
+func TestListBoundedFallback(t *testing.T) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	api := &fakeIndexer{messages: map[string][]client.MessageRow{}}
+	for i := 0; i < FallbackBudget+2; i++ {
+		kp, err := solpkg.GenerateKeypair()
+		if err != nil {
+			t.Fatal(err)
+		}
+		mint := kp.PublicBase58()
+		api.markets = append(api.markets, client.MarketRow{
+			Mint: mint, Name: fmt.Sprintf("Project %02d", i), Symbol: fmt.Sprintf("P%02d", i),
+			Status: client.StatusBonding,
+		})
+		api.messages[mint] = []client.MessageRow{
+			{MessageID: 1, Mint: mint, Sender: "funder", MemoText: fmt.Sprintf("task 1: Work %02d.", i), CreatedAt: now, Signature: fmt.Sprintf("sigW-%d", i)},
+		}
+	}
+	tc := &client.TorchClient{
+		Config: client.Config{Indexer: "http://127.0.0.1:1", RPC: "http://127.0.0.1:2", ProgramID: client.DevnetProgramID},
+		API:    api, RPC: &fakeRPC{accounts: map[string]client.AccountInfo{}},
+	}
+	rows, err := List(context.Background(), tc, nil, Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != FallbackBudget+2 {
+		t.Fatalf("rows: %d, want %d", len(rows), FallbackBudget+2)
+	}
+	for i, r := range rows {
+		want := 1
+		if i >= FallbackBudget {
+			want = UnknownTasks
+		}
+		if r.OpenTasks != want {
+			t.Errorf("row %d (%s): open %d, want %d", i, fid8(r.Mint), r.OpenTasks, want)
+		}
+	}
+	if api.messagesCalls != FallbackBudget {
+		t.Errorf("messages calls: %d, want %d (the fallback fan-out must be bounded)", api.messagesCalls, FallbackBudget)
+	}
+	if got := TasksText(UnknownTasks); got != "-" {
+		t.Errorf("unknown tasks text: %q, want -", got)
 	}
 }

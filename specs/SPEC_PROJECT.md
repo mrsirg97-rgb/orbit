@@ -101,6 +101,17 @@ newest-first; the fold sorts into log order by `message_id` before
 `board.Fold`, and the goal is the first `goal:` memo in the indexer's
 order (the newest goal is the current one).
 
+The count is cache-first, not window-only: a project the board cache has
+synced is counted from the walked log (`board.Store.Summary` — the goal,
+n/m done, open tasks, open claims), an uncached one falls back to the
+newest-50 window, and the fallback is bounded at `FallbackBudget` (10)
+window fetches per list, given to the highest-treasury uncached
+projects — the list stays one markets call plus a bounded handful of
+message calls as projects grow, and a busy project's count is the walked
+log where the cache exists. A project beyond the budget shows unknown
+(`-`) rather than a window it never read; `show` reads the cache summary
+the same way when the project has been synced.
+
 ### 6. Fail closed at each step
 
 The create is one atomic unit of two transactions, but the chain has no
@@ -138,5 +149,10 @@ an unconfirmed create.
   same message read, filters by status and goal-only, and sorts by
   treasury; `show` names the goal, the board summary, and the last three
   memos; the command renders one row per project.
+- Cache-first against a fixture: a project the board cache has synced
+  counts from the walked log where the newest-50 window is all noise,
+  the cached project makes no indexer message call, and the fallback
+  fan-out is bounded at `FallbackBudget` with the unknown marker beyond
+  it.
 - Goal memo: `goal: <goal>` tag and parse round-trip; symbol
   derivation; the multi-signer tx verifies both signatures.

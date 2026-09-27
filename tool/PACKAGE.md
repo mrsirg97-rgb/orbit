@@ -32,7 +32,10 @@ the join wizard in the same session.
   with goal, status, treasury, and open task count (status
   bonding|ready|migrated, goal-only), sorted by treasury; show the goal,
   treasury, board summary (n/m done, open claims), and the last three
-  memos. Read-only and keyless.
+  memos. Read-only and keyless. The count is cache-first: a project the
+  board cache has synced reads the walked log, an uncached one falls
+  back to the newest-50 window, and the fallback is bounded (10 window
+  fetches per list, the highest-treasury uncached projects first).
 - **Shared**: `resolveMint` (8-char FID or full mint), `truncate`
   (rune-safe, 160 by default), `shortAddr`, `sol` (the 2/4/6-decimal
   SOL formatter), and the tool results (the JSON schema per tool).
