@@ -31,9 +31,12 @@ SQLite is a cache rebuilt from it, never trusted.
   cache as a walk, idempotent by signature: the indexer pages newest-first
   with `before=<oldest created_at seen + 1s>` (the boundary second
   re-fetched, signatures dedupe) and the RPC scan pages with the signature
-  cursor, until a page holds a signature already cached or comes back
-  short. A fresh cache walks to genesis; a warm cache reads one page. The
-  walk is bounded at 50 pages: past it the cache is marked incomplete
+  cursor, until a scanned page holds a signature already cached or comes
+  back short. The scan's short-page stop and cursor are the page facts
+  (signatures scanned, oldest scanned signature), not the memo rows — a
+  full page of trades with no memo is not genesis and the walk continues
+  past it. A fresh cache walks to genesis; a warm cache reads one page.
+  The walk is bounded at 50 pages: past it the cache is marked incomplete
   (`project_incomplete`) and the render says so — the goal is the first
   goal memo in the walked log. Reads default to the indexer and fall back
   to the RPC scan when the indexer is unreachable (connect error, 5xx,

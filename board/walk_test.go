@@ -283,3 +283,124 @@ func TestWalkScanPagesWithSignatureCursor(t *testing.T) {
 		t.Errorf("seq 1 = %s, want sigWalkScan0 (the scan's local seq follows log order)", first)
 	}
 }
+
+type memoCurveRPC struct {
+	*boardFakeRPC
+	sigs  []string
+	memos map[string]string
+	calls int
+}
+
+func (f *memoCurveRPC) GetSignaturesForAddress(ctx context.Context, address string, limit int, before string) ([]client.SignatureInfo, error) {
+	f.calls++
+	start := len(f.sigs)
+	if before != "" {
+		found := false
+		for i, s := range f.sigs {
+			if s == before {
+				start = i
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, nil
+		}
+	}
+	out := make([]client.SignatureInfo, 0, limit)
+	for i := start - 1; i >= 0 && len(out) < limit; i-- {
+		at := int64(1767268980 + i)
+		out = append(out, client.SignatureInfo{Signature: f.sigs[i], BlockTime: &at})
+	}
+	return out, nil
+}
+
+func (f *memoCurveRPC) GetTransaction(ctx context.Context, sig string) (*client.Transaction, error) {
+	ix := -1
+	for i, s := range f.sigs {
+		if s == sig {
+			ix = i
+			break
+		}
+	}
+	if ix < 0 {
+		return nil, nil
+	}
+	at := int64(1767268980 + ix)
+	tx := &client.Transaction{Slot: int64(ix), Keys: []string{"walletX"}, BlockTime: &at}
+	if memo, ok := f.memos[sig]; ok {
+		tx.Ixs = []client.TxInstruction{{ProgramID: client.MemoProgram, Data: []byte(memo)}}
+	}
+	return tx, nil
+}
+
+func memoCurve(t *testing.T, sigs int, memoAt map[int]string) *memoCurveRPC {
+	t.Helper()
+	rpc := newBoardFakeRPC(t, testMint)
+	f := &memoCurveRPC{boardFakeRPC: rpc, memos: map[string]string{}}
+	for i := 0; i < sigs; i++ {
+		sig := fmt.Sprintf("sigCurve%d", i)
+		f.sigs = append(f.sigs, sig)
+		if memo, ok := memoAt[i]; ok {
+			f.memos[sig] = memo
+		}
+	}
+	return f
+}
+
+func TestWalkScanContinuesPastPagesWithNoMemos(t *testing.T) {
+	ctx := context.Background()
+	fake := memoCurve(t, 300, map[int]string{
+		5:   "task 1: Oldest memo",
+		150: "task 2: Middle memo",
+		290: "task 3: Newest memo",
+	})
+	tc := boardClientFor(t, testMint, "orbit-board-walk-scan-sparse-0000", fake.boardFakeRPC)
+	tc.RPC = fake
+	db, st := openBoardStoreWith(t, tc)
+	defer db.DB.Close()
+	if err := st.Sync(ctx, Project{Mint: testMint}, 100); err != nil {
+		t.Fatal(err)
+	}
+	if fake.calls != 4 {
+		t.Errorf("scan calls: %d, want 4 (three full signature pages plus the empty genesis page)", fake.calls)
+	}
+	if got := cachedCount(t, db, testMint); got != 3 {
+		t.Errorf("cached messages: %d, want 3 (only the memo signatures)", got)
+	}
+	board, err := st.Board(ctx, Project{Mint: testMint})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Oldest memo", "Middle memo", "Newest memo"} {
+		if !strings.Contains(board, want) {
+			t.Errorf("the board misses %q:\n%s", want, board)
+		}
+	}
+}
+
+func TestWalkScanWarmCacheStopsAfterOnePage(t *testing.T) {
+	ctx := context.Background()
+	fake := memoCurve(t, 300, map[int]string{
+		5:   "task 1: Oldest memo",
+		150: "task 2: Middle memo",
+		290: "task 3: Newest memo",
+	})
+	tc := boardClientFor(t, testMint, "orbit-board-walk-scan-sparse-0001", fake.boardFakeRPC)
+	tc.RPC = fake
+	db, st := openBoardStoreWith(t, tc)
+	defer db.DB.Close()
+	if err := st.Sync(ctx, Project{Mint: testMint}, 100); err != nil {
+		t.Fatal(err)
+	}
+	before := fake.calls
+	if err := st.Sync(ctx, Project{Mint: testMint}, 100); err != nil {
+		t.Fatal(err)
+	}
+	if fake.calls-before != 1 {
+		t.Errorf("warm scan sync requests: %d, want 1 (the first page holds a cached signature)", fake.calls-before)
+	}
+	if got := cachedCount(t, db, testMint); got != 3 {
+		t.Errorf("cached messages: %d, want 3", got)
+	}
+}

@@ -65,13 +65,20 @@ func serveRecordedTxs(t *testing.T) *JSONRPC {
 func TestScanMessagesAgainstRecordedTransactions(t *testing.T) {
 	rpc := serveRecordedTxs(t)
 	mint := "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
-	rows, err := ScanMessages(context.Background(), rpc, DevnetProgramID, mint, 10, "")
+	page, err := ScanMessages(context.Background(), rpc, DevnetProgramID, mint, 10, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 2 {
-		t.Fatalf("rows: %d, want 2 (the failed tx is skipped)", len(rows))
+	if len(page.Rows) != 2 {
+		t.Fatalf("rows: %d, want 2 (the failed tx is skipped)", len(page.Rows))
 	}
+	if len(page.Signatures) != 3 {
+		t.Fatalf("scanned signatures: %d, want 3 (the failed tx still counts as scanned)", len(page.Signatures))
+	}
+	if page.OldestSignature != "sigBoard3" {
+		t.Errorf("oldest scanned signature: %q, want sigBoard3", page.OldestSignature)
+	}
+	rows := page.Rows
 	first := rows[0]
 	if first.MemoText != "claim 1" {
 		t.Errorf("memo: %q", first.MemoText)

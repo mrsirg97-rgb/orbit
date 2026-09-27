@@ -154,19 +154,19 @@ func (s *Store) walk(ctx context.Context, p Project, tc *client.TorchClient, sou
 	var pages [][]client.MessageRow
 	cursor := ""
 	for page := 0; page < WalkBound; page++ {
-		rows, err := tc.Messages(ctx, p.Mint, limit, source, cursor)
+		pg, err := tc.MessagesPage(ctx, p.Mint, limit, source, cursor)
 		if err != nil {
 			return walkResult{}, err
 		}
-		if len(rows) == 0 {
+		if len(pg.Signatures) == 0 {
 			return walkResult{rows: s.flatten(pages), genesis: true}, nil
 		}
-		pages = append(pages, rows)
-		if len(rows) < limit {
+		pages = append(pages, pg.Rows)
+		if len(pg.Signatures) < limit {
 			return walkResult{rows: s.flatten(pages), genesis: true}, nil
 		}
 		if !fresh {
-			cached, err := s.anyCached(ctx, p.Mint, rows)
+			cached, err := s.anyCached(ctx, p.Mint, pg.Signatures)
 			if err != nil {
 				return walkResult{}, err
 			}
@@ -174,7 +174,7 @@ func (s *Store) walk(ctx context.Context, p Project, tc *client.TorchClient, sou
 				return walkResult{rows: s.flatten(pages)}, nil
 			}
 		}
-		cursor, err = s.nextCursor(source, rows)
+		cursor, err = s.nextCursor(source, pg)
 		if err != nil {
 			return walkResult{}, err
 		}
@@ -197,34 +197,34 @@ func (s *Store) flatten(pages [][]client.MessageRow) []client.MessageRow {
 	return out
 }
 
-func (s *Store) nextCursor(source client.Source, rows []client.MessageRow) (string, error) {
+func (s *Store) nextCursor(source client.Source, pg client.MessagePage) (string, error) {
 	switch source {
 	case client.SourceIndexer:
-		oldest := rows[len(rows)-1].CreatedAt
+		oldest := pg.Rows[len(pg.Rows)-1].CreatedAt
 		t, err := time.Parse(time.RFC3339, oldest)
 		if err != nil {
 			return "", fmt.Errorf("board sync: created_at %q: %w", oldest, err)
 		}
 		return t.Add(time.Second).UTC().Format(time.RFC3339), nil
 	case client.SourceScan:
-		return rows[0].Signature, nil
+		return pg.OldestSignature, nil
 	default:
 		return "", fmt.Errorf("board sync: unknown source %q", source)
 	}
 }
 
-func (s *Store) anyCached(ctx context.Context, mint string, rows []client.MessageRow) (bool, error) {
+func (s *Store) anyCached(ctx context.Context, mint string, signatures []string) (bool, error) {
 	bound, tx, err := s.DB.TxReadOnly(ctx)
 	if err != nil {
 		return false, err
 	}
 	defer tx.Rollback()
-	args := make([]any, 0, len(rows)+1)
+	args := make([]any, 0, len(signatures)+1)
 	args = append(args, mint)
-	placeholders := make([]string, 0, len(rows))
-	for _, r := range rows {
+	placeholders := make([]string, 0, len(signatures))
+	for _, sig := range signatures {
 		placeholders = append(placeholders, "?")
-		args = append(args, r.Signature)
+		args = append(args, sig)
 	}
 	q := `SELECT 1 FROM messages WHERE mint = ? AND signature IN (` + strings.Join(placeholders, ", ") + `) LIMIT 1`
 	var one int

@@ -89,7 +89,7 @@ func TestMessagesCarriesBeforeForTheIndexer(t *testing.T) {
 	rpc := serveRecordedTxs(t)
 	tc := &TorchClient{Config: Config{RPC: rpc.base, ProgramID: DevnetProgramID}, API: api, RPC: rpc}
 	before := "2026-01-01T12:00:00Z"
-	if _, err := tc.Messages(context.Background(), "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", 10, SourceIndexer, before); err != nil {
+	if _, err := tc.MessagesPage(context.Background(), "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", 10, SourceIndexer, before); err != nil {
 		t.Fatal(err)
 	}
 	if api.q.Get("before") != before {
@@ -103,25 +103,31 @@ func TestMessagesRoutesBySource(t *testing.T) {
 	tc := &TorchClient{Config: Config{RPC: rpc.base, ProgramID: DevnetProgramID}, API: api, RPC: rpc}
 	ctx := context.Background()
 
-	if _, err := tc.Messages(ctx, "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", 10, SourceIndexer, ""); err != nil {
+	if _, err := tc.MessagesPage(ctx, "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", 10, SourceIndexer, ""); err != nil {
 		t.Fatal(err)
 	}
 	if api.messages != 1 {
 		t.Errorf("indexer source must route to the API: %d calls", api.messages)
 	}
 
-	rows, err := tc.Messages(ctx, "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", 10, SourceScan, "")
+	page, err := tc.MessagesPage(ctx, "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", 10, SourceScan, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if api.messages != 1 {
 		t.Errorf("scan source must not hit the API: %d calls", api.messages)
 	}
-	if len(rows) != 2 {
-		t.Errorf("scan rows: %d, want 2", len(rows))
+	if len(page.Rows) != 2 {
+		t.Errorf("scan rows: %d, want 2", len(page.Rows))
+	}
+	if len(page.Signatures) != 3 {
+		t.Errorf("scanned signatures: %d, want 3 (the failed tx still counts as scanned)", len(page.Signatures))
+	}
+	if page.OldestSignature != "sigBoard3" {
+		t.Errorf("oldest scanned signature: %q, want sigBoard3", page.OldestSignature)
 	}
 
-	if _, err := tc.Messages(ctx, "x", 10, Source("other"), ""); err == nil {
+	if _, err := tc.MessagesPage(ctx, "x", 10, Source("other"), ""); err == nil {
 		t.Error("an unknown source must refuse")
 	}
 }

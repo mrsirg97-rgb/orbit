@@ -92,12 +92,15 @@ are untouched; orbit serves nothing — it is a client, a fold, and a tool.
   store's. Sync is a walk: the indexer pages newest-first with
   `before=<oldest created_at seen + 1s>` (the boundary second re-fetched,
   signatures dedupe), the RPC scan pages with the signature cursor, and
-  the walk stops when a page holds a signature already cached or comes
-  back short. A fresh cache walks to genesis; a warm cache reads one
-  page. The walk is bounded at 50 pages: past it the cache is marked
-  incomplete and the render says so. The goal is the first goal memo in
-  the walked log. An act never inserts its own row: it writes the memo,
-  re-syncs,
+  the walk stops when a scanned page holds a signature already cached or
+  comes back short. The scan's short-page stop and cursor use the page
+  facts — signatures scanned and the oldest scanned signature — not the
+  memo rows: a full page of signatures with no memos is not genesis and
+  the walk continues past it. A fresh cache walks to genesis; a warm
+  cache reads one page. The walk is bounded at 50 pages: past it the
+  cache is marked incomplete and the render says so. The goal is the
+  first goal memo in the walked log. An act never inserts its own row:
+  it writes the memo, re-syncs,
   and the memo's seq is the chain's — a locally guessed `max + 1` would
   order the writer's memo before others' and a `(mint, seq)` collision
   would wedge the project. Before the write, the act folds the cache plus
@@ -143,11 +146,14 @@ are untouched; orbit serves nothing — it is a client, a fold, and a tool.
   program, data = UTF-8), the sender is the tx's first account key, the
   timestamp is the block time, and the action kind is the torch
   instruction discriminator co-resident in the same tx (buy/sell/swap).
-  Messages dedupe by signature. The scan walk's local seq continues from
-  the cache's max in log order (oldest page first), so the fold's order
-  is never renumbered. The RPC-only market row for a write comes from
-  the same seam: the curve account decode (`BondingCurve`), the treasury
-  flag, and the global config.
+  Messages dedupe by signature. `ScanMessages` returns the page facts
+  beside the rows: the signatures scanned (memo or not) and the oldest
+  scanned signature — the walk's short-page stop and cursor, so a full
+  page of trades with no memo keeps the walk going. The scan walk's local
+  seq continues from the cache's max in log order (oldest page first), so
+  the fold's order is never renumbered. The RPC-only market row for a
+  write comes from the same seam: the curve account decode
+  (`BondingCurve`), the treasury flag, and the global config.
 
 ## decisions
 
@@ -229,9 +235,11 @@ mint's source never changes while its rows exist. The walk runs per
 recorded source — the indexer walks with the timestamp cursor
 (`before=<oldest created_at seen + 1s>`, the boundary second re-fetched
 and deduped by signature), the scan walks with the signature cursor —
-and the walk stops when a page holds a signature already cached or comes
-back short, so a warm cache reads one page and a fresh cache walks to
-genesis. The fallback to the scan applies only to a mint with no
+and the walk stops when a scanned page holds a signature already cached
+or comes back short (short = fewer signatures scanned than the page
+size; a full page with zero memos is not short), so a warm cache reads
+one page and a fresh cache walks to genesis. The fallback to the scan
+applies only to a mint with no
 recorded source (connect error, 5xx, timeout — never a 4xx), prints one
 line naming the switch, and records the source. An outage on a
 recorded-indexer mint inserts nothing: the board read serves the cache
@@ -308,6 +316,11 @@ about the log below the old cache's edge.
   50-page bound marks the cache incomplete and the render says so; the
   goal is the first goal memo in the walked log; the scan walk pages by
   signature and numbers the local seqs in log order.
+- **The sparse scan walk**: a fake curve of 300 signatures with memos
+  only at positions 5, 150, and 290 — the walk pages by signatures (the
+  scanned count, not the memo rows), continues past full pages with no
+  memos, reaches genesis, and folds all three; a warm cache stops after
+  one page.
 - **Board read without a key**: `orbit board <mint> read` loads config in
   read mode — ORBIT_RPC only, no indexer, no vault creator, no agent key
   (the config test pins the loader; the RPC scan fixture pins the read).

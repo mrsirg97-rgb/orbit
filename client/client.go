@@ -86,18 +86,40 @@ const (
 	SourceScan    Source = "scan"
 )
 
-func (c *TorchClient) Messages(ctx context.Context, mint string, limit int, source Source, before string) ([]MessageRow, error) {
+type MessagePage struct {
+	Rows            []MessageRow
+	Signatures      []string
+	OldestSignature string
+}
+
+func (c *TorchClient) MessagesPage(ctx context.Context, mint string, limit int, source Source, before string) (MessagePage, error) {
 	switch source {
 	case SourceIndexer:
 		q := Q("mint", mint, "limit", fmt.Sprint(limit))
 		if before != "" {
 			q.Set("before", before)
 		}
-		return c.API.Messages(ctx, q)
+		rows, err := c.API.Messages(ctx, q)
+		if err != nil {
+			return MessagePage{}, err
+		}
+		signatures := make([]string, 0, len(rows))
+		for _, r := range rows {
+			signatures = append(signatures, r.Signature)
+		}
+		oldest := ""
+		if len(rows) > 0 {
+			oldest = rows[len(rows)-1].Signature
+		}
+		return MessagePage{Rows: rows, Signatures: signatures, OldestSignature: oldest}, nil
 	case SourceScan:
-		return ScanMessages(ctx, c.RPC, c.ProgramID, mint, limit, before)
+		page, err := ScanMessages(ctx, c.RPC, c.ProgramID, mint, limit, before)
+		if err != nil {
+			return MessagePage{}, err
+		}
+		return MessagePage{Rows: page.Rows, Signatures: page.Signatures, OldestSignature: page.OldestSignature}, nil
 	default:
-		return nil, fmt.Errorf("client: unknown message source %q", source)
+		return MessagePage{}, fmt.Errorf("client: unknown message source %q", source)
 	}
 }
 
