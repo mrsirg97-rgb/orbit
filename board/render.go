@@ -8,12 +8,15 @@ import (
 	"github.com/mrsirg97-rgb/orbit/board/domain"
 )
 
-func renderBoard(label string, tasks []domain.Task, goal string, now time.Time) string {
+func renderBoard(label string, tasks []domain.Task, goal string, now time.Time, incomplete bool) string {
 	var b strings.Builder
 	if goal != "" {
 		fmt.Fprintf(&b, "[%s] board — %s\n", label, goal)
 	} else {
 		fmt.Fprintf(&b, "[%s] board\n", label)
+	}
+	if incomplete {
+		b.WriteString("board: incomplete — the walk hit the 50-page bound; the cache is not the full log\n")
 	}
 
 	done := 0

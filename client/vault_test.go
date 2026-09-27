@@ -183,7 +183,7 @@ func (f *fakeVaultRPC) GetSignatureStatus(context.Context, string) (SignatureSta
 func (f *fakeVaultRPC) RequestAirdrop(context.Context, string, uint64) (string, error) {
 	return "", nil
 }
-func (f *fakeVaultRPC) GetSignaturesForAddress(context.Context, string, int) ([]SignatureInfo, error) {
+func (f *fakeVaultRPC) GetSignaturesForAddress(context.Context, string, int, string) ([]SignatureInfo, error) {
 	return nil, nil
 }
 func (f *fakeVaultRPC) GetTransaction(context.Context, string) (*Transaction, error) {

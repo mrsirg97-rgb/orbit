@@ -203,7 +203,7 @@ func TestFoldGolden(t *testing.T) {
 			CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
 		})
 	}
-	got := renderBoard("torch test", rows, "Research context compaction.", base.Add(7*time.Minute))
+	got := renderBoard("torch test", rows, "Research context compaction.", base.Add(7*time.Minute), false)
 	want := readGolden(t, "fold_full.txt")
 	if got != want {
 		t.Fatalf("golden mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)

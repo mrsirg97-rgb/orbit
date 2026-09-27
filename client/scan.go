@@ -11,7 +11,7 @@ import (
 	"github.com/mrsirg97-rgb/orbit/sol"
 )
 
-func ScanMessages(ctx context.Context, rpc RPC, programID, mint string, limit int) ([]MessageRow, error) {
+func ScanMessages(ctx context.Context, rpc RPC, programID, mint string, limit int, before string) (MessagePage, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -19,20 +19,22 @@ func ScanMessages(ctx context.Context, rpc RPC, programID, mint string, limit in
 		limit = 100
 	}
 	curve := BondingCurvePDA(programID, mint)
-	sigs, err := rpc.GetSignaturesForAddress(ctx, curve, limit)
+	sigs, err := rpc.GetSignaturesForAddress(ctx, curve, limit, before)
 	if err != nil {
-		return nil, fmt.Errorf("scan %s: signatures: %w", mint, err)
+		return MessagePage{}, fmt.Errorf("scan %s: signatures: %w", mint, err)
 	}
 	rows := make([]MessageRow, 0, len(sigs))
+	signatures := make([]string, 0, len(sigs))
 	seen := map[string]bool{}
 	for _, s := range sigs {
 		if s.Signature == "" || seen[s.Signature] {
 			continue
 		}
 		seen[s.Signature] = true
+		signatures = append(signatures, s.Signature)
 		tx, err := rpc.GetTransaction(ctx, s.Signature)
 		if err != nil {
-			return nil, fmt.Errorf("scan %s: transaction %s: %w", mint, s.Signature, err)
+			return MessagePage{}, fmt.Errorf("scan %s: transaction %s: %w", mint, s.Signature, err)
 		}
 		if tx.Err || len(tx.Keys) == 0 {
 			continue
@@ -65,7 +67,11 @@ func ScanMessages(ctx context.Context, rpc RPC, programID, mint string, limit in
 		}
 		return rows[i].Signature < rows[j].Signature
 	})
-	return rows, nil
+	oldest := ""
+	if len(signatures) > 0 {
+		oldest = signatures[len(signatures)-1]
+	}
+	return MessagePage{Rows: rows, Signatures: signatures, OldestSignature: oldest}, nil
 }
 
 func memoOf(tx *Transaction) (string, bool) {

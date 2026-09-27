@@ -80,18 +80,27 @@ are untouched; orbit serves nothing — it is a client, a fold, and a tool.
   `board/metadata`): `messages` keyed `(mint, seq)`, `tasks` keyed
   `(project, id)`, `notes` keyed `(project, task, seq)`,
   `project_sources` keyed `(project)` — the source that numbers the
-  project's messages (`indexer` or `scan`) — and `meta` for the schema
-  version. The reads are schema-shaped and primary-key-seek only —
+  project's messages (`indexer` or `scan`) — `project_incomplete` keyed
+  `(project)` — the walk-bound flag — and `meta` for the schema version.
+  The reads are schema-shaped and primary-key-seek only —
   `GetTask(project, id)`, `WindowTaskByProject`, `GetMessage(mint, seq)`,
   `WindowMessageByMint` — no index, no scan, no seek beyond the key. The
   one index is `messages (mint, signature)` unique: the write-side
   idempotency door (a memo already cached is never applied twice); it is
   never a read path. `tasks`/`notes` are a disposable projection rebuilt
   from the message log inside every transaction, exactly like the todo
-  store's. The cache is the board's window: each sync adds the newest
-  messages (100 per sync) and the fold covers what the cache holds; the
-  chain's slot and timestamp replace the local approximation on the next
-  sync. An act never inserts its own row: it writes the memo, re-syncs,
+  store's. Sync is a walk: the indexer pages newest-first with
+  `before=<oldest created_at seen + 1s>` (the boundary second re-fetched,
+  signatures dedupe), the RPC scan pages with the signature cursor, and
+  the walk stops when a scanned page holds a signature already cached or
+  comes back short. The scan's short-page stop and cursor use the page
+  facts — signatures scanned and the oldest scanned signature — not the
+  memo rows: a full page of signatures with no memos is not genesis and
+  the walk continues past it. A fresh cache walks to genesis; a warm
+  cache reads one page. The walk is bounded at 50 pages: past it the
+  cache is marked incomplete and the render says so. The goal is the
+  first goal memo in the walked log. An act never inserts its own row:
+  it writes the memo, re-syncs,
   and the memo's seq is the chain's — a locally guessed `max + 1` would
   order the writer's memo before others' and a `(mint, seq)` collision
   would wedge the project. Before the write, the act folds the cache plus
@@ -132,12 +141,18 @@ are untouched; orbit serves nothing — it is a client, a fold, and a tool.
 
 - **RPC scan**: with the indexer unset, the board reads the chain
   directly: `getSignaturesForAddress` on the project's bonding curve (and
-  deep pool, migrated), then `getTransaction` per signature; the memo
-  instruction is decoded (memo program, data = UTF-8), the sender is the
-  tx's first account key, the timestamp is the block time, and the action
-  kind is the torch instruction discriminator co-resident in the same tx
-  (buy/sell/swap). Messages dedupe by signature. The RPC-only market row
-  for a write comes from the same seam: the curve account decode
+  deep pool, migrated) with the signature cursor (`before`), then
+  `getTransaction` per signature; the memo instruction is decoded (memo
+  program, data = UTF-8), the sender is the tx's first account key, the
+  timestamp is the block time, and the action kind is the torch
+  instruction discriminator co-resident in the same tx (buy/sell/swap).
+  Messages dedupe by signature. `ScanMessages` returns the page facts
+  beside the rows: the signatures scanned (memo or not) and the oldest
+  scanned signature — the walk's short-page stop and cursor, so a full
+  page of trades with no memo keeps the walk going. The scan walk's local
+  seq continues from the cache's max in log order (oldest page first), so
+  the fold's order is never renumbered. The RPC-only market row for a
+  write comes from the same seam: the curve account decode
   (`BondingCurve`), the treasury flag, and the global config.
 
 ## decisions
@@ -216,18 +231,36 @@ constructs a write client.
 A project's messages are numbered by exactly one source: the indexer
 (`message_id`, the chain's order) or the RPC scan (the local rowid,
 continuing from the cache's max seq). `project_sources` records it, and a
-mint's source never changes while its rows exist. The fallback to the
-scan applies only to a mint with no recorded source (connect error, 5xx,
-timeout — never a 4xx), prints one line naming the switch, and records
-the source. An outage on a recorded-indexer mint inserts nothing: the
-board read serves the cache with one line `indexer unreachable: board
-may be stale` and acts are refused. A mint first synced by scan stays on
-scan until the cache is rebuilt, even when the indexer comes back —
-re-sourcing through the indexer would renumber the log and wedge the
-fold's task ids. The one source change by config (the indexer unset on a
-recorded-indexer mint) wipes the mint's messages, tasks, and notes in the
-same transaction and re-syncs under the new source, so the cache never
-holds rows under two numberings at once.
+mint's source never changes while its rows exist. The walk runs per
+recorded source — the indexer walks with the timestamp cursor
+(`before=<oldest created_at seen + 1s>`, the boundary second re-fetched
+and deduped by signature), the scan walks with the signature cursor —
+and the walk stops when a scanned page holds a signature already cached
+or comes back short (short = fewer signatures scanned than the page
+size; a full page with zero memos is not short), so a warm cache reads
+one page and a fresh cache walks to genesis. The fallback to the scan
+applies only to a mint with no
+recorded source (connect error, 5xx, timeout — never a 4xx), prints one
+line naming the switch, and records the source. An outage on a
+recorded-indexer mint inserts nothing: the board read serves the cache
+with one line `indexer unreachable: board may be stale` and acts are
+refused. A mint first synced by scan stays on scan until the cache is
+rebuilt, even when the indexer comes back — re-sourcing through the
+indexer would renumber the log and wedge the fold's task ids. The one
+source change by config (the indexer unset on a recorded-indexer mint)
+wipes the mint's messages, tasks, and notes in the same transaction and
+re-syncs under the new source, so the cache never holds rows under two
+numberings at once.
+
+### 9. The walk is bounded; the bound is honest
+
+The walk is capped at 50 pages so one sync cannot read a project's whole
+history unbounded. Past the bound the cache is marked incomplete
+(`project_incomplete`) and the board render says so — the fold covers
+only what the walk reached, and the flag is cleared only by a walk to
+genesis (a fresh cache or a source-change wipe). A cached-boundary stop
+carries the flag: stopping at an already-cached page proves nothing
+about the log below the old cache's edge.
 
 ## layout
 
@@ -276,6 +309,18 @@ holds rows under two numberings at once.
   records nothing; an outage on a warm indexer mint inserts nothing and
   refuses acts; unsetting the indexer wipes and rewalks; the
   mixed-source case is impossible.
+- **The walk**: a 250-memo fake log syncs fully from empty in 3 pages
+  (100 + 100 + the short genesis page); the same-second boundary loses
+  nothing (the boundary second is re-fetched and deduped); a warm cache
+  makes one request (the first page holds a cached signature); the
+  50-page bound marks the cache incomplete and the render says so; the
+  goal is the first goal memo in the walked log; the scan walk pages by
+  signature and numbers the local seqs in log order.
+- **The sparse scan walk**: a fake curve of 300 signatures with memos
+  only at positions 5, 150, and 290 — the walk pages by signatures (the
+  scanned count, not the memo rows), continues past full pages with no
+  memos, reaches genesis, and folds all three; a warm cache stops after
+  one page.
 - **Board read without a key**: `orbit board <mint> read` loads config in
   read mode — ORBIT_RPC only, no indexer, no vault creator, no agent key
   (the config test pins the loader; the RPC scan fixture pins the read).

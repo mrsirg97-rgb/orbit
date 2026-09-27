@@ -95,7 +95,7 @@ type RPC interface {
 
 	RequestAirdrop(ctx context.Context, pubkey string, lamports uint64) (string, error)
 
-	GetSignaturesForAddress(ctx context.Context, address string, limit int) ([]SignatureInfo, error)
+	GetSignaturesForAddress(ctx context.Context, address string, limit int, before string) ([]SignatureInfo, error)
 
 	GetTransaction(ctx context.Context, signature string) (*Transaction, error)
 }
@@ -330,15 +330,18 @@ func (r *JSONRPC) GetSignatureStatus(ctx context.Context, signature string) (Sig
 	return st, nil
 }
 
-func (r *JSONRPC) GetSignaturesForAddress(ctx context.Context, address string, limit int) ([]SignatureInfo, error) {
+func (r *JSONRPC) GetSignaturesForAddress(ctx context.Context, address string, limit int, before string) ([]SignatureInfo, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 	if limit > 100 {
 		limit = 100
 	}
-	raw, err := r.call(ctx, "getSignaturesForAddress", address,
-		map[string]interface{}{"limit": limit, "commitment": "confirmed"})
+	cfg := map[string]interface{}{"limit": limit, "commitment": "confirmed"}
+	if before != "" {
+		cfg["before"] = before
+	}
+	raw, err := r.call(ctx, "getSignaturesForAddress", address, cfg)
 	if err != nil {
 		return nil, err
 	}

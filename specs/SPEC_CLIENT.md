@@ -113,7 +113,7 @@ type RPC interface {
     GetBalance(ctx, pubkey string) (uint64, error)
     GetSignatureStatus(ctx, sig string) (SignatureStatus, error)
     RequestAirdrop(ctx, pubkey string, lamports uint64) (string, error)
-    GetSignaturesForAddress(ctx, address string, limit int) ([]SignatureInfo, error)
+    GetSignaturesForAddress(ctx, address string, limit int, before string) ([]SignatureInfo, error)
     GetTransaction(ctx, signature string) (*Transaction, error)
 }
 ```
@@ -153,6 +153,13 @@ over the RPC seam. A 4xx never falls back: the indexer answered, and its
 answer is authoritative (a 404 names a mint the indexer does not know,
 not a service that is down). `IndexerUnreachable` is the classifier; a
 decode error is not unreachable and never falls back.
+
+A scan page carries its facts beside the memo rows — the signatures
+scanned (memo or not, deduped) and the oldest scanned signature — so the
+walk's short-page stop and cursor are signature-based: a full page of
+signatures with no memos is a page, not an empty log, and the walk
+continues past it. `TorchClient.MessagesPage` returns the page for
+either source; the indexer's page facts are its rows.
 
 The fallback is per mint and sticky: the board cache records the source
 that numbers a mint's messages (`project_sources`: `indexer` or `scan`),

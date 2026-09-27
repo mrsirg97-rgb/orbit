@@ -66,7 +66,7 @@ func (r *resolveMintRPC) GetSignatureStatus(context.Context, string) (client.Sig
 func (r *resolveMintRPC) RequestAirdrop(context.Context, string, uint64) (string, error) {
 	return "", nil
 }
-func (r *resolveMintRPC) GetSignaturesForAddress(context.Context, string, int) ([]client.SignatureInfo, error) {
+func (r *resolveMintRPC) GetSignaturesForAddress(context.Context, string, int, string) ([]client.SignatureInfo, error) {
 	return nil, nil
 }
 func (r *resolveMintRPC) GetTransaction(context.Context, string) (*client.Transaction, error) {

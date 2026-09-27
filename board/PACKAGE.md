@@ -28,9 +28,19 @@ SQLite is a cache rebuilt from it, never trusted.
   claim superseded by complete/accept/reject is never dropped.
 - `Store` — the local SQLite cache (the chain's message log plus the fold
   projection) and the chain write path. `Sync` folds the chain into the
-  cache, idempotent by signature: reads default to the indexer and fall
-  back to the RPC scan when the indexer is unreachable (connect error,
-  5xx, timeout — never a 4xx). The source is recorded per project in
+  cache as a walk, idempotent by signature: the indexer pages newest-first
+  with `before=<oldest created_at seen + 1s>` (the boundary second
+  re-fetched, signatures dedupe) and the RPC scan pages with the signature
+  cursor, until a scanned page holds a signature already cached or comes
+  back short. The scan's short-page stop and cursor are the page facts
+  (signatures scanned, oldest scanned signature), not the memo rows — a
+  full page of trades with no memo is not genesis and the walk continues
+  past it. A fresh cache walks to genesis; a warm cache reads one page.
+  The walk is bounded at 50 pages: past it the cache is marked incomplete
+  (`project_incomplete`) and the render says so — the goal is the first
+  goal memo in the walked log. Reads default to the indexer and fall back
+  to the RPC scan when the indexer is unreachable (connect error, 5xx,
+  timeout — never a 4xx). The source is recorded per project in
   `project_sources` and a mint's source never changes while its rows
   exist: the fallback applies only to an unrecorded mint (one line
   naming the switch), an outage on a recorded-indexer mint inserts
@@ -67,9 +77,10 @@ SQLite is a cache rebuilt from it, never trusted.
   `Store`; the brief's INTEL section reads the same message rows through
   the client; the earn footer reads `Claims` and `LastMemo` from the
   cached board.
-- `Sync` is the cache's window: each sync adds the newest messages (100
-  per sync) and the fold covers what the cache holds. The chain's slot and
-  timestamp replace the local approximation on the next sync.
+- `Sync` is the cache's walk: a fresh cache walks to genesis, a warm
+  cache reads one page, and the fold covers what the walk reached. The
+  chain's slot and timestamp replace the local approximation on the next
+  sync.
 - Reads are primary-key-seek only — one task is `GetTask(project, id)`, a
   board is `WindowTaskByProject`, a message is `GetMessage(mint, seq)`.
   The signature unique index is write-side only (the sync's idempotency
@@ -82,6 +93,10 @@ SQLite is a cache rebuilt from it, never trusted.
 - `project_sources` is the one per-project record: the source that
   numbers the messages. It decides every sync and flips one way (indexer
   → scan); delete the cache to re-source a project.
+- `project_incomplete` is the walk-bound flag: past 50 pages the cache
+  is marked incomplete and the board render says so. It is cleared only
+  by a walk to genesis — a cached-boundary stop proves nothing about the
+  log below the old cache's edge.
 - `Task.Notes` carry verdict reasons too — a reject's reason lands in the
   notes.
 - The lease is pure: it materializes in the projection, and `Reap` only

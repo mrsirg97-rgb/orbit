@@ -36,7 +36,7 @@ func (f *runjobFakeRPC) GetSignatureStatus(context.Context, string) (client.Sign
 func (f *runjobFakeRPC) RequestAirdrop(context.Context, string, uint64) (string, error) {
 	return "", nil
 }
-func (f *runjobFakeRPC) GetSignaturesForAddress(context.Context, string, int) ([]client.SignatureInfo, error) {
+func (f *runjobFakeRPC) GetSignaturesForAddress(context.Context, string, int, string) ([]client.SignatureInfo, error) {
 	return nil, nil
 }
 func (f *runjobFakeRPC) GetTransaction(context.Context, string) (*client.Transaction, error) {
