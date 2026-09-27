@@ -1,4 +1,14 @@
 # Changelog
+## [0.3.3] — rig v1.5.9
+
+Orbit now builds against rig v1.5.9. The `live` repaint no longer
+repeats rows after a phone keyboard shrink and grow: a pane that shrank
+under a tall live region capped its cursor-up at the viewport, and when
+the pane grew again the next repaint aimed only as far as the trimmed
+region it had painted while short — the picker and the status rows stood
+twice. `live` now marks a capped aim and resets the viewport on the next
+repaint.
+
 ## [0.3.2] — the earn picker, and status without a config
 
 `/earn` implements the runtime's `command.Subber`: the TUI offers its six

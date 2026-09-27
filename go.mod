@@ -3,7 +3,7 @@ module github.com/mrsirg97-rgb/orbit
 go 1.26.6
 
 require (
-	github.com/mrsirg97-rgb/rig v1.5.8
+	github.com/mrsirg97-rgb/rig v1.5.9
 	golang.org/x/crypto v0.57.0
 )
 
