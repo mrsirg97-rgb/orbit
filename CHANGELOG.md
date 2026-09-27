@@ -1,4 +1,23 @@
 # Changelog
+## [0.4.1] — rig v1.6.0
+
+Orbit now builds against rig v1.6.0. The session listing seeks:
+`state.ListSessions` aggregated per session through correlated
+subqueries over tables with no seek path, and computed them for every
+session before the sort and the limit — 10.5s on a 170-session,
+24k-message store, the same with a limit of five. Orbit paid it twice:
+the claim reap lists sessions on every start, and the session list
+reads the workspace's rows once per store.
+
+The state store gains `metadata.ExtraStatements()` beside its generated
+DDL, the todo store's pattern: indexes on `messages(session_id, role,
+seq)` and `faults(session_id)`, IF NOT EXISTS, so an existing store
+gains them on its next open with no schema bump. The listing selects
+the n newest sessions first and aggregates those n only, and the
+workspace list reads `state.Cwds` (distinct cwd per store) instead of
+the full listing. Measured on a copy of the same store: 13ms with the
+indexes, 3ms with the limit-first shape.
+
 ## [0.4.0] — project discovery
 
 A worker now picks a project before it claims. The `projects` tool and

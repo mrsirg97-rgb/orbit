@@ -69,7 +69,7 @@ import (
 	orbittool "github.com/mrsirg97-rgb/orbit/tool"
 )
 
-const Version = "0.4.0"
+const Version = "0.4.1"
 
 //go:embed theme.json
 var shippedTheme []byte
