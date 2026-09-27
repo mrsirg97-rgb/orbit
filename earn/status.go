@@ -26,7 +26,7 @@ func (r Rows) Lines() []string {
 		fmt.Sprintf("projects held: %d", r.Held),
 		fmt.Sprintf("open claims: %d", r.OpenClaims),
 		"last memo: " + r.LastMemo,
-		fmt.Sprintf("PnL since start: %s SOL", signedSOL(r.PnLSOL)),
+		fmt.Sprintf("earnings since start: %s SOL", signedSOL(r.PnLSOL)),
 	}
 }
 

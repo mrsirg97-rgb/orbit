@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mrsirg97-rgb/orbit/board"
+	"github.com/mrsirg97-rgb/orbit/brief"
 	"github.com/mrsirg97-rgb/orbit/client"
 	"github.com/mrsirg97-rgb/orbit/project"
 	solpkg "github.com/mrsirg97-rgb/orbit/sol"
@@ -29,7 +30,7 @@ func List(ctx context.Context, tc *client.TorchClient, store *board.Store, f Fil
 	}
 	rows := make([]project.Row, 0, len(markets))
 	for _, m := range markets {
-		if f.Status != "" && StatusWord(string(m.Status)) != f.Status {
+		if f.Status != "" && brief.StateWord(string(m.Status)) != f.Status {
 			continue
 		}
 		treasury, err := treasurySOL(ctx, tc, m.Mint)
@@ -112,29 +113,14 @@ func Show(ctx context.Context, tc *client.TorchClient, store *board.Store, input
 
 func ShowText(s project.ShowView) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "[%s] %s (%s) — %s\n", fid8(s.Mint), s.Name, s.Symbol, StatusWord(s.Status))
+	fmt.Fprintf(&b, "[%s] %s (%s) — %s\n", pid8(s.Mint), s.Name, s.Symbol, brief.StateWord(s.Status))
 	fmt.Fprintf(&b, "goal:       %s\n", dash(s.Goal))
-	fmt.Fprintf(&b, "treasury:   %s SOL\n", client.FormatSOL(s.TreasurySOL))
+	fmt.Fprintf(&b, "backing:    %s SOL\n", client.FormatSOL(s.TreasurySOL))
 	fmt.Fprintf(&b, "board:      %d/%d done · %s\n", s.DoneTasks, s.TotalTasks, claims(s.OpenClaims))
 	for _, m := range s.Memos {
 		fmt.Fprintf(&b, "memo:       %s %s: %s\n", m.At, shortAddr(m.Sender), m.Text)
 	}
 	return b.String()
-}
-
-func StatusWord(status string) string {
-	switch status {
-	case string(client.StatusBonding):
-		return "bonding"
-	case string(client.StatusComplete):
-		return "ready"
-	case string(client.StatusMigrated):
-		return "migrated"
-	case string(client.StatusReclaimed):
-		return "reclaimed"
-	default:
-		return status
-	}
 }
 
 func TasksText(n int) string {
@@ -166,14 +152,14 @@ func resolveMint(ctx context.Context, c *client.TorchClient, input string) (stri
 		return "", fmt.Errorf("resolve %s: %w", input, err)
 	}
 	for _, m := range markets {
-		if fid8(m.Mint) == input {
+		if pid8(m.Mint) == input {
 			return m.Mint, nil
 		}
 	}
-	return "", fmt.Errorf("no project with FID %s", input)
+	return "", fmt.Errorf("no project with PID %s", input)
 }
 
-func fid8(mint string) string {
+func pid8(mint string) string {
 	if len(mint) <= 8 {
 		return mint
 	}

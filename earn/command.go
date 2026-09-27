@@ -60,7 +60,7 @@ func (c *Command) Sub() []command.Sub {
 		{Name: "join", Desc: "join [roles]: set up (init, vault, link, deposit) and register the roles; worker by default"},
 		{Name: "roles", Desc: "roles: the roster; roles add|remove <role> registers or removes one role and its job"},
 		{Name: "goal", Desc: "goal \"<paragraph>\": set or change the architect's goal; registers an architect if none"},
-		{Name: "status", Desc: "status: the footer rows — projects held, open claims, last memo, PnL since start"},
+		{Name: "status", Desc: "status: the footer rows — projects held, open claims, last memo, earnings since start"},
 		{Name: "stop", Desc: "stop: pause every registered job"},
 		{Name: "start", Desc: "start: resume the paused jobs"},
 	}

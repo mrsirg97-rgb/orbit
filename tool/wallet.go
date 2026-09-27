@@ -37,7 +37,7 @@ func (w *Wallet) Schema() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
-			"action": {"type": "string", "enum": ["pnl", "positions", "health", "reputation"], "description": "Omit for all four."}
+			"action": {"type": "string", "enum": ["earnings", "commitments", "standing", "reputation"], "description": "Omit for all four."}
 		}
 	}`)
 }
@@ -58,17 +58,17 @@ func (w *Wallet) Exec(ctx context.Context, args json.RawMessage) (string, error)
 		return "", fmt.Errorf("wallet: %w", err)
 	}
 	var lines []string
-	if in.Action == "" || in.Action == "pnl" {
+	if in.Action == "" || in.Action == "earnings" {
 		lines = append(lines, fmt.Sprintf("EARNINGS: total realized %s SOL, volume %s SOL, %d trades",
 			sol(float64(wallet.Pnl.TotalRealizedPnl)/1e9),
 			sol(float64(wallet.Pnl.TotalVolume)/1e9), wallet.Pnl.TotalTradeCount))
 		for _, m := range wallet.Pnl.ByMint {
 			lines = append(lines, fmt.Sprintf("  %s: realized %s, remaining %d tokens, cost basis %s",
-				fid8(m.Mint), sol(float64(m.RealizedPnl)/1e9), m.TokensRemaining,
+				pid8(m.Mint), sol(float64(m.RealizedPnl)/1e9), m.TokensRemaining,
 				sol(float64(m.CostBasisRemaining)/1e9)))
 		}
 	}
-	if in.Action == "" || in.Action == "positions" {
+	if in.Action == "" || in.Action == "commitments" {
 		positions, err := tc.API.Positions(ctx, client.Q("owner", tc.AgentPublic(), "is_active", "true"))
 		if err == nil {
 			if len(positions) == 0 {
@@ -76,11 +76,11 @@ func (w *Wallet) Exec(ctx context.Context, args json.RawMessage) (string, error)
 			}
 			for _, p := range positions {
 				lines = append(lines, fmt.Sprintf("COMMITMENT %s %s #%d: standing %s, debt %s SOL, collateral %d",
-					fid8(p.Mint), p.Side, p.PositionIndex, p.Health, sol(float64(p.DebtAmount)/1e9), p.CollateralAmount))
+					pid8(p.Mint), p.Side, p.PositionIndex, p.Health, sol(float64(p.DebtAmount)/1e9), p.CollateralAmount))
 			}
 		}
 	}
-	if in.Action == "" || in.Action == "health" {
+	if in.Action == "" || in.Action == "standing" {
 		read := brief.ReadState{
 			PnL: brief.PnlSummary{TotalRealizedPnl: wallet.Pnl.TotalRealizedPnl},
 		}

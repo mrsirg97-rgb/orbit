@@ -9,6 +9,7 @@ import (
 	"github.com/mrsirg97-rgb/rig/command"
 
 	"github.com/mrsirg97-rgb/orbit/board"
+	"github.com/mrsirg97-rgb/orbit/brief"
 	"github.com/mrsirg97-rgb/orbit/client"
 	"github.com/mrsirg97-rgb/orbit/project"
 )
@@ -21,13 +22,13 @@ type Command struct {
 func (c *Command) Name() string { return "projects" }
 
 func (c *Command) Description() string {
-	return "where an agent picks a project before it claims: /projects list [bonding|ready|migrated|goal], /projects show <mint|fid>"
+	return "where an agent picks a project before it contracts: /projects list [private|funded|public|goal], /projects show <pid|mint>"
 }
 
 func (c *Command) Sub() []command.Sub {
 	return []command.Sub{
-		{Name: "list", Desc: "list [bonding|ready|migrated|goal]: the projects table, sorted by treasury"},
-		{Name: "show", Desc: "show <mint|fid>: the goal, treasury, board summary (n/m done, open claims), and the last three memos"},
+		{Name: "list", Desc: "list [private|funded|public|goal]: the projects table, sorted by backing"},
+		{Name: "show", Desc: "show <pid|mint>: the goal, backing, board summary (n/m done, open claims), and the last three memos"},
 	}
 }
 
@@ -49,12 +50,12 @@ func (c *Command) Run(ctx context.Context, args string, env any) (string, error)
 		return c.list(ctx, tc, f)
 	case "show":
 		if len(fields) != 2 {
-			return "", errors.New("projects: show needs a mint or FID (projects show <mint|fid>)")
+			return "", errors.New("projects: show needs a project (projects show <pid|mint>)")
 		}
 		return c.show(ctx, tc, fields[1])
 	}
 	if len(fields) != 1 {
-		return "", errors.New("projects: one filter at a time (bonding|ready|migrated|goal) or a mint/FID")
+		return "", errors.New("projects: one filter at a time (private|funded|public|goal) or a project (PID or mint)")
 	}
 	if isFilter(fields[0]) {
 		return c.list(ctx, tc, filterFor(fields[0]))
@@ -82,7 +83,7 @@ func (c *Command) list(ctx context.Context, tc *client.TorchClient, f Filter) (s
 		return "projects: none match", nil
 	}
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-10s %-20s %-9s %-14s %-4s %s\n", "FID", "NAME", "STATUS", "TREASURY", "OPEN", "GOAL"))
+	b.WriteString(fmt.Sprintf("%-10s %-20s %-9s %-14s %-4s %s\n", "PID", "NAME", "STATE", "BACKING", "OPEN", "GOAL"))
 	for _, r := range rows {
 		b.WriteString(rowLine(r))
 	}
@@ -99,7 +100,7 @@ func (c *Command) show(ctx context.Context, tc *client.TorchClient, input string
 
 func rowLine(r project.Row) string {
 	return fmt.Sprintf("%-10s %-20s %-9s %-14s %-4s %s\n",
-		fid8(r.Mint), truncate(r.Name, 20), StatusWord(r.Status), client.FormatSOL(r.TreasurySOL),
+		pid8(r.Mint), truncate(r.Name, 20), brief.StateWord(r.Status), client.FormatSOL(r.TreasurySOL),
 		TasksText(r.OpenTasks), dash(r.Goal))
 }
 
@@ -108,17 +109,17 @@ func parseFilter(fields []string) (Filter, error) {
 		return Filter{}, nil
 	}
 	if len(fields) > 1 {
-		return Filter{}, errors.New("projects: one filter at a time (bonding|ready|migrated|goal)")
+		return Filter{}, errors.New("projects: one filter at a time (private|funded|public|goal)")
 	}
 	if !isFilter(fields[0]) {
-		return Filter{}, fmt.Errorf("projects: unknown filter %q (bonding|ready|migrated|goal)", fields[0])
+		return Filter{}, fmt.Errorf("projects: unknown filter %q (private|funded|public|goal)", fields[0])
 	}
 	return filterFor(fields[0]), nil
 }
 
 func isFilter(s string) bool {
 	switch s {
-	case "bonding", "ready", "migrated", "goal":
+	case "private", "funded", "public", "goal":
 		return true
 	}
 	return false

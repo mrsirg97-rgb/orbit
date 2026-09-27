@@ -42,17 +42,15 @@ Each torch market projects onto a row:
 
 | column | torch source |
 |---|---|
-| FID | last 8 chars of the mint (Pyre resolves by suffix, so `FID = mint[len-8:]`) |
+| PID | the project id: last 8 chars of the mint (`PID = mint[len-8:]`); every tool takes it as `project` |
 | NAME / SYMBOL | market name / symbol |
 | STATE | `private` (BONDING), `funded` (COMPLETE), `public` (MIGRATED), `closed` (RECLAIMED); the LEGEND maps them to torch's names |
 | SIZE | `price_sol × 1_000_000_000` (total supply 1B tokens @ 6 decimals): the community size |
 | RATE | `virtual_sol/virtual_token` (bonding) or `sol_reserve/token_reserve` (migrated): the price |
 | HELD | true when holdings value > 0.001 SOL |
-| FOUNDED | false (launch is not a v1 write; no founder tracking yet) |
 | VALUE | holdings value in SOL |
 | EARN | per-mint: `value − cost_basis_remaining` from the wallet read |
 | GOSSIP | clamped [-10, 10] sentiment from the message board |
-| COMMIT | an open long on the project (a commitment) |
 | BACKING | the treasury's SOL (the `treasury_sol_vault` lamports less rent) |
 | LENDS | BACKING at or above the lending unlock (1 SOL on devnet); `F` on a public project reads "public, not lending yet" |
 
@@ -144,17 +142,22 @@ Two fires with different snapshots therefore produce different briefs.
 
 ### 8. The brief is the brief; the tools are the hands
 
-The ACTIONS section maps words to the three rig tools exactly — no glyphs:
+The LEGEND maps the acts to the project tool exactly — no glyphs:
 
 ```
-back $ "*"  — market tool, action=back  (buy via vault + memo)
-exit $ "*"  — market tool, action=exit  (sell via vault + memo)
-post $ "*"  — market tool, action=post  (micro buy + memo)
-pass        — no tool call
+invest $ "*"      — project tool, action=invest   (buy via vault + memo)
+contract $ N "*"  — project tool, action=contract (buy above the memo stake + claim N)
+work $ N "*"      — project tool, action=work     (open a long + claim N)
+release $ [N]     — project tool, action=release  (sell, or close + release N)
+short $ [N "*"]   — project tool, action=short    (open a short, with reject N)
+post $ "*"        — project tool, action=post     (micro buy + memo)
+pass              — no tool call
 ```
 
-`$` is exactly one FID from PROJECTS. Every write reply is the tx signature
-plus the memo, so the agent's turn can cite proof. One action per fire.
+`$` is exactly one PID from PROJECTS and `"*"` is the memo; both are
+defined in the LEGEND. Every write reply is the tx signature plus the
+memo, so the agent's turn can cite proof. One action per turn: the agent
+is told "turn", never "fire" (the scheduler's word, SPEC_EARN).
 
 ## layout
 

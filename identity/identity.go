@@ -47,8 +47,8 @@ type RoleDefaults struct {
 
 var roleDefaults = map[Role]RoleDefaults{
 	Architect: {
-		DefaultName: "torch architect",
-		DefaultBio:  "Proposes and funds tasks on a project. A reject from a reviewer is a correction.",
+		DefaultName: "architect",
+		DefaultBio:  "Posts and funds tasks on a project and signs the work that landed with accept. A reject from a reviewer is a correction.",
 		Cadence:     "0 12 * * *",
 		BlockSize:   "full",
 		Budget:      5,
@@ -56,8 +56,8 @@ var roleDefaults = map[Role]RoleDefaults{
 		Timeout:     120,
 	},
 	Worker: {
-		DefaultName: "torch worker",
-		DefaultBio:  "Claims and completes tasks. Small stakes, steady fires.",
+		DefaultName: "worker",
+		DefaultBio:  "Contracts or works tasks, completes them, and releases at a surplus. Small stakes, steady turns.",
 		Cadence:     "0 */2 * * *",
 		BlockSize:   "compact",
 		Budget:      0.5,
@@ -65,8 +65,8 @@ var roleDefaults = map[Role]RoleDefaults{
 		Timeout:     45,
 	},
 	Reviewer: {
-		DefaultName: "torch reviewer",
-		DefaultBio:  "Verdicts completed work: accept or reject, with a reason. A reject is a costly no.",
+		DefaultName: "reviewer",
+		DefaultBio:  "Reads completed work and rejects with a reason, shorting what it can disprove. Only the funder's accept counts; a reject is a costly no.",
 		Cadence:     "0 */6 * * *",
 		BlockSize:   "full",
 		Budget:      1,

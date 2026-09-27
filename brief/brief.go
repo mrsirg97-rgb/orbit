@@ -46,11 +46,9 @@ type MarketView struct {
 	PriceSOL    float64
 	MCAPSOL     float64
 	IsHeld      bool
-	IsFounder   bool
 	ValueSOL    float64
 	PnLSOL      float64
 	Sentiment   float64
-	HasLoan     bool
 	TreasurySOL float64
 	Lending     bool
 }
@@ -106,9 +104,9 @@ work $ N "*" — pick up task N on the treasury's leverage against your holding.
 release $ [N] — let go: sell the investment, or with N free task N and close its commitment.
 short $ [N "*"] — dissent with capital; with N it rejects a completion.
 post $ "*" — speech with stake: a micro buy carries the memo.
-pass — no action this fire.
+pass — no action this turn.
 STATE: private=bonding, funded=ready, public=migrated, closed=reclaimed (torch's names).
-$ is one FID from PROJECTS. One action per fire. Never invent a signature.
+$ is one PID from PROJECTS; "*" is your memo. One action per turn. Never invent a signature.
 `)
 }
 
@@ -135,7 +133,7 @@ func youAre(b *strings.Builder, read ReadState, size Size) {
 			b.WriteString("No holdings.\n")
 		}
 		for _, h := range read.Holdings {
-			b.WriteString(fmt.Sprintf("%s: %s SOL (%d raw)\n", fid(h.Mint), fmtSOL(h.ValueSOL), h.Raw))
+			b.WriteString(fmt.Sprintf("%s: %s SOL (%d raw)\n", pid(h.Mint), fmtSOL(h.ValueSOL), h.Raw))
 		}
 	}
 }
@@ -146,7 +144,7 @@ func positions(b *strings.Builder, read ReadState) {
 		return
 	}
 	for _, p := range read.Positions {
-		b.WriteString(fmt.Sprintf("COMMITMENTS: %s %s %s %s SOL.\n", fid(p.Mint), p.Side, p.Health, fmtSOL(p.DebtSOL)))
+		b.WriteString(fmt.Sprintf("COMMITMENTS: %s %s %s %s SOL.\n", pid(p.Mint), p.Side, p.Health, fmtSOL(p.DebtSOL)))
 	}
 }
 
@@ -199,10 +197,10 @@ func intel(b *strings.Builder, read ReadState, size Size) {
 				if i >= 3 {
 					break
 				}
-				b.WriteString(fmt.Sprintf("%s: %s\n", fid(mint), text))
+				b.WriteString(fmt.Sprintf("%s: %s\n", pid(mint), text))
 			}
 		} else {
-			b.WriteString(fmt.Sprintf("%s: %s\n", fid(mint), strings.Join(msgs, " | ")))
+			b.WriteString(fmt.Sprintf("%s: %s\n", pid(mint), strings.Join(msgs, " | ")))
 		}
 	}
 }
@@ -210,23 +208,23 @@ func intel(b *strings.Builder, read ReadState, size Size) {
 func projects(b *strings.Builder, read ReadState, size Size) {
 	rows := selectRows(read, size)
 	b.WriteString("\nPROJECTS\n")
-	b.WriteString("FID(8) NAME STATE SIZE RATE HELD FOUNDED VALUE EARN GOSSIP COMMIT BACKING LENDS\n")
-	b.WriteString("SIZE, RATE, VALUE, EARN, BACKING in SOL. GOSSIP is the board's mood in [-10, 10]. COMMIT is an open commitment.\n")
+	b.WriteString("PID(8) NAME STATE SIZE RATE HELD VALUE EARN GOSSIP BACKING LENDS\n")
+	b.WriteString("SIZE, RATE, VALUE, EARN, BACKING in SOL. HELD: you hold it. GOSSIP is the board's mood in [-10, 10].\n")
 	b.WriteString("LENDS F on a public project means public, not lending yet: contract, not work.\n")
 	for _, m := range rows {
-		b.WriteString(fmt.Sprintf("%s %s %s %s %s %s %s %s %s %s %s %s %s\n",
-			fid(m.Mint), short(m.Name, 12), StateWord(m.Status),
+		b.WriteString(fmt.Sprintf("%s %s %s %s %s %s %s %s %s %s %s\n",
+			pid(m.Mint), short(m.Name, 12), StateWord(m.Status),
 			fmtSOL(m.MCAPSOL), fmtSOL(m.PriceSOL),
-			yesno(m.IsHeld), yesno(m.IsFounder),
+			yesno(m.IsHeld),
 			fmtSOL(m.ValueSOL), fmtSOLSigned(m.PnLSOL),
-			fmt.Sprintf("%.0f", m.Sentiment), yesno(m.HasLoan),
+			fmt.Sprintf("%.0f", m.Sentiment),
 			fmtSOL(m.TreasurySOL), yesno(m.Lending)))
 	}
 }
 
 func actions(b *strings.Builder, size Size) {
 	b.WriteString("\nACTIONS\n")
-	b.WriteString("ONE ACTION PER FIRE. The acts are in LEGEND; every write is vault-routed and replies with the tx signature + memo.\n")
+	b.WriteString("ONE ACTION PER TURN. The acts are in LEGEND; every write is vault-routed and replies with the tx signature + memo.\n")
 	if size == Full {
 		b.WriteString("invest $ \"*\" — buy via the vault\n")
 		b.WriteString("contract $ N \"*\" — buy above the memo stake with claim N\n")
@@ -236,8 +234,8 @@ func actions(b *strings.Builder, size Size) {
 		b.WriteString("post $ \"*\" — micro buy via the vault\n")
 	}
 	b.WriteString("pass — read and hold. No tool call.\n")
-	b.WriteString("$ is exactly one FID from PROJECTS. The FID is the last 8 chars of the mint.\n")
-	b.WriteString("Tools: projects (list, show), market (read + the acts), intel (messages), wallet (earnings, commitments, reputation), board (the shared board).\n")
+	b.WriteString("$ is exactly one PID from PROJECTS. The PID is the last 8 chars of the project mint; every tool takes it as project.\n")
+	b.WriteString("Tools: projects (list, show), project (read + the acts), intel (the gossip), wallet (earnings, commitments, reputation), board (the shared board).\n")
 	if size == Full {
 		b.WriteString("A contract is your own capital and runs no clock. Work is the treasury's leverage on your holding: interest runs until you release, and a sinking rate can wash you out.\n")
 	}
@@ -245,18 +243,18 @@ func actions(b *strings.Builder, size Size) {
 
 func rules(b *strings.Builder, size Size) {
 	b.WriteString("\nRULES\n")
-	b.WriteString("One action per fire. Only touch projects in PROJECTS.\n")
+	b.WriteString("One action per turn. Only touch projects in PROJECTS.\n")
 	b.WriteString("Private projects take invest and post, never a task or a claim: fund it first.\n")
 	b.WriteString("Work is borrowed budget with a clock on it; getting washed out costs the stake. Read your standing before you size a claim.\n")
 	b.WriteString("Only the funder's accept counts; the rate is the judge of whether the work landed.\n")
 	b.WriteString("When EARNINGS say down, downsize: prefer release over invest.\n")
-	b.WriteString("Read the project before the act: market first, intel second, wallet third.\n")
+	b.WriteString("Read before the act: project first, intel second, wallet third.\n")
 	b.WriteString("A memo without a reason is noise; cite a number.\n")
-	b.WriteString("Never spend below the vault's rent floor; a failed tx is a failed fire.\n")
+	b.WriteString("Never spend below the vault's rent floor; a failed tx is a failed turn.\n")
 	if size == Full {
 		b.WriteString("Writes are vault-routed: the agent hot wallet signs, the operator's key never enters the process.\n")
 		b.WriteString("A post is a micro buy: the indexer persists memos only on torch txs.\n")
-		b.WriteString("Never fabricate a signature; a failed tx is a failed fire.\n")
+		b.WriteString("Never fabricate a signature; a failed tx is a failed turn.\n")
 		b.WriteString("A reviewer who stalls costs a worker interest; take a contract when review may be slow.\n")
 	}
 }
@@ -268,17 +266,17 @@ func strategies(b *strings.Builder, size Size) {
 	b.WriteString("Cut losers: release an investment below your cost basis that stays bearish.\n")
 	b.WriteString("Post with conviction: only a reason other members can verify.\n")
 	b.WriteString("Respect gossip: GOSSIP below -2 on a held project is a release signal.\n")
-	b.WriteString("One commitment per project: work only if you hold nothing on leverage there.\n")
+	b.WriteString("One commitment per project: work only if COMMITMENTS names nothing there.\n")
 	b.WriteString("Dissent pays or costs: short a completion you can disprove, and cite the number.\n")
 	b.WriteString("Patience beats noise: no action is an action. Pass when the read is unclear.\n")
 	if size == Full {
-		b.WriteString("Read before you act: market first, then intel, then wallet.\n")
+		b.WriteString("Read before you act: project first, then intel, then wallet.\n")
 		b.WriteString("Follow the backing: projects whose treasury grows are accumulating.\n")
 		b.WriteString("Never chase: no invest above 2x your cost basis.\n")
 		b.WriteString("Diversify: no project above 50% of the vault's value.\n")
 		b.WriteString("Escalate: a public project with a deep pool is a liquidity story, not a pump.\n")
 		b.WriteString("Use intel: another member's invest on your project is bullish; their release is bearish.\n")
-		b.WriteString("Be a legend: leave one memorable one-liner per fire when you post.\n")
+		b.WriteString("Be a legend: leave one memorable one-liner per turn when you post.\n")
 		b.WriteString("Protect the vault: never spend below the rent floor of vault SOL.\n")
 		b.WriteString("Read the rankings: the largest community is the town's consensus; town GDP is every project summed.\n")
 		b.WriteString("A funded project with a growing treasury is a launch candidate.\n")
@@ -334,7 +332,7 @@ func orderIntel(msgs []MessageView) []string {
 	return order
 }
 
-func fid(mint string) string {
+func pid(mint string) string {
 	if len(mint) <= 8 {
 		return mint
 	}
@@ -407,6 +405,7 @@ func lamportsOf(v float64) int64 {
 
 var bullWords = map[string]bool{
 	"back": true, "backed": true, "backing": true,
+	"invest": true, "invested": true, "investing": true, "contract": true, "contracted": true, "work": true, "working": true,
 	"buy": true, "buying": true, "bought": true,
 	"up": true, "in": true, "join": true, "joined": true, "hold": true, "holding": true,
 	"strong": true, "moon": true, "mooning": true, "rally": true, "win": true,
@@ -414,6 +413,7 @@ var bullWords = map[string]bool{
 }
 var bearWords = map[string]bool{
 	"cut": true, "cutting": true, "sell": true, "selling": true, "sold": true,
+	"release": true, "released": true, "releasing": true, "short": true, "shorted": true, "shorting": true, "washed": true,
 	"out": true, "down": true, "exit": true, "dump": true, "dumped": true, "dumping": true,
 	"weak": true, "rug": true, "rugpull": true, "scam": true, "bearish": true,
 	"lose": true, "losing": true, "trash": true, "trashing": true,
@@ -461,8 +461,8 @@ func StubBrief(id Identity) string {
 	if id.Goal != "" {
 		b.WriteString("GOAL: " + id.Goal + "\n")
 	}
-	b.WriteString("\nTHIS FIRE REBUILDS THE BRIEF: run-job snapshots the live read side\n")
+	b.WriteString("\nTHIS TURN REBUILDS THE BRIEF: run-job snapshots the live read side\n")
 	b.WriteString("and replaces this stub with the current brief (PROJECTS, GOSSIP, EARNINGS).\n")
-	b.WriteString("Read the live state with the market/intel/wallet tools.\n")
+	b.WriteString("Read the live state with the project/intel/wallet tools.\n")
 	return b.String()
 }

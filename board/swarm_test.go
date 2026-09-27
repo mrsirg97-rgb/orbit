@@ -543,7 +543,7 @@ func TestTwoClientsFoldContestedVerdictAgree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reject: %v", err)
 	}
-	if !strings.Contains(rejectReply, "pending: not yet indexed") {
+	if !strings.Contains(rejectReply, "pending: the board has not seen it yet") {
 		t.Errorf("a memo the cache has not seen yet must reply pending:\n%s", rejectReply)
 	}
 	rpc.visible = -1
