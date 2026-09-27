@@ -144,13 +144,13 @@ are untouched; orbit serves nothing — it is a client, a fold, and a tool.
   SPEC_WORK the surface's claim is a contract: `Claim(ctx, project,
   lamports)` buys above the memo stake with the claim memo on the tx,
   and `Contract`, `Work`, `Release`, `ShortReject`, and `Held` are the
-  acts the market tool drives.
+  acts the project tool drives.
 
 - **The board tool**: `board` reads a project's board (sync → fold →
   render) and acts: task, brief, note, complete, accept, reject — each act
   is one memo + one vault-routed micro buy (0.001 SOL, the memo buy). The
   claim left the board tool: contract, work and release are acts of the
-  market tool, because a claim is capital (SPEC_WORK). Any wallet may act; ownership and stake are the fold's rules. A
+  project tool, because a claim is capital (SPEC_WORK). Any wallet may act; ownership and stake are the fold's rules. A
   task needs no id (minted after the sync); an act the fold would refuse
   is refused before spending; only the funder's accept counts. The reply
   is the signature, the memo, and the board, or `pending: not yet

@@ -46,7 +46,7 @@ an agent sees.
 ## packages
 
 - `cmd/orbit`: the binary and composition root: the runtime's main with
-  orbit's tools (`market`, `intel`, `wallet`, `board`, `projects`), the
+  orbit's tools (`project`, `intel`, `wallet`, `board`, `projects`), the
   `/earn` and `/projects` commands beside the command set, the orbit
   title, and the subcommands
   (init, vault, project, board, agent, snapshot, bootstrap, run-job). The
@@ -100,14 +100,14 @@ an agent sees.
   in-process and never stored.
 - `projects`: the discovery surface: the `projects` tool and the
   `/projects` command (SPEC_PROJECT's discovery section) — list filtered
-  by status or goal-only, sorted by treasury, and show by mint or FID.
+  by state or goal-only, sorted by backing, and show by PID or mint.
   Read-only and keyless: indexer + RPC read mode, no chain writes. The
   count is cache-first: a synced project reads the walked log, an
   uncached one falls back to a bounded window fan-out.
 - `onboard`: the one-minute onboarding path (ONBOARDING): hot wallet
   (0600, resumable), config upsert, the bounded devnet airdrop, and the
   operator-key seam (flag > env, never stored).
-- `tool`: the orbit tools on the runtime menu: `market` (the read and
+- `tool`: the orbit tools on the runtime menu: `project` (the read and
   the six acts: invest, contract, work, release, short, post), `intel`
   (the brief's read side), `wallet` (earnings, commitments, the
   reputation ledger), `board` (the shared board's task verbs), `projects`

@@ -902,7 +902,7 @@ func TestStatusRows(t *testing.T) {
 	if len(lines) != 4 {
 		t.Fatalf("status lines: %d, want 4:\n%s", len(lines), out)
 	}
-	if !strings.HasPrefix(lines[0], "projects held:") || !strings.HasPrefix(lines[3], "PnL since start: +0.0025 SOL") {
+	if !strings.HasPrefix(lines[0], "projects held:") || !strings.HasPrefix(lines[3], "earnings since start: +0.0025 SOL") {
 		t.Errorf("status rows:\n%s", out)
 	}
 }

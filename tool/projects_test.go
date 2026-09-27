@@ -163,7 +163,7 @@ func TestProjectsToolListsFoldedOpenTasks(t *testing.T) {
 func TestProjectsToolFilters(t *testing.T) {
 	tc := projectsToolClient(t)
 	p := &Projects{Client: func() (*client.TorchClient, error) { return tc, nil }}
-	out, err := p.Exec(context.Background(), json.RawMessage(`{"action":"list","status":"migrated"}`))
+	out, err := p.Exec(context.Background(), json.RawMessage(`{"action":"list","status":"public"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestProjectsToolFilters(t *testing.T) {
 func TestProjectsToolShowNamesTheGoal(t *testing.T) {
 	tc := projectsToolClient(t)
 	p := &Projects{Client: func() (*client.TorchClient, error) { return tc, nil }}
-	out, err := p.Exec(context.Background(), json.RawMessage(`{"action":"show","mint":"oxPkrZBG"}`))
+	out, err := p.Exec(context.Background(), json.RawMessage(`{"action":"show","project":"oxPkrZBG"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestProjectsToolShowNamesTheGoal(t *testing.T) {
 
 func TestProjectsToolDescriptionNamesWhereToPick(t *testing.T) {
 	desc := (&Projects{}).Description()
-	if !strings.Contains(desc, "before it claims") || !strings.Contains(desc, "list") || !strings.Contains(desc, "show") {
+	if !strings.Contains(desc, "before it contracts") || !strings.Contains(desc, "list") || !strings.Contains(desc, "show") {
 		t.Errorf("description = %q", desc)
 	}
 }

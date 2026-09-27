@@ -69,7 +69,7 @@ func runProjectCreate(args []string) int {
 	}
 	fmt.Printf("PROJECT  %s (%s)\n", res.Name, res.Symbol)
 	fmt.Printf("MINT     %s\n", res.Mint)
-	fmt.Printf("FID      %s\n", fid8(res.Mint))
+	fmt.Printf("PID      %s\n", pid8(res.Mint))
 	fmt.Printf("GOAL     %s\n", res.Goal)
 	fmt.Printf("TREASURY %s SOL (first buy)\n", client.FormatSOL(res.TreasuryLamports))
 	fmt.Printf("CREATE   %s\n", res.CreateSignature)
@@ -90,20 +90,20 @@ func runProjectList() int {
 	if err != nil {
 		die("project: %v", err)
 	}
-	fmt.Printf("%-10s %-20s %-8s %-10s %-10s %s\n", "FID", "NAME", "SYMBOL", "STATUS", "TREASURY", "GOAL")
+	fmt.Printf("%-10s %-20s %-8s %-10s %-10s %s\n", "PID", "NAME", "SYMBOL", "STATE", "BACKING", "GOAL")
 	for _, r := range rows {
 		goal := r.Goal
 		if goal == "" {
 			goal = "-"
 		}
 		fmt.Printf("%-10s %-20s %-8s %-10s %-10s %s\n",
-			fid8(r.Mint), truncate(r.Name, 20), r.Symbol, r.Status,
+			pid8(r.Mint), truncate(r.Name, 20), r.Symbol, r.Status,
 			client.FormatSOL(r.TreasurySOL), goal)
 	}
 	return 0
 }
 
-func fid8(mint string) string {
+func pid8(mint string) string {
 	if len(mint) <= 8 {
 		return mint
 	}

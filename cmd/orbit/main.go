@@ -70,7 +70,7 @@ import (
 	orbittool "github.com/mrsirg97-rgb/orbit/tool"
 )
 
-const Version = "0.5.0"
+const Version = "0.5.1"
 
 //go:embed theme.json
 var shippedTheme []byte
@@ -678,7 +678,7 @@ func userHome() string {
 // names) and the same allow-list default (appendOrbitTools), so every
 // session — the TUI, the piped CLI, the one-shot worker a fire spawns —
 // offers them and may call them.
-var orbitToolNames = []string{"market", "intel", "wallet", "board", "projects"}
+var orbitToolNames = []string{"project", "intel", "wallet", "board", "projects"}
 
 var nativeToolNames = append([]string{"bash", "read", "write", "edit", "ls", "find", "grep", "view", "todo", "rem", "scheduler", "delegate", "python", "web_search", "web_fetch", "diff", "plugin", "plugins", "sessions"}, orbitToolNames...)
 
@@ -706,7 +706,7 @@ var workerToolNames = []string{"scheduler", "delegate"}
 // plugin, delegate, sessions, and the file writers. The operator's
 // interactive allow is untouched; only the fire worker resolves to this
 // list.
-var fireToolNames = []string{"market", "intel", "wallet", "board", "projects", "read", "rem", "bash", "python", "todo"}
+var fireToolNames = []string{"project", "intel", "wallet", "board", "projects", "read", "rem", "bash", "python", "todo"}
 
 func effectiveNativeNames(workers *config.Workers, fire bool) []string {
 	if fire {
@@ -838,7 +838,7 @@ func (r *root) earnRows(ctx context.Context) []string {
 		row("projects held", strconv.Itoa(rows.Rows.Held), tui.SlotText),
 		row("open claims", strconv.Itoa(rows.Rows.OpenClaims), tui.SlotText),
 		row("last memo", rows.LastMemoText(), tui.SlotText),
-		row("PnL since start", rows.Rows.PnLText(), pnl),
+		row("earnings since start", rows.Rows.PnLText(), pnl),
 	}
 }
 
@@ -1352,7 +1352,7 @@ func main() {
 			fireActSnapshot(ctx, idb, tc, r.board, snapshotPath, agentID, shape)
 		}
 	}
-	r.tools["market"] = &orbittool.Market{Client: cp.Torch, Store: r.board, StakeLamports: identity.BaseStakeLamports}
+	r.tools["project"] = &orbittool.Project{Client: cp.Torch, Store: r.board, StakeLamports: identity.BaseStakeLamports}
 	r.tools["intel"] = &orbittool.Intel{Client: cp.Torch}
 	r.tools["wallet"] = &orbittool.Wallet{Client: cp.Torch, Store: r.board}
 	r.tools["board"] = &orbittool.Board{Store: r.board, Client: cp.Torch}

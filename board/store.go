@@ -652,7 +652,7 @@ func (s *Store) act(ctx context.Context, p Project, a act) (string, error) {
 		if s.OnAct != nil {
 			s.OnAct(ctx, shape)
 		}
-		return res.Signature + " " + memo + "\npending: not yet indexed", nil
+		return res.Signature + " " + memo + "\npending: the board has not seen it yet", nil
 	}
 	board, err := s.BoardFromCache(ctx, p)
 	if err != nil {
@@ -770,12 +770,12 @@ func (s *Store) refuseForeign(ctx context.Context, p Project, memo, sender strin
 	candidate.At = now.Format(time.RFC3339)
 	candidate.Signature = candidateSignature
 	if gated(candidate.Verb) && !ledger.Public {
-		return fmt.Errorf("board act %s: the project is not public (work verbs land only after migration; invest, note, and post stand)", candidate.Verb)
+		return fmt.Errorf("board act %s: the project is not public (tasks and claims land only on a public project; invest, note, and post stand)", candidate.Verb)
 	}
 	before := Fold(p.Mint, memos, ledger, now)
 	after := Fold(p.Mint, append(append([]Memo{}, memos...), candidate), ledger.with(candidateSignature, carrier), now)
 	if tasksEqual(before, after) {
-		return fmt.Errorf("board act %s: the fold would refuse %s (foreign state or a stale id; read the board and retry)", candidate.Verb, memo)
+		return fmt.Errorf("board act %s: the board refuses %s (wrong state or a stale id; read the board and retry)", candidate.Verb, memo)
 	}
 	return nil
 }
@@ -1074,10 +1074,10 @@ func (s *Store) label(p Project) string {
 	if p.Label != "" {
 		return p.Label
 	}
-	return fid8(p.Mint)
+	return pid8(p.Mint)
 }
 
-func fid8(mint string) string {
+func pid8(mint string) string {
 	if len(mint) <= 8 {
 		return mint
 	}

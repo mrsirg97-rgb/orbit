@@ -80,7 +80,6 @@ func Snapshot(ctx context.Context, c *client.TorchClient, identity brief.Identit
 			ValueSOL:    value,
 			PnLSOL:      pnlFor(&wallet.Pnl, m.Mint, value),
 			Sentiment:   state.Sentiment[m.Mint],
-			HasLoan:     hasLoan(&state, m.Mint),
 			TreasurySOL: float64(treasury) / 1e9,
 			Lending:     treasury >= client.LendingUnlockLamports,
 		})
@@ -104,15 +103,6 @@ func pnlFor(pnl *client.PnlSummary, mint string, value float64) float64 {
 		}
 	}
 	return 0
-}
-
-func hasLoan(state *brief.ReadState, mint string) bool {
-	for _, p := range state.Positions {
-		if p.Mint == mint && p.Side == "long" && p.Health != "none" {
-			return true
-		}
-	}
-	return false
 }
 
 func truncate(s string, n int) string {

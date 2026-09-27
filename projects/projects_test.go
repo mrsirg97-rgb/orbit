@@ -183,7 +183,7 @@ func TestListFoldsOpenTasksAndSortsByTreasury(t *testing.T) {
 		t.Fatalf("rows: %d, want 4", len(rows))
 	}
 	if rows[0].Mint != mintC || rows[1].Mint != mintA || rows[2].Mint != mintB || rows[3].Mint != mintD {
-		t.Errorf("rows not sorted by treasury: %s %s %s %s", fid8(rows[0].Mint), fid8(rows[1].Mint), fid8(rows[2].Mint), fid8(rows[3].Mint))
+		t.Errorf("rows not sorted by treasury: %s %s %s %s", pid8(rows[0].Mint), pid8(rows[1].Mint), pid8(rows[2].Mint), pid8(rows[3].Mint))
 	}
 	if rows[0].TreasurySOL != 25_000_000_000 || rows[1].TreasurySOL != 12_340_000_000 {
 		t.Errorf("treasury floats: %d %d", rows[0].TreasurySOL, rows[1].TreasurySOL)
@@ -205,14 +205,14 @@ func TestListFoldsOpenTasksAndSortsByTreasury(t *testing.T) {
 func TestListFiltersStatusAndGoal(t *testing.T) {
 	tc := fixtureClient(t)
 	ctx := context.Background()
-	bonding, err := List(ctx, tc, nil, Filter{Status: "bonding"})
+	bonding, err := List(ctx, tc, nil, Filter{Status: "private"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(bonding) != 1 || bonding[0].Mint != mintB {
 		t.Errorf("bonding filter: %+v", bonding)
 	}
-	ready, err := List(ctx, tc, nil, Filter{Status: "ready"})
+	ready, err := List(ctx, tc, nil, Filter{Status: "funded"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestListFiltersStatusAndGoal(t *testing.T) {
 	}
 	for _, r := range goalOnly {
 		if r.Goal == "" {
-			t.Errorf("goal-only row without a goal: %s", fid8(r.Mint))
+			t.Errorf("goal-only row without a goal: %s", pid8(r.Mint))
 		}
 	}
 }
@@ -270,17 +270,17 @@ func TestCommandRendersOneRowPerProject(t *testing.T) {
 	if len(lines) != 5 {
 		t.Fatalf("table lines: %d, want header + 4 rows:\n%s", len(lines), out)
 	}
-	if !strings.HasPrefix(lines[0], "FID") || !strings.Contains(lines[0], "GOAL") {
+	if !strings.HasPrefix(lines[0], "PID") || !strings.Contains(lines[0], "GOAL") {
 		t.Errorf("header: %s", lines[0])
 	}
-	for i, want := range []string{"gPtHB1sc", "oxPkrZBG", "rPQNThcv", fid8(mintD)} {
+	for i, want := range []string{"gPtHB1sc", "oxPkrZBG", "rPQNThcv", pid8(mintD)} {
 		if !strings.Contains(lines[i+1], want) {
-			t.Errorf("row %d missing fid %s:\n%s", i, want, lines[i+1])
+			t.Errorf("row %d missing pid %s:\n%s", i, want, lines[i+1])
 		}
 	}
 }
 
-func TestCommandShowByFIDNamesTheGoal(t *testing.T) {
+func TestCommandShowByPIDNamesTheGoal(t *testing.T) {
 	tc := fixtureClient(t)
 	cmd := &Command{Client: func() (*client.TorchClient, error) { return tc, nil }}
 	out, err := cmd.Run(context.Background(), "show oxPkrZBG", nil)
@@ -317,7 +317,7 @@ func TestSubNamesTheVerbs(t *testing.T) {
 func TestCommandListFilterTokenAndUnknownFilter(t *testing.T) {
 	tc := fixtureClient(t)
 	cmd := &Command{Client: func() (*client.TorchClient, error) { return tc, nil }}
-	out, err := cmd.Run(context.Background(), "bonding", nil)
+	out, err := cmd.Run(context.Background(), "private", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -486,7 +486,7 @@ func TestListBoundedFallback(t *testing.T) {
 			want = UnknownTasks
 		}
 		if r.OpenTasks != want {
-			t.Errorf("row %d (%s): open %d, want %d", i, fid8(r.Mint), r.OpenTasks, want)
+			t.Errorf("row %d (%s): open %d, want %d", i, pid8(r.Mint), r.OpenTasks, want)
 		}
 	}
 	if api.messagesCalls != FallbackBudget {

@@ -290,7 +290,7 @@ func TestDefaultsLandInJob(t *testing.T) {
 		t.Errorf("model %s", job.Model)
 	}
 	for _, want := range []string{
-		"NAME: torch worker",
+		"NAME: worker",
 		"BIO:",
 	} {
 		if !strings.Contains(job.Prompt, want) {

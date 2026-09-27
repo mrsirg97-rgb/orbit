@@ -12,34 +12,34 @@ import (
 	solpkg "github.com/mrsirg97-rgb/orbit/sol"
 )
 
-type Market struct {
+type Project struct {
 	Client        func() (*client.TorchClient, error)
 	Store         *board.Store
 	StakeLamports uint64
 }
 
-func (m *Market) client() (*client.TorchClient, error) {
+func (m *Project) client() (*client.TorchClient, error) {
 	if m.Client == nil {
-		return nil, fmt.Errorf("market: no client seam (run /earn)")
+		return nil, fmt.Errorf("project: no client seam (run /earn)")
 	}
 	tc, err := m.Client()
 	if err != nil {
-		return nil, fmt.Errorf("market: %w", err)
+		return nil, fmt.Errorf("project: %w", err)
 	}
 	return tc, nil
 }
 
-func (m *Market) Name() string { return "market" }
+func (m *Project) Name() string { return "project" }
 
-func (m *Market) Description() string {
-	return "read a project: rate, size, state, backing, holdings, gossip; act: invest, contract, work, release, short, post. One act per fire. invest and post stand in every state but closed. contract (task id + your own capital) needs a public project; work (task id + the treasury's leverage on your token holding) needs a public project with lending unlocked. release with an id frees a held task and closes its commitment; without an id it sells the investment. short with an id rejects a completion with capital behind it. Every write replies with the tx signature plus the memo."
+func (m *Project) Description() string {
+	return "read a project: rate, size, state, backing, holdings, gossip; act: invest, contract, work, release, short, post. One act per turn. invest and post stand in every state but closed. contract (task id + your own capital) needs a public project; work (task id + the treasury's leverage on your token holding) needs a public project with lending unlocked. release with an id frees a held task and closes its commitment; without an id it sells the investment. short with an id rejects a completion with capital behind it. Every write replies with the tx signature plus the memo."
 }
 
-func (m *Market) Schema() json.RawMessage {
+func (m *Project) Schema() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
-			"mint": {"type": "string", "description": "Full mint pubkey, or the 8-char FID suffix from PROJECTS."},
+			"project": {"type": "string", "description": "The PID (8 chars) from PROJECTS, or the full project mint."},
 			"action": {"type": "string", "enum": ["invest", "contract", "work", "release", "short", "post"], "description": "Optional act. Omit to read only."},
 			"id": {"type": "integer", "description": "Task id: required for contract and work; release with an id frees that task; short with an id rejects that completion."},
 			"memo": {"type": "string", "description": "Memo text: required for post; the reason for a short that rejects; optional for invest and release."},
@@ -48,12 +48,12 @@ func (m *Market) Schema() json.RawMessage {
 			"fraction": {"type": "integer", "description": "release of a work commitment: basis points to close (default 10000, full; under full keeps the task held)."},
 			"min_out": {"type": "integer", "description": "Slippage guard on the position's atomic swap or surplus (default 0)."}
 		},
-		"required": ["mint"]
+		"required": ["project"]
 	}`)
 }
 
 type marketArgs struct {
-	Mint     string `json:"mint"`
+	Project  string `json:"project"`
 	Action   string `json:"action"`
 	ID       int    `json:"id"`
 	Memo     string `json:"memo"`
@@ -63,26 +63,26 @@ type marketArgs struct {
 	MinOut   uint64 `json:"min_out"`
 }
 
-func (m *Market) Exec(ctx context.Context, args json.RawMessage) (string, error) {
+func (m *Project) Exec(ctx context.Context, args json.RawMessage) (string, error) {
 	tc, err := m.client()
 	if err != nil {
 		return "", err
 	}
 	var in marketArgs
 	if err := json.Unmarshal(args, &in); err != nil {
-		return "", fmt.Errorf("market: args: %w", err)
+		return "", fmt.Errorf("project: args: %w", err)
 	}
-	in.Mint = strings.TrimSpace(in.Mint)
-	if in.Mint == "" {
-		return "", fmt.Errorf("market: mint required")
+	in.Project = strings.TrimSpace(in.Project)
+	if in.Project == "" {
+		return "", fmt.Errorf("project: project required (a PID or the full mint)")
 	}
-	mint, err := resolveMint(ctx, tc, in.Mint)
+	mint, err := resolveMint(ctx, tc, in.Project)
 	if err != nil {
-		return "", fmt.Errorf("market: %w", err)
+		return "", fmt.Errorf("project: %w", err)
 	}
 	detail, err := tc.API.Market(ctx, mint)
 	if err != nil {
-		return "", fmt.Errorf("market: read %s: %w", mint, err)
+		return "", fmt.Errorf("project: read %s: %w", mint, err)
 	}
 	market := detail.Market
 	treasury, err := treasuryLamports(ctx, tc, market.Mint)
@@ -103,7 +103,7 @@ func (m *Market) Exec(ctx context.Context, args json.RawMessage) (string, error)
 	gossip := brief.SentimentFrom(views)
 	read := fmt.Sprintf(
 		"%s: RATE %s SOL, SIZE %s SOL, STATE %s, BACKING %s SOL, LENDS %s, HOLDINGS %d (%s SOL), GOSSIP %+.0f",
-		fid8(market.Mint), sol(price), sol(price*1_000_000_000), brief.StateWord(string(market.Status)),
+		pid8(market.Mint), sol(price), sol(price*1_000_000_000), brief.StateWord(string(market.Status)),
 		sol(float64(treasury)/1e9), yesno(treasury >= client.LendingUnlockLamports), holdings, sol(value), gossip)
 	if in.Action == "" {
 		return read, nil
@@ -115,7 +115,7 @@ func (m *Market) Exec(ctx context.Context, args json.RawMessage) (string, error)
 	return read + "\n" + reply, nil
 }
 
-func (m *Market) stake(in marketArgs) uint64 {
+func (m *Project) stake(in marketArgs) uint64 {
 	if in.SOL > 0 {
 		return in.SOL
 	}
@@ -125,7 +125,7 @@ func (m *Market) stake(in marketArgs) uint64 {
 	return client.MemoBuyLamports
 }
 
-func (m *Market) act(ctx context.Context, tc *client.TorchClient, market client.MarketRow, holdings uint64, in marketArgs) (string, error) {
+func (m *Project) act(ctx context.Context, tc *client.TorchClient, market client.MarketRow, holdings uint64, in marketArgs) (string, error) {
 	project := board.Project{Mint: market.Mint, Label: market.Name}
 	switch in.Action {
 	case "invest":
@@ -177,7 +177,7 @@ func (m *Market) act(ctx context.Context, tc *client.TorchClient, market client.
 				for _, t := range held {
 					ids = append(ids, fmt.Sprintf("t%d", t.ID))
 				}
-				return "", fmt.Errorf("release needs the task id: you hold %s on %s", strings.Join(ids, ", "), fid8(market.Mint))
+				return "", fmt.Errorf("release needs the task id: you hold %s on %s", strings.Join(ids, ", "), pid8(market.Mint))
 			}
 		}
 		res, err := tc.WriteAction(ctx, market, client.ActionExit, in.Memo, 0)
@@ -215,7 +215,7 @@ func written(act, mint string, res client.WriteResult) string {
 	if got == "" {
 		got = "(no memo)"
 	}
-	return fmt.Sprintf("%s %s: %s %s", act, fid8(mint), res.Signature, got)
+	return fmt.Sprintf("%s %s: %s %s", act, pid8(mint), res.Signature, got)
 }
 
 func treasuryLamports(ctx context.Context, tc *client.TorchClient, mint string) (uint64, error) {
@@ -250,14 +250,14 @@ func resolveMint(ctx context.Context, c *client.TorchClient, input string) (stri
 		return "", fmt.Errorf("resolve %s: %w", input, err)
 	}
 	for _, m := range markets {
-		if fid8(m.Mint) == input {
+		if pid8(m.Mint) == input {
 			return m.Mint, nil
 		}
 	}
-	return "", fmt.Errorf("no project with FID %s", input)
+	return "", fmt.Errorf("no project with PID %s", input)
 }
 
-func fid8(mint string) string {
+func pid8(mint string) string {
 	if len(mint) <= 8 {
 		return mint
 	}

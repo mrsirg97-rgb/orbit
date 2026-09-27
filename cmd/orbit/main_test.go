@@ -44,8 +44,8 @@ func TestVersionStartupStaysFast(t *testing.T) {
 
 func TestVersionIsTheFreeze(t *testing.T) {
 
-	if Version != "0.5.0" {
-		t.Fatalf("Version = %q, want 0.5.0", Version)
+	if Version != "0.5.1" {
+		t.Fatalf("Version = %q, want 0.5.1", Version)
 	}
 
 	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(Version) {
@@ -91,7 +91,7 @@ func TestEarnRowsPaintLabelsEmberValuesTextAndPnLBySign(t *testing.T) {
 			th.Paint(tui.SlotEmber, "projects held: ") + th.Paint(tui.SlotText, "2"),
 			th.Paint(tui.SlotEmber, "open claims: ") + th.Paint(tui.SlotText, "1"),
 			th.Paint(tui.SlotEmber, "last memo: ") + th.Paint(tui.SlotText, "3m ago · \"backed\""),
-			th.Paint(tui.SlotEmber, "PnL since start: ") + th.Paint(tc.slot, earn.Rows{PnLSOL: tc.pnl}.PnLText()),
+			th.Paint(tui.SlotEmber, "earnings since start: ") + th.Paint(tc.slot, earn.Rows{PnLSOL: tc.pnl}.PnLText()),
 		}
 		for i := range want {
 			if lines[i] != want[i] {
@@ -176,7 +176,7 @@ func TestFireWireToolsetIsExactlyTheTen(t *testing.T) {
 	for _, n := range names {
 		have[n] = true
 	}
-	for _, kept := range []string{"bash", "python", "todo", "read", "rem", "board", "market", "intel", "wallet", "projects"} {
+	for _, kept := range []string{"bash", "python", "todo", "read", "rem", "board", "project", "intel", "wallet", "projects"} {
 		if !have[kept] {
 			t.Errorf("the fire wire must keep %s: %v", kept, names)
 		}
@@ -195,7 +195,7 @@ func TestFireAllowIsFixedAndInteractiveUntouched(t *testing.T) {
 		t.Errorf("fire allow: %s, want %s", got, want)
 	}
 	interactive := effectiveAllow([]string{"bash", "read"}, noEnv, "", false, false)
-	if got := strings.Join(interactive, ","); got != "bash,read,market,intel,wallet,board,projects" {
+	if got := strings.Join(interactive, ","); got != "bash,read,project,intel,wallet,board,projects" {
 		t.Errorf("interactive allow changed: %s", got)
 	}
 	operator := effectiveAllow([]string{"read", "board"}, noEnv, "", false, false)

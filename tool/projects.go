@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/mrsirg97-rgb/orbit/board"
+	"github.com/mrsirg97-rgb/orbit/brief"
 	"github.com/mrsirg97-rgb/orbit/client"
 	"github.com/mrsirg97-rgb/orbit/projects"
 )
@@ -31,7 +32,7 @@ func (p *Projects) client() (*client.TorchClient, error) {
 func (p *Projects) Name() string { return "projects" }
 
 func (p *Projects) Description() string {
-	return "where an agent picks a project before it claims: list the projects with goal, status, treasury, and open tasks (status=bonding|ready|migrated, goal-only), sorted by treasury; show <mint|fid> the goal, treasury, board summary (n/m done, open claims), and the last three memos. Read-only, keyless."
+	return "where an agent picks a project before it contracts: list the projects with goal, state, backing, and open tasks (status=private|funded|public, goal-only), sorted by backing; show <project> the goal, backing, board summary (n/m done, open claims), and the last three memos. Read-only, keyless."
 }
 
 func (p *Projects) Schema() json.RawMessage {
@@ -39,9 +40,9 @@ func (p *Projects) Schema() json.RawMessage {
 		"type": "object",
 		"properties": {
 			"action": {"type": "string", "enum": ["list", "show"], "description": "Omit to list."},
-			"status": {"type": "string", "enum": ["bonding", "ready", "migrated"], "description": "List filter."},
+			"status": {"type": "string", "enum": ["private", "funded", "public"], "description": "List filter: the project state."},
 			"goal": {"type": "boolean", "description": "List filter: only projects with a goal."},
-			"mint": {"type": "string", "description": "Full mint pubkey or 8-char FID (show)."}
+			"project": {"type": "string", "description": "show: the PID (8 chars) or the full project mint."}
 		}
 	}`)
 }
@@ -52,10 +53,10 @@ func (p *Projects) Exec(ctx context.Context, args json.RawMessage) (string, erro
 		return "", err
 	}
 	var in struct {
-		Action string `json:"action"`
-		Status string `json:"status"`
-		Goal   bool   `json:"goal"`
-		Mint   string `json:"mint"`
+		Action  string `json:"action"`
+		Status  string `json:"status"`
+		Goal    bool   `json:"goal"`
+		Project string `json:"project"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
 		return "", fmt.Errorf("projects: args: %w", err)
@@ -64,11 +65,11 @@ func (p *Projects) Exec(ctx context.Context, args json.RawMessage) (string, erro
 	case "", "list":
 		return p.list(ctx, tc, projects.Filter{Status: strings.TrimSpace(in.Status), GoalOnly: in.Goal})
 	case "show":
-		in.Mint = strings.TrimSpace(in.Mint)
-		if in.Mint == "" {
-			return "", errors.New("projects: show needs a mint or FID")
+		in.Project = strings.TrimSpace(in.Project)
+		if in.Project == "" {
+			return "", errors.New("projects: show needs a project (PID or mint)")
 		}
-		s, err := projects.Show(ctx, tc, p.Store, in.Mint)
+		s, err := projects.Show(ctx, tc, p.Store, in.Project)
 		if err != nil {
 			return "", fmt.Errorf("projects: %w", err)
 		}
@@ -88,8 +89,8 @@ func (p *Projects) list(ctx context.Context, tc *client.TorchClient, f projects.
 	}
 	lines := make([]string, 0, len(rows))
 	for _, r := range rows {
-		lines = append(lines, fmt.Sprintf("[%s] %s · %s · treasury %s SOL · %s open · goal %s",
-			fid8(r.Mint), r.Name, projects.StatusWord(r.Status), client.FormatSOL(r.TreasurySOL),
+		lines = append(lines, fmt.Sprintf("[%s] %s · %s · backing %s SOL · %s open · goal %s",
+			pid8(r.Mint), r.Name, brief.StateWord(r.Status), client.FormatSOL(r.TreasurySOL),
 			projects.TasksText(r.OpenTasks), dash(r.Goal)))
 	}
 	return strings.Join(lines, "\n"), nil

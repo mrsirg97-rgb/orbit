@@ -36,7 +36,7 @@ SPEC_EARN governs.
 - **`status` / `stop` / `start`**: the footer rows, and the pause/resume
   of every identity's scheduled job.
 - **`Rows`** (`status.go`): the footer — projects held, open claims, last
-  memo, PnL since start. `Status` reads it from the chain (wallet read +
+  memo, earnings since start. `Status` reads it from the chain (wallet read +
   the board cache); `RowsFromBrief` computes the same rows from a fire's
   read state with no extra chain reads.
 - **The snapshot**: `SnapshotPath` / `ReadSnapshot` / `WriteSnapshot` —

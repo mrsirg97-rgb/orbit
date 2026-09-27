@@ -15,7 +15,7 @@ natives, the `/earn` command beside `command.All()`, and the orbit title
   theme is orbit's shipped one: the embedded default when the home has
   no theme.json (a home theme.json wins entirely). The status function
   adds the earn rows under the footer — painted dim, the same grey as
-  the model rows: projects held, open claims, last memo, PnL since
+  the model rows: projects held, open claims, last memo, earnings since
   start. The same rows are what `/earn status` prints. The tick re-reads
   the status function while the input loop is idle (zero is off; a
   fire's write shows up without a command).
@@ -92,7 +92,7 @@ the fold trusts).
 
 ### 4. The footer rows are a local snapshot, never the chain
 
-`earn.Status` reads the wallet (held projects, PnL since start) and the
+`earn.Status` reads the wallet (held projects, earnings since start) and the
 board cache (the wallet's open claims, its last memo) — command time
 only. `/earn status` and each agent fire write the rows to the local
 snapshot (`<orbit home>/status.json`), and the TUI's status callback

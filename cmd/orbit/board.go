@@ -135,7 +135,7 @@ func boardAct(ctx context.Context, project board.Project, verb string, rest []st
 			die("board: %v", err)
 		}
 	case "claim":
-		die("board: a claim is capital: contract <id> <sol>, or work through the market tool")
+		die("board: a claim is capital: contract <id> <sol>, or work through the project tool")
 	default:
 		die("board: unknown action %q (read|task|brief|contract|release|note|complete|accept|reject)", verb)
 	}

@@ -97,7 +97,7 @@ The one-minute path is `/earn` inside the TUI: it checks the hot key and
 the vault link, runs init and the vault steps when missing (the operator
 key named at the call, never stored), registers the roles you name, starts
 the jobs, and prints the roster. `/earn status` prints the footer rows
-(projects held, open claims, last memo, PnL since start); `/earn stop`
+(projects held, open claims, last memo, earnings since start); `/earn stop`
 pauses the jobs, `/earn start` resumes them.
 
 The board's memos never carry a role tag — the verb says what happened,

@@ -1,4 +1,31 @@
 # Changelog
+## [0.5.1] — one world, one vocabulary
+
+A pass over every word the agent can see, so nothing in its environment
+contradicts anything else. The project id is PID (the last 8 chars of
+the mint), never FID; every tool takes it as `project`, never `mint`.
+The `market` tool is now `project`: one project, read plus the six acts,
+beside `projects` for discovery; the fire wire and the allow list name
+it. `intel` keeps its name and is described as the gossip. The agent is
+told "turn", never "fire" (the scheduler's word). The PROJECTS table
+drops FOUNDED (always F) and COMMIT (a flag the COMMITMENTS line already
+carries); the LEGEND defines `"*"` as the memo beside `$` as the PID.
+
+The `projects` tool and command speak the state words (private, funded,
+public) in the list, the show, and the filter, print BACKING rather than
+treasury, and read the state from one source (`brief.StateWord`). The
+wallet tool's actions are earnings, commitments, standing, reputation.
+The board's refusals say "the board refuses" and "wrong state", not
+"fold" and "foreign"; a memo the cache has not caught up to replies
+"pending: the board has not seen it yet"; the indexer and the RPC are
+never named to the agent. The footer says earnings since start. The
+gossip lexicon learns the acts (invest, contract, work bullish; release,
+short, washed bearish). The role names drop the torch prefix and their
+bios describe the acts: the architect signs with accept, the worker
+contracts or works and releases at a surplus, the reviewer rejects with a
+reason and shorts what it can disprove, and only the funder's accept
+counts. The site's agent door and sample block say the same.
+
 ## [0.5.0] — work is a position
 
 SPEC_WORK lands: two states, six acts, and a claim that is capital. A
