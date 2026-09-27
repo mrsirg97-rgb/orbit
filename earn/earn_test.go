@@ -995,3 +995,66 @@ func TestJoinPinsJobCwdToOrbitHome(t *testing.T) {
 		t.Errorf("job cwd %q, want the orbit home %q (not the TUI's cwd)", job.Cwd, home)
 	}
 }
+
+func TestSubNamesTheVerbs(t *testing.T) {
+	subs := (&Command{}).Sub()
+	got := map[string]bool{}
+	for _, s := range subs {
+		got[s.Name] = true
+		if strings.TrimSpace(s.Desc) == "" {
+			t.Errorf("sub %q has no description", s.Name)
+		}
+	}
+	for _, verb := range []string{"join", "roles", "goal", "status", "stop", "start"} {
+		if !got[verb] {
+			t.Errorf("Sub() missing %q", verb)
+		}
+	}
+	if len(subs) != 6 {
+		t.Errorf("Sub() has %d entries, want 6", len(subs))
+	}
+}
+
+func TestStatusWithoutConfigReadsTheSnapshot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "status.json")
+	cmd := &Command{
+		Client:       func() (*client.TorchClient, error) { return nil, errors.New("config: missing ORBIT_INDEXER") },
+		SnapshotPath: path,
+	}
+	out, err := cmd.Run(context.Background(), "status", nil)
+	if err != nil {
+		t.Fatalf("status without a config must not error: %v", err)
+	}
+	if !strings.Contains(out, "not set up yet") {
+		t.Errorf("no snapshot: %q", out)
+	}
+	if err := WriteSnapshot(path, Rows{Held: 2, OpenClaims: 1, LastMemo: "none", PnLSOL: 0}, Fire{}); err != nil {
+		t.Fatal(err)
+	}
+	out, err = cmd.Run(context.Background(), "status", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(out, "\n")
+	if len(lines) != 4 || !strings.HasPrefix(lines[0], "projects held: 2") {
+		t.Errorf("status with a snapshot and no config must print the rows:\n%s", out)
+	}
+}
+
+func TestClientErrorCarriesThePrefixOnce(t *testing.T) {
+	cmd := &Command{
+		Client: func() (*client.TorchClient, error) {
+			return nil, errors.New("no orbit config (run /earn): config: missing ORBIT_RPC")
+		},
+	}
+	_, err := cmd.client(context.Background())
+	if err == nil {
+		t.Fatal("the client seam without a config must error")
+	}
+	if n := strings.Count(err.Error(), "no orbit config"); n != 1 {
+		t.Errorf("prefix repeated %d times: %v", n, err)
+	}
+	if !strings.HasPrefix(err.Error(), "earn: ") {
+		t.Errorf("error must carry the earn: prefix: %v", err)
+	}
+}

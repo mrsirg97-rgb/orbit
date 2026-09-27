@@ -15,6 +15,7 @@ SPEC_EARN governs.
 
 - **`Command`** (`command.go`): the `/earn` slash command — `Run`
   dispatches the moments: bare, `join`, `roles`, `goal`, `status`,
+  and offers them to the TUI's picker through `command.Subber` (`Sub()`);
   `stop`, `start`.
 - **`join [roles]`**: runs the setup (init, vault create, link, deposit)
   with the operator key named at the call, then registers the roles

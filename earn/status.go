@@ -30,6 +30,20 @@ func (r Rows) Lines() []string {
 	}
 }
 
+// PnLText is the PnL row's value as the footer prints it ("+0.0025 SOL").
+func (r Rows) PnLText() string {
+	return signedSOL(r.PnLSOL) + " SOL"
+}
+
+// LastMemoText is the last-memo row's value: the memo, and the last fire
+// when one is recorded.
+func (s Snapshot) LastMemoText() string {
+	if s.LastFire.Role != "" {
+		return fmt.Sprintf("%s · %s · %s", s.Rows.LastMemo, s.LastFire.Line(), age(s.LastFire.At))
+	}
+	return s.Rows.LastMemo
+}
+
 type Fire struct {
 	Role string `json:"role"`
 	Verb string `json:"verb"`

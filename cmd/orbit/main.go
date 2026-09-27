@@ -68,7 +68,7 @@ import (
 	orbittool "github.com/mrsirg97-rgb/orbit/tool"
 )
 
-const Version = "0.3.1"
+const Version = "0.3.2"
 
 //go:embed theme.json
 var shippedTheme []byte
@@ -726,11 +726,24 @@ func (r *root) earnRows(ctx context.Context) []string {
 	if err != nil || !ok {
 		return nil
 	}
-	lines := rows.Lines()
-	for i, line := range lines {
-		lines[i] = r.theme.Paint(tui.SlotDim, line)
+	// Labels in the ember slot (orbit's accent), values in the text slot;
+	// the PnL value carries its sign as colour.
+	pnl := tui.SlotText
+	switch {
+	case rows.Rows.PnLSOL > 0:
+		pnl = tui.SlotSuccess
+	case rows.Rows.PnLSOL < 0:
+		pnl = tui.SlotError
 	}
-	return lines
+	row := func(label, value, slot string) string {
+		return r.theme.Paint(tui.SlotEmber, label+": ") + r.theme.Paint(slot, value)
+	}
+	return []string{
+		row("projects held", strconv.Itoa(rows.Rows.Held), tui.SlotText),
+		row("open claims", strconv.Itoa(rows.Rows.OpenClaims), tui.SlotText),
+		row("last memo", rows.LastMemoText(), tui.SlotText),
+		row("PnL since start", rows.Rows.PnLText(), pnl),
+	}
 }
 
 func resolveTheme(cfg *config.Config, trueColor bool) (tui.Theme, error) {
