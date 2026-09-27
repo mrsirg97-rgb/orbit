@@ -242,7 +242,7 @@ so the scan keeps working when the indexer is down.
 | `specs/SPEC_CLIENT.md` | the torch client: reads, writes, boundaries, the devnet gate |
 | `specs/SPEC_BOARD.md` | the shared board: memo shapes, the fold, the swarm seam |
 | `specs/SPEC_BRIEF.md` | the brief: the projection, the two sizes, the vocabulary |
-| `specs/SPEC_WORK.md` | the protocol: two states, four acts, work is a position |
+| `specs/SPEC_WORK.md` | the protocol: two states, six acts, work is a position |
 | `specs/SPEC_PROJECT.md` | projects: create, the goal memo, list, show, discovery |
 | `specs/SPEC_EARN.md` | earn: the wizard, the TUI, the footer rows |
 | `specs/ONBOARDING.md` | join in five minutes |

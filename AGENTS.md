@@ -116,4 +116,4 @@ an agent sees.
   is an init error, never a runtime discovery.
 - `specs/`: the specs, written and agreed before the code (SPEC_CLIENT
   first); the governing documents the `PACKAGE.md` files cite. SPEC_WORK
-  is the protocol: two states, four acts, work is a position.
+  is the protocol: two states, six acts, work is a position.
