@@ -1,12 +1,25 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"crypto/tls"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/mrsirg97-rgb/orbit/board"
 	"github.com/mrsirg97-rgb/orbit/client"
@@ -15,8 +28,36 @@ import (
 	"github.com/mrsirg97-rgb/orbit/sol"
 )
 
+const testServerCert = `-----BEGIN CERTIFICATE-----
+MIIBkzCCATmgAwIBAgIRAJeNre3y74B282jwP9QClX0wCgYIKoZIzj0EAwIwHjEc
+MBoGA1UEAxMTYXBpLnRvcmNobWFya2V0LmRldjAeFw0yNjA5MjcxNzM3MTBaFw0y
+NjA5MjgxODM3MTBaMB4xHDAaBgNVBAMTE2FwaS50b3JjaG1hcmtldC5kZXYwWTAT
+BgcqhkjOPQIBBggqhkjOPQMBBwNCAAS2fnxvWLB3M62Hc68ZXN8ApsekzC6oi3es
+KCntsv7zbfQBOnJ/uE9McR8a4hqC9qD/b79hus76MkIuhkmJsKGAo1gwVjAOBgNV
+HQ8BAf8EBAMCBaAwEwYDVR0lBAwwCgYIKwYBBQUHAwEwLwYDVR0RBCgwJoITYXBp
+LnRvcmNobWFya2V0LmRldoIJbG9jYWxob3N0hwR/AAABMAoGCCqGSM49BAMCA0gA
+MEUCIFdCjFh2p0/x76k6Cm30PqmDk2QQhzDxjD7Ndyzcsz8gAiEAyOnIDR9O8NKY
+Y1nAtXOqmIyAmMlwJaXeugaqUKc2eg4=
+-----END CERTIFICATE-----`
+
+const testServerKey = `-----BEGIN EC PRIVATE KEY-----
+MHcCAQEEIDAMNxw3eFUInlnT6dy0hS25Ope5QuK1OVTJpq7uWwfFoAoGCCqGSM49
+AwEHoUQDQgAEtn58b1iwdzOth3OvGVzfAKbHpMwuqIt3rCgp7bL+8230ATpyf7hP
+THEfGuIagvag/2+/YbrO+jJCLoZJibChgA==
+-----END EC PRIVATE KEY-----`
+
+func testKeypair(t *testing.T) sol.Keypair {
+	t.Helper()
+	kp, err := sol.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return kp
+}
+
 type runjobFakeRPC struct {
 	accounts map[string]client.AccountInfo
+	balance  uint64
 }
 
 func (f *runjobFakeRPC) GetLatestBlockhash(context.Context) (string, error) {
@@ -29,7 +70,7 @@ func (f *runjobFakeRPC) GetAccountInfo(ctx context.Context, pubkey string) (clie
 func (f *runjobFakeRPC) GetTokenAccountsByOwner(context.Context, string, string) ([]client.TokenAccount, error) {
 	return nil, nil
 }
-func (f *runjobFakeRPC) GetBalance(context.Context, string) (uint64, error) { return 0, nil }
+func (f *runjobFakeRPC) GetBalance(context.Context, string) (uint64, error) { return f.balance, nil }
 func (f *runjobFakeRPC) GetSignatureStatus(context.Context, string) (client.SignatureStatus, error) {
 	return client.SignatureStatus{Exists: true, Confirmed: true}, nil
 }
@@ -91,6 +132,28 @@ func runjobClient(t *testing.T) *client.TorchClient {
 	}
 }
 
+func TestFireRefusesWhenHotWalletEmpty(t *testing.T) {
+	tc := runjobClient(t)
+	err := checkFireFunded(context.Background(), tc)
+	if err == nil {
+		t.Fatal("a fire with an empty hot wallet must refuse before spawn")
+	}
+	msg := err.Error()
+	for _, want := range []string{"send devnet SOL or wait for the faucet", "0.005", tc.AgentPublic()} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("refusal missing %q: %v", want, msg)
+		}
+	}
+}
+
+func TestFireAboveFloorPassesTheCheck(t *testing.T) {
+	tc := runjobClient(t)
+	tc.RPC.(*runjobFakeRPC).balance = earn.FundingFloorLamports
+	if err := checkFireFunded(context.Background(), tc); err != nil {
+		t.Fatalf("a wallet at the floor must fund the fire: %v", err)
+	}
+}
+
 func TestFireBriefCarriesGoal(t *testing.T) {
 	row := identity.Row{Name: "architect", Bio: "Frames the brief.", Goal: "Research whether compact briefs degrade decisions."}
 	_, text, err := fireBrief(context.Background(), runjobClient(t), row)
@@ -102,15 +165,232 @@ func TestFireBriefCarriesGoal(t *testing.T) {
 	}
 }
 
-func TestFireSandboxAndSwapFromSettingsAndEnv(t *testing.T) {
+func TestFireSandboxIsAlwaysOn(t *testing.T) {
 	home := t.TempDir()
 	if err := os.WriteFile(filepath.Join(home, "settings.json"),
-		[]byte(`{"sandbox": "jailed", "swapUrl": "http://10.0.0.1:9000"}`), 0o600); err != nil {
+		[]byte(`{"sandbox": "off", "swapUrl": "http://10.0.0.1:9000"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	getenv := func(k string) string {
 		switch k {
 		case "RIG_HOME":
+			return home
+		case "ORBIT_SANDBOX":
+			return "off"
+		case "RIG_SWAP_URL":
+			return "http://10.0.0.2:9000"
+		}
+		return ""
+	}
+	sandbox, swapURL, err := fireSandboxSwap(getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sandbox != "landlock" {
+		t.Errorf("fire sandbox %q, want landlock (always on, settings and env ignored)", sandbox)
+	}
+	if swapURL != "http://10.0.0.2:9000" {
+		t.Errorf("swap url %q, want the env override", swapURL)
+	}
+}
+
+func TestFireWorkerResolvesHomeAndPinsTheWire(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode skips the binary build")
+	}
+	bin := filepath.Join(t.TempDir(), "orbit")
+	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "settings.json"),
+		[]byte(`{"allow": ["bash", "read"], "model": "dsv4"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	models := `[{"id":"dsv4","window":393216,"maxTokens":65536,"reserve":104858,"keepRecent":98304,"role":"interactive","efforts":["low","high","max"]}]`
+	if err := os.WriteFile(filepath.Join(home, "models.json"), []byte(models), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".rig-job"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".rig-job", "agent-id"), []byte("@APxxxx-worker"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var mu sync.Mutex
+	var captured string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			_, _ = io.WriteString(w, `{"data":[]}`)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		captured = string(body)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\n")
+	}))
+	defer srv.Close()
+
+	cmd := exec.Command(bin, "-p", "hi", "-base-url", srv.URL, "-model", "dsv4")
+	cmd.Dir = home
+	cmd.Env = append(os.Environ(), "RIG_HOME="+filepath.Join(home, ".rig-job"))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("fire worker: %v\n%s", err, out)
+	}
+	if strings.Contains(string(out), "python kernel host") {
+		t.Errorf("the fire must not wire the python kernel:\n%s", out)
+	}
+
+	mu.Lock()
+	body := captured
+	mu.Unlock()
+	if body == "" {
+		t.Fatal("the worker never asked the model")
+	}
+	var req struct {
+		Tools []struct {
+			Function struct {
+				Name string `json:"name"`
+			} `json:"function"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal([]byte(body), &req); err != nil {
+		t.Fatalf("request: %v\n%s", err, body)
+	}
+	var names []string
+	for _, tool := range req.Tools {
+		names = append(names, tool.Function.Name)
+	}
+	if got, want := strings.Join(names, ","), strings.Join(fireToolNames, ","); got != want {
+		t.Errorf("fire wire on the model request: %s, want %s", got, want)
+	}
+	for _, banned := range []string{"write", "edit", "scheduler", "plugin", "plugins", "sessions", "delegate", "ls", "find", "grep"} {
+		for _, n := range names {
+			if n == banned {
+				t.Errorf("the fire wire must not name %s: %v", banned, names)
+			}
+		}
+	}
+}
+
+func TestChainTunnelRoutesBySNI(t *testing.T) {
+	cert, err := tls.X509KeyPair([]byte(testServerCert), []byte(testServerKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	got := make(chan string, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		tlsConn := tls.Server(c, &tls.Config{Certificates: []tls.Certificate{cert}})
+		_ = tlsConn.Handshake()
+		req, err := http.ReadRequest(bufio.NewReader(tlsConn))
+		if err != nil {
+			return
+		}
+		got <- req.Host
+		_, _ = io.WriteString(tlsConn, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+	}()
+
+	sock := filepath.Join(t.TempDir(), "chain.sock")
+	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+	tunnel, err := startChainTunnel(sock, port, []string{"localhost"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tunnel.Close()
+
+	conn, err := tls.Dial("unix", sock, &tls.Config{ServerName: "localhost", InsecureSkipVerify: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_, err = fmt.Fprintf(conn, "GET /rpc HTTP/1.1\r\nHost: api.torchmarket.dev\r\n\r\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case host := <-got:
+		if host != "api.torchmarket.dev" {
+			t.Errorf("tunnel target host %q, want api.torchmarket.dev", host)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the tunnel never forwarded the connection")
+	}
+}
+
+func TestClientDialContextRunsThroughTheTunnel(t *testing.T) {
+	cert, err := tls.X509KeyPair([]byte(testServerCert), []byte(testServerKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	replied := make(chan struct{}, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		tlsConn := tls.Server(c, &tls.Config{Certificates: []tls.Certificate{cert}})
+		_ = tlsConn.Handshake()
+		req, err := http.ReadRequest(bufio.NewReader(tlsConn))
+		if err != nil {
+			return
+		}
+		body, _ := io.ReadAll(req.Body)
+		if strings.Contains(string(body), "getBalance") {
+			replied <- struct{}{}
+		}
+		_, _ = io.WriteString(tlsConn, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}")
+	}()
+
+	sock := filepath.Join(t.TempDir(), "chain.sock")
+	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+	tunnel, err := startChainTunnel(sock, port, []string{"localhost"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tunnel.Close()
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return net.Dial("unix", sock)
+		},
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	rpc := client.NewJSONRPCWith("https://localhost/rpc", transport)
+	_, _ = rpc.GetBalance(context.Background(), "8GQ4XGM9p5DqKjw2JTrUAc42adwYWD5PK3P7eTobcYKy")
+	select {
+	case <-replied:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the RPC never reached the dial target")
+	}
+}
+
+func TestFireSandboxIgnoringInteractiveOnStillNamesTheSwap(t *testing.T) {
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "settings.json"),
+		[]byte(`{"swapUrl": "http://10.0.0.1:9000"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	getenv := func(k string) string {
+		if k == "RIG_HOME" {
 			return home
 		}
 		return ""
@@ -119,33 +399,8 @@ func TestFireSandboxAndSwapFromSettingsAndEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sandbox != "jailed" {
-		t.Errorf("sandbox %q, want settings.json's jailed", sandbox)
-	}
-	if swapURL != "http://10.0.0.1:9000" {
-		t.Errorf("swap url %q, want settings.json's", swapURL)
-	}
-
-	env := func(k string) string {
-		switch k {
-		case "RIG_HOME":
-			return home
-		case "ORBIT_SANDBOX":
-			return "landlock"
-		case "RIG_SWAP_URL":
-			return "http://10.0.0.2:9000"
-		}
-		return ""
-	}
-	sandbox, swapURL, err = fireSandboxSwap(env)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sandbox != "landlock" {
-		t.Errorf("env sandbox %q, want landlock to override settings", sandbox)
-	}
-	if swapURL != "http://10.0.0.2:9000" {
-		t.Errorf("env swap url %q, want the env to override settings", swapURL)
+	if sandbox != "landlock" || swapURL != "http://10.0.0.1:9000" {
+		t.Errorf("fire sandbox %q swap %q, want landlock + settings.json's swap url", sandbox, swapURL)
 	}
 }
 
@@ -182,5 +437,73 @@ func TestFireActSnapshotWritesLastFire(t *testing.T) {
 	}
 	if snap.LastFire.At == "" {
 		t.Error("the last fire must carry its time")
+	}
+}
+
+func TestChainTunnelRefusesAForeignHost(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	reached := make(chan struct{}, 1)
+	go func() {
+		if c, err := ln.Accept(); err == nil {
+			reached <- struct{}{}
+			c.Close()
+		}
+	}()
+	sock := filepath.Join(t.TempDir(), "chain.sock")
+	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+	tunnel, err := startChainTunnel(sock, port, []string{"api.torchmarket.dev"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tunnel.Close()
+	conn, err := tls.Dial("unix", sock, &tls.Config{ServerName: "evil.example", InsecureSkipVerify: true})
+	if err == nil {
+		conn.Close()
+		t.Fatal("a ClientHello for a host outside the allowlist must not complete a handshake")
+	}
+	select {
+	case <-reached:
+		t.Fatal("the tunnel forwarded a foreign host to the target")
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+func TestFireSandboxFallsBackWhereLandlockIsMissing(t *testing.T) {
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "settings.json"), []byte(`{"sandbox": "off"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	getenv := func(k string) string {
+		if k == "RIG_HOME" {
+			return home
+		}
+		return ""
+	}
+	var notice strings.Builder
+	sandbox, _, err := fireSandboxSwapWith(getenv, func() error { return errors.New("the profile is linux/amd64 (this build is darwin/arm64)") }, &notice)
+	if err != nil {
+		t.Fatalf("a box without landlock must still fire: %v", err)
+	}
+	if sandbox != "off" {
+		t.Errorf("fallback sandbox %q, want the operator's configured mode", sandbox)
+	}
+	if !strings.Contains(notice.String(), "landlock unavailable") {
+		t.Errorf("the fallback must say so once: %q", notice.String())
+	}
+	sandbox, _, err = fireSandboxSwapWith(getenv, func() error { return nil }, &notice)
+	if err != nil || sandbox != "landlock" {
+		t.Errorf("with landlock present the fire is landlocked, got %q %v", sandbox, err)
+	}
+}
+
+func TestFireTunnelHostsAreTheChainHosts(t *testing.T) {
+	hosts := fireTunnelHosts(client.Config{Indexer: "https://api.torchmarket.dev", RPC: "https://api.torchmarket.dev/rpc"})
+	got := strings.Join(hosts, ",")
+	if got != "api.torchmarket.dev,api.torchmarket.dev,api.devnet.solana.com" {
+		t.Errorf("tunnel hosts: %s", got)
 	}
 }

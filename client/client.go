@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 
 	"github.com/mrsirg97-rgb/orbit/idl"
@@ -59,7 +60,14 @@ func wire(cfg Config) (*TorchClient, error) {
 	if id.Address != cfg.ProgramID {
 		return nil, fmt.Errorf("client: IDL address %s != config program %s", id.Address, cfg.ProgramID)
 	}
-	return &TorchClient{Config: cfg, IDL: id, API: NewAPI(cfg.Indexer), RPC: NewJSONRPC(cfg.RPC)}, nil
+	var rt http.RoundTripper
+	if cfg.DialContext != nil {
+		rt = &http.Transport{DialContext: cfg.DialContext}
+	}
+	return &TorchClient{
+		Config: cfg, IDL: id,
+		API: NewAPIWith(cfg.Indexer, rt), RPC: NewJSONRPCWith(cfg.RPC, rt),
+	}, nil
 }
 
 func (c *TorchClient) AgentPublic() string { return c.AgentKey.PublicBase58() }

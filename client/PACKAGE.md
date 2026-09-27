@@ -16,7 +16,9 @@ governs.
   the orbit home (`RIG_HOME`, default `~/.orbit`), and six loaders share
   one resolver with one required set per mode (agent runtime, operator,
   vault create, read, board write, board read). Reads never need a signing
-  key; a present-but-bad key still fails closed.
+  key; a present-but-bad key still fails closed. `Config.DialContext` is
+  the runtime transport seam: when set, both the indexer and the RPC go
+  through it — the fire's chain tunnel is the one caller.
 - **The embedded IDL** (`idl/`): parsed once at init — discriminators,
   account order with signer/writable flags, borsh args. A builder for an
   instruction the IDL does not name is an init error, never a runtime

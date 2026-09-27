@@ -36,6 +36,11 @@ survive), and the airdrop/balance step runs every time. `--force` only
 regenerates the key. If the devnet faucet is busy (429/405), init still
 succeeds — it prints the pubkey, the current balance, and a line naming how
 to fund the wallet (send devnet SOL to it, or visit faucet.solana.com).
+The hot wallet must stay above the 0.005 SOL floor — it pays every write's
+rent and fees. `/earn` retries the airdrop through init when the wallet is
+under the floor and refuses before any chain spend if the retry leaves it
+there; a fire whose hot wallet is under the floor refuses before spawning
+with the same line.
 
 ## 2. vault create (operator)
 

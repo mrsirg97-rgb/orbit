@@ -1,4 +1,28 @@
 # Changelog
+## [0.4.3] — the hot wallet floor and the fire's fixed wire
+
+Every write's rent and fees are paid by the hot wallet, so funding is now
+a precondition. The earn preflight reads the hot wallet balance and, under
+0.005 SOL, prints the pubkey and `send devnet SOL or wait for the faucet`;
+a fire whose hot wallet is under the floor refuses before spawning with
+the same line. `/earn` retries the airdrop through init when the wallet is
+under the floor, and refuses before any chain spend if the retry leaves it
+there.
+
+Fires get a fixed wire: `market`, `intel`, `wallet`, `board`, `projects`,
+`read`, `rem`, `bash`, `python`, `todo`; never scheduler, plugin,
+sessions, or delegate. The fire worker names itself by the jail's scratch
+home (`RIG_HOME` ending in `.rig-job`), resolves the orbit home, and pins
+both the wire and the allow-list to the ten; the operator's interactive
+allow is untouched. The fire's sandbox is always on (landlock — the
+netless profile, and the only one that runs unprivileged) regardless of
+the interactive setting, and the fire carries its agent id through the
+scratch so the footer's act snapshot keeps working. Because the sandbox
+is netless, the fire's chain traffic tunnels through a unix socket proxy
+in the orbit home (`chainTunnel`), routed by the TLS server name — the
+worker's client dials the socket and the proxy forwards to the named
+host.
+
 ## [0.4.2] — the orbit tools reach the model
 
 The wire toolset is built from the native name table, and orbit's copy of
