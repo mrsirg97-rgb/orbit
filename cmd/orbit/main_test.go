@@ -43,8 +43,8 @@ func TestVersionStartupStaysFast(t *testing.T) {
 
 func TestVersionIsTheFreeze(t *testing.T) {
 
-	if Version != "0.3.1" {
-		t.Fatalf("Version = %q, want 0.3.1", Version)
+	if Version != "0.3.2" {
+		t.Fatalf("Version = %q, want 0.3.2", Version)
 	}
 
 	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(Version) {
@@ -68,23 +68,34 @@ func TestStatusCallbackReflectsFireWrite(t *testing.T) {
 	}
 }
 
-func TestEarnRowsComeBackPainted(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "status.json")
-	if err := earn.WriteSnapshot(path, earn.Rows{Held: 2, OpenClaims: 1, LastMemo: "3m ago · \"backed\"", PnLSOL: 1.5}, earn.Fire{}); err != nil {
-		t.Fatal(err)
-	}
+func TestEarnRowsPaintLabelsEmberValuesTextAndPnLBySign(t *testing.T) {
 	th, err := resolveTheme(&config.Config{}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &root{earn: &earn.Command{SnapshotPath: path}, theme: th}
-	lines := r.earnRows(context.Background())
-	if len(lines) != 4 {
-		t.Fatalf("footer rows: %d, want 4:\n%s", len(lines), strings.Join(lines, "\n"))
-	}
-	for i, line := range lines {
-		if want := th.Paint(tui.SlotDim, tui.RemoveColor(line)); line != want {
-			t.Errorf("row %d must be painted dim:\ngot  %q\nwant %q", i, line, want)
+	for _, tc := range []struct {
+		pnl  float64
+		slot string
+	}{{1.5, tui.SlotSuccess}, {-0.2, tui.SlotError}, {0, tui.SlotText}} {
+		path := filepath.Join(t.TempDir(), "status.json")
+		if err := earn.WriteSnapshot(path, earn.Rows{Held: 2, OpenClaims: 1, LastMemo: "3m ago · \"backed\"", PnLSOL: tc.pnl}, earn.Fire{}); err != nil {
+			t.Fatal(err)
+		}
+		r := &root{earn: &earn.Command{SnapshotPath: path}, theme: th}
+		lines := r.earnRows(context.Background())
+		if len(lines) != 4 {
+			t.Fatalf("footer rows: %d, want 4:\n%s", len(lines), strings.Join(lines, "\n"))
+		}
+		want := []string{
+			th.Paint(tui.SlotEmber, "projects held: ") + th.Paint(tui.SlotText, "2"),
+			th.Paint(tui.SlotEmber, "open claims: ") + th.Paint(tui.SlotText, "1"),
+			th.Paint(tui.SlotEmber, "last memo: ") + th.Paint(tui.SlotText, "3m ago · \"backed\""),
+			th.Paint(tui.SlotEmber, "PnL since start: ") + th.Paint(tc.slot, earn.Rows{PnLSOL: tc.pnl}.PnLText()),
+		}
+		for i := range want {
+			if lines[i] != want[i] {
+				t.Errorf("pnl %v row %d:\ngot  %q\nwant %q", tc.pnl, i, lines[i], want[i])
+			}
 		}
 	}
 }

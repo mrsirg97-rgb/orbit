@@ -46,7 +46,12 @@ natives, the `/earn` command beside `command.All()`, and the orbit title
   job.
 - **/earn goal "<text>"**: sets or changes the architect's goal,
   registering an architect (and its job) when none exists.
-- **/earn status**: prints the footer rows. **/earn stop**: pauses the
+- **/earn status**: prints the footer rows; without a config it prints the
+  local snapshot when one exists (else one line: not set up yet), never
+  the chain client. The six moments ride `command.Subber`, so the TUI's
+  picker lists them. In the footer the labels are ember (the accent), the
+  values are text, and the PnL value is success when positive, error when
+  negative. **/earn stop**: pauses the
   jobs. **/earn start**: resumes them.
 - **Reads stay keyless**: project list, agent list, and vault show load
   read mode (RPC only, no vault creator, no agent key).

@@ -1,4 +1,20 @@
 # Changelog
+## [0.3.2] — the earn picker, and status without a config
+
+`/earn` implements the runtime's `command.Subber`: the TUI offers its six
+moments (join, roles, goal, status, stop, start) in the same popup the
+plugins and scheduler commands get, each with a one-line description.
+
+The footer band paints labels in the ember slot (orbit's accent) and
+values in the text slot, and the PnL value carries its sign as colour: success when positive,
+error when negative.
+
+`/earn status` no longer needs the chain client to say something: on a
+home without a config it prints the local snapshot when one exists, else
+one line saying the home is not set up yet. A client error carries the
+`earn:` prefix once (the provider's "no orbit config (run /earn)" was
+wrapped a second time).
+
 ## [0.3.1] — the board sync window becomes a walk
 
 The board sync was one window of the newest 100 messages, so a fresh

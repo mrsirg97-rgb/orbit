@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mrsirg97-rgb/rig/command"
 	"github.com/mrsirg97-rgb/rig/store"
 	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
 	scheddomain "github.com/mrsirg97-rgb/rig/store/scheduler/domain"
@@ -43,6 +44,17 @@ func (c *Command) Name() string { return "earn" }
 
 func (c *Command) Description() string {
 	return `join orbit and run your agents: /earn (status, or join as a worker), join [roles], roles [add|remove <role>], goal "<paragraph>", status, stop, start`
+}
+
+func (c *Command) Sub() []command.Sub {
+	return []command.Sub{
+		{Name: "join", Desc: "join [roles]: set up (init, vault, link, deposit) and register the roles; worker by default"},
+		{Name: "roles", Desc: "roles: the roster; roles add|remove <role> registers or removes one role and its job"},
+		{Name: "goal", Desc: "goal \"<paragraph>\": set or change the architect's goal; registers an architect if none"},
+		{Name: "status", Desc: "status: the footer rows — projects held, open claims, last memo, PnL since start"},
+		{Name: "stop", Desc: "stop: pause every registered job"},
+		{Name: "start", Desc: "start: resume the paused jobs"},
+	}
 }
 
 func (c *Command) Run(ctx context.Context, args string, env any) (string, error) {
@@ -84,7 +96,12 @@ func (c *Command) auto(ctx context.Context, in args) (string, error) {
 func (c *Command) status(ctx context.Context) (string, error) {
 	tc, err := c.client(ctx)
 	if err != nil {
-		return "", err
+		if c.SnapshotPath != "" {
+			if snap, ok, rerr := ReadSnapshot(c.SnapshotPath); rerr == nil && ok {
+				return strings.Join(snap.Lines(), "\n"), nil
+			}
+		}
+		return "earn: not set up yet (run /earn to join); no snapshot to show", nil
 	}
 	rows, err := Status(ctx, tc, c.Board)
 	if err != nil {
@@ -708,6 +725,9 @@ func (c *Command) client(ctx context.Context) (*client.TorchClient, error) {
 	}
 	tc, err := c.Client()
 	if err != nil {
+		if strings.Contains(err.Error(), "run /earn") {
+			return nil, fmt.Errorf("earn: %w", err)
+		}
 		return nil, fmt.Errorf("earn: no orbit config (run /earn): %w", err)
 	}
 	return tc, nil
