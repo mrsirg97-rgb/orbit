@@ -69,7 +69,7 @@ import (
 	orbittool "github.com/mrsirg97-rgb/orbit/tool"
 )
 
-const Version = "0.4.1"
+const Version = "0.4.2"
 
 //go:embed theme.json
 var shippedTheme []byte
@@ -486,6 +486,8 @@ var concurrentNatives = map[string]bool{
 	"read": true, "ls": true, "find": true, "grep": true, "view": true,
 	"web_search": true, "web_fetch": true, "diff": true,
 	"delegate": true,
+	// the orbit reads; market and board act, so they stay serial
+	"intel": true, "wallet": true, "projects": true,
 }
 
 var mutatingNatives = map[string]bool{
@@ -666,7 +668,29 @@ func userHome() string {
 	return os.Getenv("HOME")
 }
 
-var nativeToolNames = []string{"bash", "read", "write", "edit", "ls", "find", "grep", "view", "todo", "rem", "scheduler", "delegate", "python", "web_search", "web_fetch", "diff", "plugin", "plugins", "sessions"}
+// orbitToolNames are the tools orbit adds beside the runtime's natives.
+// They ride the same native table (the wire toolset is built from these
+// names) and the same allow-list default (appendOrbitTools), so every
+// session — the TUI, the piped CLI, the one-shot worker a fire spawns —
+// offers them and may call them.
+var orbitToolNames = []string{"market", "intel", "wallet", "board", "projects"}
+
+var nativeToolNames = append([]string{"bash", "read", "write", "edit", "ls", "find", "grep", "view", "todo", "rem", "scheduler", "delegate", "python", "web_search", "web_fetch", "diff", "plugin", "plugins", "sessions"}, orbitToolNames...)
+
+// appendOrbitTools admits the orbit tools to an allow-list that does not
+// name any of them: the runtime's embedded default and an operator file
+// that predates them. A list that names even one is the operator's
+// choice and is kept verbatim.
+func appendOrbitTools(allow []string) []string {
+	for _, a := range allow {
+		for _, o := range orbitToolNames {
+			if a == o {
+				return allow
+			}
+		}
+	}
+	return append(append([]string(nil), allow...), orbitToolNames...)
+}
 
 var workerToolNames = []string{"scheduler", "delegate"}
 
@@ -958,6 +982,9 @@ func main() {
 	}
 	if passed["allow"] {
 		allowList = splitCSV(*allow)
+	}
+	if !passed["allow"] && os.Getenv("RIG_ALLOW") == "" {
+		allowList = appendOrbitTools(allowList)
 	}
 	envInt := func(key string, def int) int {
 		v := os.Getenv(key)

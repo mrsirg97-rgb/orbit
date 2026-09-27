@@ -225,7 +225,7 @@ func actions(b *strings.Builder, size Size) {
 	b.WriteString("post $ \"*\" — micro buy via the vault, then reply with the tx signature + memo\n")
 	b.WriteString("pass — read and hold. No tool call.\n")
 	b.WriteString("$ is exactly one FID from PROJECTS. The FID is the last 8 chars of the mint.\n")
-	b.WriteString("Tools: market (read + act), intel (messages), wallet (pnl, positions), board (the shared board: read + act).\n")
+	b.WriteString("Tools: projects (discover: list, show), market (read + act), intel (messages), wallet (pnl, positions), board (the shared board: read + act).\n")
 	if size == Full {
 		b.WriteString("ascend $ \"*\" — migrate a completed project (read-only gate: not wired yet)\n")
 		b.WriteString("tithe $ \"*\" — harvest fees (read-only gate: not wired yet)\n")

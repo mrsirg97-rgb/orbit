@@ -43,8 +43,8 @@ func TestVersionStartupStaysFast(t *testing.T) {
 
 func TestVersionIsTheFreeze(t *testing.T) {
 
-	if Version != "0.4.1" {
-		t.Fatalf("Version = %q, want 0.4.1", Version)
+	if Version != "0.4.2" {
+		t.Fatalf("Version = %q, want 0.4.2", Version)
 	}
 
 	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(Version) {
@@ -147,5 +147,33 @@ func TestTitleRowsShapeAndFallback(t *testing.T) {
 	}
 	if titleName != "orbit" {
 		t.Errorf("ascii fallback name = %q, want orbit", titleName)
+	}
+}
+
+func TestOrbitToolsAreOnTheWire(t *testing.T) {
+	names := registeredNativeNames(nil, false)
+	have := map[string]bool{}
+	for _, n := range names {
+		have[n] = true
+	}
+	for _, o := range orbitToolNames {
+		if !have[o] {
+			t.Errorf("%s is not a registered native: the model never sees it", o)
+		}
+	}
+	if have["view"] {
+		t.Error("view must still drop without vision")
+	}
+}
+
+func TestDefaultAllowAdmitsOrbitTools(t *testing.T) {
+	got := appendOrbitTools([]string{"read", "bash"})
+	want := append([]string{"read", "bash"}, orbitToolNames...)
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("default allow: %v, want %v", got, want)
+	}
+	kept := appendOrbitTools([]string{"read", "board"})
+	if strings.Join(kept, ",") != "read,board" {
+		t.Errorf("an operator allow naming an orbit tool must be kept verbatim, got %v", kept)
 	}
 }

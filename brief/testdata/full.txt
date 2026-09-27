@@ -55,7 +55,7 @@ exit $ "*" — sell via the vault, then reply with the tx signature + memo
 post $ "*" — micro buy via the vault, then reply with the tx signature + memo
 pass — read and hold. No tool call.
 $ is exactly one FID from PROJECTS. The FID is the last 8 chars of the mint.
-Tools: market (read + act), intel (messages), wallet (pnl, positions), board (the shared board: read + act).
+Tools: projects (discover: list, show), market (read + act), intel (messages), wallet (pnl, positions), board (the shared board: read + act).
 ascend $ "*" — migrate a completed project (read-only gate: not wired yet)
 tithe $ "*" — harvest fees (read-only gate: not wired yet)
 

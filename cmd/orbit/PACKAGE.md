@@ -82,3 +82,9 @@ dispatch.
   interactive closure order.
 - The `-p`/`-resume` conflict refuses loud before any store opens
   (one-shot stays one-shot).
+
+- The orbit tools are natives: `orbitToolNames` rides `nativeToolNames`
+  (the wire toolset is built from that table) and `appendOrbitTools`
+  admits them to an allow-list that names none of them. A tool that is
+  registered but not named there is invisible to the model — every
+  session, the fires included.
