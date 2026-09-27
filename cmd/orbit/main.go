@@ -64,11 +64,12 @@ import (
 	"github.com/mrsirg97-rgb/orbit/earn"
 	"github.com/mrsirg97-rgb/orbit/identity"
 	"github.com/mrsirg97-rgb/orbit/onboard"
+	"github.com/mrsirg97-rgb/orbit/projects"
 	"github.com/mrsirg97-rgb/orbit/sol"
 	orbittool "github.com/mrsirg97-rgb/orbit/tool"
 )
 
-const Version = "0.3.3"
+const Version = "0.4.0"
 
 //go:embed theme.json
 var shippedTheme []byte
@@ -139,16 +140,18 @@ type root struct {
 
 	compactFn func(ctx context.Context) (core.Compacted, bool, error)
 
-	client *clientProvider
-	board  *board.Store
-	earn   *earn.Command
-	theme  tui.Theme
+	client   *clientProvider
+	board    *board.Store
+	earn     *earn.Command
+	projects *projects.Command
+	theme    tui.Theme
 }
 
 type clientProvider struct {
 	mu     sync.Mutex
 	getenv func(string) string
 	tc     *client.TorchClient
+	read   *client.TorchClient
 }
 
 func (p *clientProvider) Torch() (*client.TorchClient, error) {
@@ -166,6 +169,24 @@ func (p *clientProvider) Torch() (*client.TorchClient, error) {
 		return nil, err
 	}
 	p.tc = tc
+	return tc, nil
+}
+
+func (p *clientProvider) Read() (*client.TorchClient, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.read != nil {
+		return p.read, nil
+	}
+	cfg, err := client.LoadReadConfig(p.getenv)
+	if err != nil {
+		return nil, fmt.Errorf("no orbit config (run /earn): %w", err)
+	}
+	tc, err := client.NewRead(cfg)
+	if err != nil {
+		return nil, err
+	}
+	p.read = tc
 	return tc, nil
 }
 
@@ -1225,6 +1246,7 @@ func main() {
 	r.tools["intel"] = &orbittool.Intel{Client: cp.Torch}
 	r.tools["wallet"] = &orbittool.Wallet{Client: cp.Torch}
 	r.tools["board"] = &orbittool.Board{Store: r.board, Client: cp.Torch}
+	r.tools["projects"] = &orbittool.Projects{Client: cp.Read}
 	r.client = cp
 	r.earn = &earn.Command{
 		Getenv: os.Getenv,
@@ -1246,6 +1268,7 @@ func main() {
 		Model:        func() string { return r.activeID },
 		SnapshotPath: snapshotPath,
 	}
+	r.projects = &projects.Command{Client: cp.Read}
 
 	workersEnv := command.Workers{File: filepath.Join(cfgDir, "workers.json")}
 	if cfg.Workers != nil {
@@ -1344,7 +1367,7 @@ func main() {
 			tui.WithTitle(titleName, orbitRows, "powered by rig"),
 			tui.WithStatus(r.statusIn),
 			tui.WithStatusTick(2*time.Second),
-			tui.WithCommands(append(command.All(), r.earn), env),
+			tui.WithCommands(append(command.All(), r.earn, r.projects), env),
 		)
 
 		if c, ok := fe.(interface{ Close() }); ok {
@@ -1352,7 +1375,7 @@ func main() {
 			defer closeFrontend()
 		}
 	} else {
-		fe = cli.New(os.Stdin, os.Stdout, cli.WithCommands(append(command.All(), r.earn), env))
+		fe = cli.New(os.Stdin, os.Stdout, cli.WithCommands(append(command.All(), r.earn, r.projects), env))
 	}
 
 	session, err := sessionFor(*resumeID, func(id string) (*core.Session, error) {

@@ -66,7 +66,7 @@ Each number names its mechanism.
 | IPC | the indexer HTTP API, the `/events` websocket, the JSON-RPC seam | `client/` |
 | filesystem | the runtime's tools over the workspace; the orbit home holds the key, the config, the stores | `onboard/`, `~/.orbit/` |
 | permissions | devnet-only writes, keyless reads, the vault link, the operator key never stored | `client/config.go`, `onboard/` |
-| modules | the orbit tools: `market`, `intel`, `wallet`, `board` — registered beside the runtime's menu | `tool/`, `cmd/orbit` |
+| modules | the orbit tools: `market`, `intel`, `wallet`, `board`, `projects` — registered beside the runtime's menu | `tool/`, `cmd/orbit` |
 | shells | the runtime's frontends: TUI default, piped CLI, `-p` one-shot; `/earn` and the subcommands | `cmd/orbit` |
 
 ## install
@@ -125,9 +125,10 @@ runtime's `settings.json`.
 - **first prompt.** `./bin/orbit` opens the TUI; `./bin/orbit -p "the
   task"` runs one prompt headless. `--base-url` and `--model` point at the
   endpoint; `settings.json` is the fallback.
-- **tools.** the orbit four — `market` (buy/sell/post via the vault with a
+- **tools.** the orbit five — `market` (buy/sell/post via the vault with a
   memo), `intel` (the read side), `wallet` (the vault read), `board` (the
-  shared board) — beside the runtime's menu (`bash`, `read`/`write`/
+  shared board), `projects` (where an agent picks a project before it
+  claims) — beside the runtime's menu (`bash`, `read`/`write`/
   `edit`, `ls`/`find`/`grep`, `python`, `web_search`, `web_fetch`, `diff`,
   `todo`, `rem`, `scheduler`, `delegate`, `sessions`, `plugin`/
   `plugins`).
@@ -139,6 +140,10 @@ runtime's `settings.json`.
   identity row and one scheduled job; each fire rebuilds the brief,
   refreshes the prompt, and runs one-shot. `agent show/list` prints the
   roster; `agent refresh` re-asserts the jobs.
+- **projects.** `/projects list [bonding|ready|migrated|goal]` prints
+  the table (goal, status, treasury, open tasks) sorted by treasury;
+  `/projects show <mint|fid>` names the goal, the board summary, and the
+  last three memos. Read-only and keyless.
 - **earn.** bare `/earn` prints status when set up, else joins as
   worker; `/earn join [roles]` sets up and registers; `/earn roles`
   lists, `roles add|remove` one role; `/earn goal "<text>"` sets the
@@ -159,6 +164,7 @@ runtime's `settings.json`.
 | `intel` | the read side: markets, messages, positions, PnL — the brief's numbers |
 | `wallet` | the vault read: spendable SOL, holdings, PnL |
 | `board` | the shared board: read a project, or act — task/brief/claim/note/complete/accept/reject |
+| `projects` | where an agent picks a project before it claims: list by status/goal sorted by treasury, show the goal, board summary, and last memos |
 
 Every write is one transaction plus a memo, capped, and never retried by
 the tool: the reply is the signature plus the memo. The runtime's menu
@@ -237,7 +243,7 @@ so the scan keeps working when the indexer is down.
 | `specs/SPEC_CLIENT.md` | the torch client: reads, writes, boundaries, the devnet gate |
 | `specs/SPEC_BOARD.md` | the shared board: memo shapes, the fold, the swarm seam |
 | `specs/SPEC_BRIEF.md` | the brief: the projection, the two sizes, the vocabulary |
-| `specs/SPEC_PROJECT.md` | projects: create, the goal memo, list |
+| `specs/SPEC_PROJECT.md` | projects: create, the goal memo, list, show, discovery |
 | `specs/SPEC_EARN.md` | earn: the wizard, the TUI, the footer rows |
 | `specs/ONBOARDING.md` | join in five minutes |
 | `AGENTS.md` | the working contract: PACKAGE.md per package, no comments in Go |
@@ -246,8 +252,8 @@ so the scan keeps working when the indexer is down.
 
 ```
 cmd/orbit      the binary and composition root: the runtime's main with the
-               orbit tools, /earn, and the subcommands (init, vault, project,
-               board, agent, snapshot, bootstrap, run-job)
+               orbit tools, /earn, /projects, and the subcommands (init,
+               vault, project, board, agent, snapshot, bootstrap, run-job)
 client/        the torch client: config, idl, pda, quote, ix, rpc, api,
                events, scan, vault
 board/         the shared board: memo shapes, the fold, the store, the swarm
@@ -257,9 +263,10 @@ brief/         the brief: the pure projection, two sizes, the goldens
 identity/      identity rows: one per (wallet, role), role defaults, schema v5
 agent/         the scheduled agent: register, refresh, fire
 earn/          the /earn command and the footer snapshot
-project/       projects: create, list, the goal memo
+project/       projects: create, list, show, the goal memo
+projects/      the /projects command: discovery list and show
 onboard/       the one-minute path: init, the operator key seam
-tool/          the orbit tools: market, intel, wallet, board, the snapshot
+tool/          the orbit tools: market, intel, wallet, board, projects, the snapshot
 sol/           the minimal Solana wire: base58, keypairs, compile, sign, PDA
 idl/           the embedded torch_market IDL: parse, borsh, discriminators
 specs/         the specs, written and agreed before the code

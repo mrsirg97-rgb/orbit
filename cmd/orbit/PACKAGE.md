@@ -3,7 +3,8 @@
 ## What it is
 
 The composition root and the binary's entry: the runtime's main with
-orbit's tools, the `/earn` command, the orbit title, and the subcommands
+orbit's tools, the `/earn` and `/projects` commands, the orbit title, and
+the subcommands
 (init, vault, project, board, agent, snapshot, bootstrap, run-job). Every
 dependency is explicit in one place; it is the only package that imports
 the whole tree. SPEC_EARN's decision 1 governs the shape: the binary's
@@ -16,15 +17,16 @@ dispatch.
   the five stores, the python kernel, plugin discovery, the canonical
   middleware chain, the frontend selection (`-tui` auto / one-shot / plain
   CLI) — plus the orbit wiring: the identity and board stores at the home
-  root, the four orbit tools behind the lazy client seam, the `/earn`
-  command, the swarm adapter, the earn footer snapshot, and the shipped
+  root, the five orbit tools behind the lazy client seam, the `/earn` and
+  `/projects` commands, the swarm adapter, the earn footer snapshot, and the shipped
   theme (the embedded default when the home has no theme.json; a home
   theme.json wins entirely).
 - **The lazy seam** (`clientProvider`): the first tool use loads the agent
   config and fails loudly, naming `/earn`, when it is missing; a failed
   load is retried at the next use, so `/earn`'s init can fix it in the
-  same session. The operator's vault authority key never enters the
-  process.
+  same session. `Read` loads read mode instead (indexer + RPC, no agent
+  key) — the seam the `projects` tool and command use. The operator's
+  vault authority key never enters the process.
 - **The subcommands**: `init` (hot wallet + config + airdrop), `vault`
   (create/deposit/withdraw/link/unlink/show), `project` (create/list),
   `board` (read/act), `agent` (register/refresh/show/list), `snapshot`,

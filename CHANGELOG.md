@@ -1,4 +1,29 @@
 # Changelog
+## [0.4.0] — project discovery
+
+A worker now picks a project before it claims. The `projects` tool and
+the `/projects` command list what the indexer knows with the goal, the
+status, the treasury float, and the open task count — filtered by status
+(bonding|ready|migrated) or to goals only, sorted by treasury descending,
+the economic signal. `/projects show <mint|fid>` names the goal, the
+treasury, the board summary (n/m done, open claims), and the last three
+memos.
+
+Both read the path the project list and the board read already use: the
+indexer's markets and message log, the board's pure fold, the RPC
+treasury float. `project.List` now folds the open-task count from the
+same message read it uses for the goal, and `project.Show` is the one
+project's discovery read. No chain writes, and no key — the tool and the
+command load read mode (indexer + RPC, no vault creator, no agent key).
+
+`/projects` implements the runtime's `command.Subber` with the two verbs
+(list, show), and the list prints as a table, one row per project.
+
+Tests: `project.List` folds the open-task count from the fake indexer's
+markets and memos; the tool lists with the count folded and `show` names
+the goal, the board summary, and the last three memos; the command
+renders one row per project.
+
 ## [0.3.3] — rig v1.5.9
 
 Orbit now builds against rig v1.5.9. The `live` repaint no longer

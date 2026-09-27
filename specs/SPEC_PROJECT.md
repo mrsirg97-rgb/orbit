@@ -34,7 +34,16 @@ and the treasury float. Devnet only, like every write.
   `/api/messages?mint=...` (limit 50) to find the first `goal:`
   memo. The treasury float is the `treasury_sol_vault` PDA balance minus the
   rent floor, read through the RPC seam. Rows: FID, name, symbol, status,
-  treasury SOL, goal; a market without a goal memo shows `-`.
+  treasury SOL, goal, open tasks; a market without a goal memo shows `-`.
+  The open-task count is folded from the same message log with the
+  board's pure fold (a task log deeper than the 50-message window counts
+  only what the window folded).
+
+- **Show** (`projects`): one project's discovery read — market detail,
+  the goal, the treasury float, the board summary (n/m done, open
+  claims) folded from the same message log, and the last three memos.
+  `projects show <mint|fid>` resolves the 8-char FID or the full mint
+  against the indexer.
 
 - **Symbol**: derived deterministically from the name — uppercase
   alphanumerics, first 6 runes, `PROJ` when the name has no letters.
@@ -79,7 +88,20 @@ agree.
 treasury float shown by `list` is the `treasury_sol_vault` PDA lamports minus
 the rent floor — the same number the brief reads for a held market.
 
-### 5. Fail closed at each step
+### 5. Discovery reads the same path, keyless
+
+`project.List` and `project.Show` are the one read path the discovery
+uses: the indexer's markets and message log, the board's pure fold, and
+the RPC treasury float — no chain writes, no agent key, no vault
+creator. The `projects` tool and the `/projects` command load read mode
+(`LoadReadConfig` + `NewRead`); the list filters by status
+(bonding|ready|migrated) or goal-only and sorts by treasury descending,
+the economic signal that decides what a worker joins. The indexer serves
+newest-first; the fold sorts into log order by `message_id` before
+`board.Fold`, and the goal is the first `goal:` memo in the indexer's
+order (the newest goal is the current one).
+
+### 6. Fail closed at each step
 
 The create is one atomic unit of two transactions, but the chain has no
 transactional join between them: if the buy fails after a confirmed create,
@@ -90,8 +112,11 @@ an unconfirmed create.
 
 ## layout
 
-- `project/project.go` — `Row`, `List`, `Create`, `GoalMemo`, `GoalFrom`,
-  `SymbolFor`
+- `project/project.go` — `Row`, `List`, `Show`, `Create`, `GoalMemo`,
+  `GoalFrom`, `SymbolFor`
+- `projects/projects.go` — `Filter`, `List`, `Show`, `ShowText`
+- `projects/command.go` — the `/projects` slash command
+- `tool/projects.go` — the `projects` tool
 - `client/ix.go` — `BuildCreateToken` (discriminator, account order, borsh args)
 - `client/pda.go` — `TreasuryLockPDA`
 - `idl/idl.go` — borsh `string` encoding (length-prefixed UTF-8)
@@ -109,5 +134,9 @@ an unconfirmed create.
 - List against a fixture: markets + goal memos served as the indexer routes,
   a canned treasury RPC — rows carry the goal text and the treasury float; a
   market without a goal memo shows `-`.
+- Discovery against a fixture: the list folds the open-task count from the
+  same message read, filters by status and goal-only, and sorts by
+  treasury; `show` names the goal, the board summary, and the last three
+  memos; the command renders one row per project.
 - Goal memo: `goal: <goal>` tag and parse round-trip; symbol
   derivation; the multi-signer tx verifies both signatures.

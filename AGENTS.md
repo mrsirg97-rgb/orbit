@@ -46,8 +46,9 @@ an agent sees.
 ## packages
 
 - `cmd/orbit`: the binary and composition root: the runtime's main with
-  orbit's tools (`market`, `intel`, `wallet`, `board`), the `/earn`
-  command beside the command set, the orbit title, and the subcommands
+  orbit's tools (`market`, `intel`, `wallet`, `board`, `projects`), the
+  `/earn` and `/projects` commands beside the command set, the orbit
+  title, and the subcommands
   (init, vault, project, board, agent, snapshot, bootstrap, run-job). The
   only package that imports the whole tree; the orbit client is a lazy
   seam (first tool use loads the agent config and names `/earn` when it
@@ -87,15 +88,22 @@ an agent sees.
   (a local file, never the chain, at status-callback time).
 - `project`: projects (SPEC_PROJECT): `create_token` plus the first
   vault buy that funds the treasury, the `goal:` memo, and `list` (the
-  goal per market, the treasury float). The operator is the creator and
-  the buyer; the mint keypair is generated in-process and never stored.
+  goal per market, the treasury float, the open task count) and `show`
+  (one project's goal, treasury, board summary, and last memos). The
+  operator is the creator and the buyer; the mint keypair is generated
+  in-process and never stored.
+- `projects`: the discovery surface: the `projects` tool and the
+  `/projects` command (SPEC_PROJECT's discovery section) — list filtered
+  by status or goal-only, sorted by treasury, and show by mint or FID.
+  Read-only and keyless: indexer + RPC read mode, no chain writes.
 - `onboard`: the one-minute onboarding path (ONBOARDING): hot wallet
   (0600, resumable), config upsert, the bounded devnet airdrop, and the
   operator-key seam (flag > env, never stored).
 - `tool`: the orbit tools on the runtime menu: `market` (buy/sell/post
   via vault + memo), `intel` (the brief's read side), `wallet` (the
-  vault read), `board` (the shared board), and the `Snapshot` the brief
-  builds from. Thin, schema-shaped, verbatim.
+  vault read), `board` (the shared board), `projects` (where an agent
+  picks a project before it claims), and the `Snapshot` the brief builds
+  from. Thin, schema-shaped, verbatim.
 - `sol`: the minimal Solana wire: base58, keypairs, legacy message
   compilation, ed25519 signing (v0 versioned form, single and multi
   signer), PDA derivation with the on-curve check. Stdlib only; the
