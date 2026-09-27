@@ -70,10 +70,13 @@ dispatch.
   scratch home (`isFireJail`: `RIG_HOME` ending in `.rig-job`), resolves
   the orbit home (`os.Setenv("RIG_HOME", ...)`), and pins both the wire
   and the allow-list to `fireToolNames` — `market`, `intel`, `wallet`,
-  `board`, `projects`, `read`, `rem` — with no bash, python, scheduler,
+  `board`, `projects`, `read`, `rem`, `bash`, `python`, `todo` — with no scheduler,
   plugin, sessions, or delegate, and no plugin/python wiring at all. The
   operator's interactive allow is untouched: only the fire worker
-  resolves to the seven.
+  resolves to the ten. The key guard (`guard.go`) refuses a tool call that
+  names the hot key; landlock falls back to the operator's sandbox with one
+  line where the kernel lacks it; the chain tunnel forwards only the
+  indexer, RPC and airdrop hosts.
 - **Reads stay keyless**: project list, agent list, vault show, and board
   read load read mode (RPC only, no vault creator, no agent key).
 - **Bootstrap** prints the unsigned vault-admin instructions as JSON for

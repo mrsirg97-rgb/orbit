@@ -10,10 +10,10 @@ under the floor, and refuses before any chain spend if the retry leaves it
 there.
 
 Fires get a fixed wire: `market`, `intel`, `wallet`, `board`, `projects`,
-`read`, `rem` — nothing else, no bash, python, scheduler, plugin,
+`read`, `rem`, `bash`, `python`, `todo`; never scheduler, plugin,
 sessions, or delegate. The fire worker names itself by the jail's scratch
 home (`RIG_HOME` ending in `.rig-job`), resolves the orbit home, and pins
-both the wire and the allow-list to the seven; the operator's interactive
+both the wire and the allow-list to the ten; the operator's interactive
 allow is untouched. The fire's sandbox is always on (landlock — the
 netless profile, and the only one that runs unprivileged) regardless of
 the interactive setting, and the fire carries its agent id through the

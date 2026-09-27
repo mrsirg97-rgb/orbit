@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -166,7 +167,7 @@ func TestOrbitToolsAreOnTheWire(t *testing.T) {
 	}
 }
 
-func TestFireWireToolsetIsExactlyTheSeven(t *testing.T) {
+func TestFireWireToolsetIsExactlyTheTen(t *testing.T) {
 	names := registeredNativeNames(nil, false, true)
 	if got, want := strings.Join(names, ","), strings.Join(fireToolNames, ","); got != want {
 		t.Errorf("fire wire: %s, want %s", got, want)
@@ -175,7 +176,12 @@ func TestFireWireToolsetIsExactlyTheSeven(t *testing.T) {
 	for _, n := range names {
 		have[n] = true
 	}
-	for _, banned := range []string{"bash", "write", "edit", "python", "scheduler", "plugin", "plugins", "sessions", "delegate", "view", "todo", "diff"} {
+	for _, kept := range []string{"bash", "python", "todo", "read", "rem", "board", "market", "intel", "wallet", "projects"} {
+		if !have[kept] {
+			t.Errorf("the fire wire must keep %s: %v", kept, names)
+		}
+	}
+	for _, banned := range []string{"write", "edit", "scheduler", "plugin", "plugins", "sessions", "delegate", "view", "diff", "ls", "find", "grep"} {
 		if have[banned] {
 			t.Errorf("the fire wire must not name %s: %v", banned, names)
 		}
@@ -216,5 +222,35 @@ func TestDefaultAllowAdmitsOrbitTools(t *testing.T) {
 	kept := appendOrbitTools([]string{"read", "board"})
 	if strings.Join(kept, ",") != "read,board" {
 		t.Errorf("an operator allow naming an orbit tool must be kept verbatim, got %v", kept)
+	}
+}
+
+type echoTool struct{ name string }
+
+func (e echoTool) Name() string            { return e.name }
+func (e echoTool) Description() string     { return "echo" }
+func (e echoTool) Schema() json.RawMessage { return json.RawMessage(`{}`) }
+func (e echoTool) Exec(_ context.Context, a json.RawMessage) (string, error) {
+	return string(a), nil
+}
+
+func TestKeyGuardRefusesTheKeyByAnySpelling(t *testing.T) {
+	key := "/home/op/.orbit/key"
+	g := guardKey(echoTool{"read"}, key, "")
+	for _, args := range []string{
+		`{"path": "/home/op/.orbit/key"}`,
+		`{"command": "cat ~/.orbit/key"}`,
+		`{"code": "open('.orbit/key').read()"}`,
+		`{"paths": ["/tmp/x", "/home/op/.orbit/key"]}`,
+	} {
+		if _, err := g.Exec(context.Background(), json.RawMessage(args)); err == nil {
+			t.Errorf("guard let %s through", args)
+		}
+	}
+	if out, err := g.Exec(context.Background(), json.RawMessage(`{"path": "/home/op/.orbit/config"}`)); err != nil || out == "" {
+		t.Errorf("an unrelated path must pass: %v", err)
+	}
+	if _, ok := guardKey(echoTool{"read"}).(echoTool); !ok {
+		t.Error("no key paths means no wrapper")
 	}
 }

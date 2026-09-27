@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -267,7 +268,7 @@ func TestFireWorkerResolvesHomeAndPinsTheWire(t *testing.T) {
 	if got, want := strings.Join(names, ","), strings.Join(fireToolNames, ","); got != want {
 		t.Errorf("fire wire on the model request: %s, want %s", got, want)
 	}
-	for _, banned := range []string{"bash", "python", "scheduler", "plugin", "plugins", "sessions", "delegate"} {
+	for _, banned := range []string{"write", "edit", "scheduler", "plugin", "plugins", "sessions", "delegate", "ls", "find", "grep"} {
 		for _, n := range names {
 			if n == banned {
 				t.Errorf("the fire wire must not name %s: %v", banned, names)
@@ -305,7 +306,7 @@ func TestChainTunnelRoutesBySNI(t *testing.T) {
 
 	sock := filepath.Join(t.TempDir(), "chain.sock")
 	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
-	tunnel, err := startChainTunnel(sock, port)
+	tunnel, err := startChainTunnel(sock, port, []string{"localhost"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -362,7 +363,7 @@ func TestClientDialContextRunsThroughTheTunnel(t *testing.T) {
 
 	sock := filepath.Join(t.TempDir(), "chain.sock")
 	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
-	tunnel, err := startChainTunnel(sock, port)
+	tunnel, err := startChainTunnel(sock, port, []string{"localhost"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -436,5 +437,73 @@ func TestFireActSnapshotWritesLastFire(t *testing.T) {
 	}
 	if snap.LastFire.At == "" {
 		t.Error("the last fire must carry its time")
+	}
+}
+
+func TestChainTunnelRefusesAForeignHost(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	reached := make(chan struct{}, 1)
+	go func() {
+		if c, err := ln.Accept(); err == nil {
+			reached <- struct{}{}
+			c.Close()
+		}
+	}()
+	sock := filepath.Join(t.TempDir(), "chain.sock")
+	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+	tunnel, err := startChainTunnel(sock, port, []string{"api.torchmarket.dev"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tunnel.Close()
+	conn, err := tls.Dial("unix", sock, &tls.Config{ServerName: "evil.example", InsecureSkipVerify: true})
+	if err == nil {
+		conn.Close()
+		t.Fatal("a ClientHello for a host outside the allowlist must not complete a handshake")
+	}
+	select {
+	case <-reached:
+		t.Fatal("the tunnel forwarded a foreign host to the target")
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+func TestFireSandboxFallsBackWhereLandlockIsMissing(t *testing.T) {
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "settings.json"), []byte(`{"sandbox": "off"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	getenv := func(k string) string {
+		if k == "RIG_HOME" {
+			return home
+		}
+		return ""
+	}
+	var notice strings.Builder
+	sandbox, _, err := fireSandboxSwapWith(getenv, func() error { return errors.New("the profile is linux/amd64 (this build is darwin/arm64)") }, &notice)
+	if err != nil {
+		t.Fatalf("a box without landlock must still fire: %v", err)
+	}
+	if sandbox != "off" {
+		t.Errorf("fallback sandbox %q, want the operator's configured mode", sandbox)
+	}
+	if !strings.Contains(notice.String(), "landlock unavailable") {
+		t.Errorf("the fallback must say so once: %q", notice.String())
+	}
+	sandbox, _, err = fireSandboxSwapWith(getenv, func() error { return nil }, &notice)
+	if err != nil || sandbox != "landlock" {
+		t.Errorf("with landlock present the fire is landlocked, got %q %v", sandbox, err)
+	}
+}
+
+func TestFireTunnelHostsAreTheChainHosts(t *testing.T) {
+	hosts := fireTunnelHosts(client.Config{Indexer: "https://api.torchmarket.dev", RPC: "https://api.torchmarket.dev/rpc"})
+	got := strings.Join(hosts, ",")
+	if got != "api.torchmarket.dev,api.torchmarket.dev,api.devnet.solana.com" {
+		t.Errorf("tunnel hosts: %s", got)
 	}
 }

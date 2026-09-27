@@ -700,9 +700,13 @@ func appendOrbitTools(allow []string) []string {
 var workerToolNames = []string{"scheduler", "delegate"}
 
 // fireToolNames are the fire's fixed wire toolset: the model in a fire sees
-// exactly these and nothing else. The operator's interactive allow is
-// untouched; only the fire worker resolves to this list.
-var fireToolNames = []string{"market", "intel", "wallet", "board", "projects", "read", "rem"}
+// exactly these and nothing else. The orbit five, the file read, the
+// memory, the plan, and the two that let a small model do real work: bash
+// and python. What a fire never gets is the runtime itself: scheduler,
+// plugin, delegate, sessions, and the file writers. The operator's
+// interactive allow is untouched; only the fire worker resolves to this
+// list.
+var fireToolNames = []string{"market", "intel", "wallet", "board", "projects", "read", "rem", "bash", "python", "todo"}
 
 func effectiveNativeNames(workers *config.Workers, fire bool) []string {
 	if fire {
@@ -1295,6 +1299,19 @@ func main() {
 		r.tools[t.Name()] = t
 	}
 
+	if fire {
+		// the hot key sits inside the jail's grant (the worker signs with
+		// it); the tool layer refuses to read it by name.
+		keyPaths := []string{filepath.Join(cfgDir, "key"), os.Getenv("ORBIT_AGENT_KEY_FILE")}
+		if m, err := onboard.Load(os.Getenv); err == nil {
+			keyPaths = append(keyPaths, m["ORBIT_AGENT_KEY_FILE"])
+		}
+		for _, name := range []string{"read", "bash", "python", "write", "edit"} {
+			if t, ok := r.tools[name]; ok && t != nil {
+				r.tools[name] = guardKey(t, keyPaths...)
+			}
+		}
+	}
 	r.natives = native
 	r.tools["plugins"] = plugins.NewEcosystem(cfgDir, r.natives, py, r.swapPlugins, func() (string, error) {
 		return command.RenderPlugins(r.pluginInfos, "", r.pluginsHome), nil

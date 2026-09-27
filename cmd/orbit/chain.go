@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -15,7 +16,7 @@ import (
 // network (the sandbox is netless by design), so runJobFire listens on a
 // unix socket in the orbit home, the worker's HTTP transport dials it, and
 // this proxy forwards the TLS bytes to the host named in the ClientHello.
-func startChainTunnel(sock, targetPort string) (*chainTunnel, error) {
+func startChainTunnel(sock, targetPort string, hosts []string) (*chainTunnel, error) {
 	if err := os.MkdirAll(filepath.Dir(sock), 0o755); err != nil {
 		return nil, err
 	}
@@ -28,7 +29,13 @@ func startChainTunnel(sock, targetPort string) (*chainTunnel, error) {
 		ln.Close()
 		return nil, err
 	}
-	t := &chainTunnel{ln: ln, sock: sock, targetPort: targetPort}
+	allowed := make(map[string]bool, len(hosts))
+	for _, h := range hosts {
+		if h = strings.ToLower(strings.TrimSpace(h)); h != "" {
+			allowed[h] = true
+		}
+	}
+	t := &chainTunnel{ln: ln, sock: sock, targetPort: targetPort, allowed: allowed}
 	t.wg.Add(1)
 	go t.serve()
 	return t, nil
@@ -38,7 +45,9 @@ type chainTunnel struct {
 	ln         net.Listener
 	sock       string
 	targetPort string
-	wg         sync.WaitGroup
+	// allowed is the server-name allowlist; an empty list forwards nothing.
+	allowed map[string]bool
+	wg      sync.WaitGroup
 }
 
 func (t *chainTunnel) Close() {
@@ -70,6 +79,10 @@ func (t *chainTunnel) handle(c net.Conn) {
 	peeked, host, err := readClientHello(c)
 	_ = c.SetDeadline(time.Time{})
 	if err != nil {
+		return
+	}
+	if !t.allowed[strings.ToLower(host)] {
+		fmt.Fprintf(os.Stderr, "orbit: chain tunnel: refused %q (not the indexer, the RPC, or the airdrop host)\n", host)
 		return
 	}
 	rc, err := net.Dial("tcp", net.JoinHostPort(host, t.targetPort))
