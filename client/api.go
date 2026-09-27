@@ -218,7 +218,11 @@ type httpAPI struct {
 }
 
 func NewAPI(base string) API {
-	return &httpAPI{base: base, cli: &http.Client{Timeout: 30 * time.Second}}
+	return NewAPIWith(base, nil)
+}
+
+func NewAPIWith(base string, rt http.RoundTripper) API {
+	return &httpAPI{base: base, cli: &http.Client{Timeout: 30 * time.Second, Transport: rt}}
 }
 
 type HTTPStatusError struct {

@@ -70,6 +70,11 @@ func runJobFire(args []string) int {
 	if err := os.MkdirAll(filepath.Join(mustOrbitHome(), "kernel"), 0o755); err != nil {
 		die("run-job: sandbox kernel: %v", err)
 	}
+	tunnel, err := startChainTunnel(fireChainSock(mustOrbitHome()), "443")
+	if err != nil {
+		die("run-job: chain tunnel: %v", err)
+	}
+	defer tunnel.Close()
 	run := func(ctx context.Context) error {
 		return sched.RunJob(args[0], sched.RunOpts{
 			Home:      home,
@@ -111,8 +116,9 @@ func fireBrief(ctx context.Context, tc *client.TorchClient, row identity.Row) (b
 
 func fireSandboxSwap(getenv func(string) string) (string, string, error) {
 	// The fire's sandbox is always on: the operator's interactive setting
-	// never reaches a fire. Only the worker swap URL still comes from
-	// settings.json with the env override.
+	// never reaches a fire. Landlock is the netless profile and works
+	// unprivileged; only the worker swap URL still comes from settings.json
+	// with the env override.
 	home, err := client.Home(getenv)
 	if err != nil {
 		return "", "", err
@@ -129,7 +135,7 @@ func fireSandboxSwap(getenv func(string) string) (string, string, error) {
 	if v := strings.TrimSpace(getenv("RIG_SWAP_URL")); v != "" {
 		swapURL = v
 	}
-	return "jailed", swapURL, nil
+	return "landlock", swapURL, nil
 }
 
 func checkFireFunded(ctx context.Context, tc *client.TorchClient) error {

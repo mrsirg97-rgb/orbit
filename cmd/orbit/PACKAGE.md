@@ -54,13 +54,18 @@ dispatch.
   wallet floor check (`checkFireFunded`: under 0.005 SOL it refuses with
   the same line the earn preflight prints) -> the live read snapshot ->
   `brief.Build` at the row's size -> the job prompt refresh -> spawn. The
-  fire's sandbox is always on (`jailed`), the interactive setting never
-  reaches it, and the agent id rides the scratch (`writeFireAgentID`) so
-  the worker's `Store.OnAct` hook keeps the footer's act snapshot. The
-  footer snapshot is best-effort: a failed snapshot write never kills the
-  fire. The fire writes it at fire start (the read state), after every
-  board act (the worker's `Store.OnAct` hook refreshes it with the act's
-  role, verb, and task id), and at fire end.
+  fire's sandbox is always on (landlock — the netless profile, and the
+  only one that runs unprivileged), the interactive setting never reaches
+  it, and the agent id rides the scratch (`writeFireAgentID`) so the
+  worker's `Store.OnAct` hook keeps the footer's act snapshot. The
+  sandbox is netless by design, so the fire's chain traffic tunnels
+  through `chainTunnel` (`<home>/.rig-job-chain.sock`): the worker's
+  client dials the socket and the proxy forwards the TLS bytes to the
+  host named in the ClientHello. The footer snapshot is best-effort: a
+  failed snapshot write never kills the fire. The fire writes it at fire
+  start (the read state), after every board act (the worker's `Store.OnAct`
+  hook refreshes it with the act's role, verb, and task id), and at fire
+  end.
 - **The fire's fixed wire**: the jailed worker names itself by the
   scratch home (`isFireJail`: `RIG_HOME` ending in `.rig-job`), resolves
   the orbit home (`os.Setenv("RIG_HOME", ...)`), and pins both the wire
@@ -101,7 +106,10 @@ dispatch.
   admits them to an allow-list that names none of them. A tool that is
   registered but not named there is invisible to the model. The fire is
   the exception by design: `fireToolNames` is the fire's whole wire.
-- The fire's floor and jail markers are rig-shaped: the scratch home
-  (`<job cwd>/.rig-job`) and the fire's sandbox both come from the pinned
-  rig v1.6.0. A rig upgrade that renames the scratch or stops pinning
-  `RIG_HOME` must be checked here first.
+- The fire's floor, jail, and tunnel are rig-shaped: the scratch home
+  (`<job cwd>/.rig-job`), the netless sandbox, and the socket proxy all
+  come from the pinned rig v1.6.0. A rig upgrade that renames the scratch,
+  stops pinning `RIG_HOME`, or changes the netless guarantee must be
+  checked here first.
+- The fire's sandbox refuses when the box cannot provide it (landlock ABI
+  < 4, or a kernel without the netless guarantee): no sandbox, no fire.

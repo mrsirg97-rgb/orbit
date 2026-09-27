@@ -1,8 +1,10 @@
 package client
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +19,7 @@ type Config struct {
 	VaultCreator string
 	AgentKey     sol.Keypair
 	AllowWrite   bool
+	DialContext  func(ctx context.Context, network, address string) (net.Conn, error)
 }
 
 func Home(getenv func(string) string) (string, error) {

@@ -1,18 +1,24 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/mrsirg97-rgb/orbit/board"
 	"github.com/mrsirg97-rgb/orbit/client"
@@ -20,6 +26,33 @@ import (
 	"github.com/mrsirg97-rgb/orbit/identity"
 	"github.com/mrsirg97-rgb/orbit/sol"
 )
+
+const testServerCert = `-----BEGIN CERTIFICATE-----
+MIIBkzCCATmgAwIBAgIRAJeNre3y74B282jwP9QClX0wCgYIKoZIzj0EAwIwHjEc
+MBoGA1UEAxMTYXBpLnRvcmNobWFya2V0LmRldjAeFw0yNjA5MjcxNzM3MTBaFw0y
+NjA5MjgxODM3MTBaMB4xHDAaBgNVBAMTE2FwaS50b3JjaG1hcmtldC5kZXYwWTAT
+BgcqhkjOPQIBBggqhkjOPQMBBwNCAAS2fnxvWLB3M62Hc68ZXN8ApsekzC6oi3es
+KCntsv7zbfQBOnJ/uE9McR8a4hqC9qD/b79hus76MkIuhkmJsKGAo1gwVjAOBgNV
+HQ8BAf8EBAMCBaAwEwYDVR0lBAwwCgYIKwYBBQUHAwEwLwYDVR0RBCgwJoITYXBp
+LnRvcmNobWFya2V0LmRldoIJbG9jYWxob3N0hwR/AAABMAoGCCqGSM49BAMCA0gA
+MEUCIFdCjFh2p0/x76k6Cm30PqmDk2QQhzDxjD7Ndyzcsz8gAiEAyOnIDR9O8NKY
+Y1nAtXOqmIyAmMlwJaXeugaqUKc2eg4=
+-----END CERTIFICATE-----`
+
+const testServerKey = `-----BEGIN EC PRIVATE KEY-----
+MHcCAQEEIDAMNxw3eFUInlnT6dy0hS25Ope5QuK1OVTJpq7uWwfFoAoGCCqGSM49
+AwEHoUQDQgAEtn58b1iwdzOth3OvGVzfAKbHpMwuqIt3rCgp7bL+8230ATpyf7hP
+THEfGuIagvag/2+/YbrO+jJCLoZJibChgA==
+-----END EC PRIVATE KEY-----`
+
+func testKeypair(t *testing.T) sol.Keypair {
+	t.Helper()
+	kp, err := sol.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return kp
+}
 
 type runjobFakeRPC struct {
 	accounts map[string]client.AccountInfo
@@ -152,8 +185,8 @@ func TestFireSandboxIsAlwaysOn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sandbox != "jailed" {
-		t.Errorf("fire sandbox %q, want jailed (always on, settings and env ignored)", sandbox)
+	if sandbox != "landlock" {
+		t.Errorf("fire sandbox %q, want landlock (always on, settings and env ignored)", sandbox)
 	}
 	if swapURL != "http://10.0.0.2:9000" {
 		t.Errorf("swap url %q, want the env override", swapURL)
@@ -243,6 +276,112 @@ func TestFireWorkerResolvesHomeAndPinsTheWire(t *testing.T) {
 	}
 }
 
+func TestChainTunnelRoutesBySNI(t *testing.T) {
+	cert, err := tls.X509KeyPair([]byte(testServerCert), []byte(testServerKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	got := make(chan string, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		tlsConn := tls.Server(c, &tls.Config{Certificates: []tls.Certificate{cert}})
+		_ = tlsConn.Handshake()
+		req, err := http.ReadRequest(bufio.NewReader(tlsConn))
+		if err != nil {
+			return
+		}
+		got <- req.Host
+		_, _ = io.WriteString(tlsConn, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+	}()
+
+	sock := filepath.Join(t.TempDir(), "chain.sock")
+	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+	tunnel, err := startChainTunnel(sock, port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tunnel.Close()
+
+	conn, err := tls.Dial("unix", sock, &tls.Config{ServerName: "localhost", InsecureSkipVerify: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_, err = fmt.Fprintf(conn, "GET /rpc HTTP/1.1\r\nHost: api.torchmarket.dev\r\n\r\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case host := <-got:
+		if host != "api.torchmarket.dev" {
+			t.Errorf("tunnel target host %q, want api.torchmarket.dev", host)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the tunnel never forwarded the connection")
+	}
+}
+
+func TestClientDialContextRunsThroughTheTunnel(t *testing.T) {
+	cert, err := tls.X509KeyPair([]byte(testServerCert), []byte(testServerKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	replied := make(chan struct{}, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		tlsConn := tls.Server(c, &tls.Config{Certificates: []tls.Certificate{cert}})
+		_ = tlsConn.Handshake()
+		req, err := http.ReadRequest(bufio.NewReader(tlsConn))
+		if err != nil {
+			return
+		}
+		body, _ := io.ReadAll(req.Body)
+		if strings.Contains(string(body), "getBalance") {
+			replied <- struct{}{}
+		}
+		_, _ = io.WriteString(tlsConn, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}")
+	}()
+
+	sock := filepath.Join(t.TempDir(), "chain.sock")
+	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+	tunnel, err := startChainTunnel(sock, port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tunnel.Close()
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return net.Dial("unix", sock)
+		},
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	rpc := client.NewJSONRPCWith("https://localhost/rpc", transport)
+	_, _ = rpc.GetBalance(context.Background(), "8GQ4XGM9p5DqKjw2JTrUAc42adwYWD5PK3P7eTobcYKy")
+	select {
+	case <-replied:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the RPC never reached the dial target")
+	}
+}
+
 func TestFireSandboxIgnoringInteractiveOnStillNamesTheSwap(t *testing.T) {
 	home := t.TempDir()
 	if err := os.WriteFile(filepath.Join(home, "settings.json"),
@@ -259,8 +398,8 @@ func TestFireSandboxIgnoringInteractiveOnStillNamesTheSwap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sandbox != "jailed" || swapURL != "http://10.0.0.1:9000" {
-		t.Errorf("fire sandbox %q swap %q, want jailed + settings.json's swap url", sandbox, swapURL)
+	if sandbox != "landlock" || swapURL != "http://10.0.0.1:9000" {
+		t.Errorf("fire sandbox %q swap %q, want landlock + settings.json's swap url", sandbox, swapURL)
 	}
 }
 

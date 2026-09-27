@@ -107,7 +107,11 @@ type JSONRPC struct {
 }
 
 func NewJSONRPC(base string) *JSONRPC {
-	return &JSONRPC{base: strings.TrimSuffix(base, "/"), cli: &http.Client{Timeout: 30 * time.Second}}
+	return NewJSONRPCWith(base, nil)
+}
+
+func NewJSONRPCWith(base string, rt http.RoundTripper) *JSONRPC {
+	return &JSONRPC{base: strings.TrimSuffix(base, "/"), cli: &http.Client{Timeout: 30 * time.Second, Transport: rt}}
 }
 
 type rpcRequest struct {

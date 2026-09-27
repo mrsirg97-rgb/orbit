@@ -14,9 +14,14 @@ Fires get a fixed wire: `market`, `intel`, `wallet`, `board`, `projects`,
 sessions, or delegate. The fire worker names itself by the jail's scratch
 home (`RIG_HOME` ending in `.rig-job`), resolves the orbit home, and pins
 both the wire and the allow-list to the seven; the operator's interactive
-allow is untouched. The fire's sandbox is always on (`jailed`) regardless
-of the interactive setting, and the fire carries its agent id through the
-scratch so the footer's act snapshot keeps working.
+allow is untouched. The fire's sandbox is always on (landlock — the
+netless profile, and the only one that runs unprivileged) regardless of
+the interactive setting, and the fire carries its agent id through the
+scratch so the footer's act snapshot keeps working. Because the sandbox
+is netless, the fire's chain traffic tunnels through a unix socket proxy
+in the orbit home (`chainTunnel`), routed by the TLS server name — the
+worker's client dials the socket and the proxy forwards to the named
+host.
 
 ## [0.4.2] — the orbit tools reach the model
 

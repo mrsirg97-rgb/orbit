@@ -8,6 +8,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -151,6 +152,7 @@ type root struct {
 type clientProvider struct {
 	mu     sync.Mutex
 	getenv func(string) string
+	dial   func(ctx context.Context, network, address string) (net.Conn, error)
 	tc     *client.TorchClient
 	read   *client.TorchClient
 }
@@ -165,6 +167,7 @@ func (p *clientProvider) Torch() (*client.TorchClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("no orbit config (run /earn): %w", err)
 	}
+	cfg.DialContext = p.dial
 	tc, err := client.New(cfg)
 	if err != nil {
 		return nil, err
@@ -183,6 +186,7 @@ func (p *clientProvider) Read() (*client.TorchClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("no orbit config (run /earn): %w", err)
 	}
+	cfg.DialContext = p.dial
 	tc, err := client.NewRead(cfg)
 	if err != nil {
 		return nil, err
@@ -1297,6 +1301,12 @@ func main() {
 	})
 
 	cp := &clientProvider{getenv: os.Getenv}
+	if fire {
+		sock := fireChainSock(cfgDir)
+		cp.dial = func(ctx context.Context, network, address string) (net.Conn, error) {
+			return net.Dial("unix", sock)
+		}
+	}
 	idb, err := identity.Store(filepath.Join(cfgDir, "identity.sqlite"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "orbit: identity store:", err)

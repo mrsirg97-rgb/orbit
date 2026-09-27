@@ -190,7 +190,7 @@ the defaults; the env loader reads them and env always overrides.
 | `ORBIT_OPERATOR_KEY(_PATH)` | the operator's authority key, per call — flag > env, never stored |
 | `ORBIT_CONFIG` / `ORBIT_ENVFILE` | the config file, the legacy env file (defaults under the orbit home) |
 | `RIG_HOME` | the orbit home (default `~/.orbit`; the standalone rig binary uses the same env with its own default `~/.rig`) |
-| `RIG_SWAP_URL` | the fire's worker swap URL; env overrides `settings.json`'s `swapUrl` (the fire's sandbox is always on — the interactive `sandbox` setting never reaches a fire) |
+| `RIG_SWAP_URL` | the fire's worker swap URL; env overrides `settings.json`'s `swapUrl` (the fire's sandbox is always on — landlock — the interactive `sandbox` setting never reaches a fire; the fire's chain traffic tunnels through `<home>/.rig-job-chain.sock` because the sandbox is netless) |
 | `ORBIT_UPDATE_KEY` | the minisign key `orbit -update` verifies releases against (else `settings.json` `updateKey`; unpinned refuses) |
 
 | file | what it holds |
