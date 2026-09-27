@@ -1,4 +1,17 @@
 # Changelog
+## [0.4.2] — the orbit tools reach the model
+
+The wire toolset is built from the native name table, and orbit's copy of
+that table was the runtime's list verbatim: `market`, `intel`, `wallet`,
+`board` and `projects` were registered in the tool map but never named,
+so no session — the TUI, the piped CLI, the one-shot worker every fire
+spawns — ever sent them to the model, and the brief described tools the
+agent did not have. The five now ride `nativeToolNames`; the reads
+(`intel`, `wallet`, `projects`) run in the concurrent batch, the acts stay
+serial; and the allow-list default admits them (`appendOrbitTools`: an
+allow that names none of them gains all five, one that names any is the
+operator's and kept). The brief's Tools line names `projects`.
+
 ## [0.4.1] — rig v1.6.0
 
 Orbit now builds against rig v1.6.0. The session listing seeks:
