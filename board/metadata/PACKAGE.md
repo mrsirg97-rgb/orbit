@@ -22,3 +22,9 @@ columns are pointers.
   cannot emit: the write-side idempotency door, a memo already cached
   under the same signature is never applied twice. It is never a read
   path: the reads are the primary-key accessors, no index, no seek.
+- `extra.sql` also carries the ledger beside the log (SPEC_WORK):
+  `project_states` (the torch status the fold gates on),
+  `message_carriers` (the capital a memo's transaction carried),
+  `project_positions` (the long positions the indexer reports ended), and
+  `task_backing` (the projection of what stands behind a claim or a
+  verdict). Hand tables, keyed by project; the store reads them by key.

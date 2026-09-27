@@ -21,10 +21,8 @@ import (
 	"github.com/mrsirg97-rgb/orbit/client"
 )
 
-const SchemaVersion = 4
+const SchemaVersion = 5
 
-// WalkBound caps one sync's pages. A walk that would continue past it
-// leaves the cache marked incomplete (the render says so).
 const WalkBound = 50
 
 type Project struct {
@@ -33,17 +31,11 @@ type Project struct {
 }
 
 type Store struct {
-	Client func() (*client.TorchClient, error)
-	DB     store.DB
-	// WaitBudget bounds the act's re-sync-until-cached loop (default 15s).
+	Client     func() (*client.TorchClient, error)
+	DB         store.DB
 	WaitBudget time.Duration
-	// OnAct is called after every act with the final shape (the minted or
-	// assigned task id); the fire path uses it to refresh the footer.
-	OnAct func(context.Context, Shape)
-	// mu serializes Sync: the source decision, the read, and the cache
-	// write are one critical section per process, so a project's source
-	// never flips under a concurrent sync.
-	mu sync.Mutex
+	OnAct      func(context.Context, Shape)
+	mu         sync.Mutex
 }
 
 func (s *Store) client() (*client.TorchClient, error) {
@@ -102,7 +94,11 @@ func (s *Store) Sync(ctx context.Context, p Project, limit int) error {
 		if err != nil {
 			return fmt.Errorf("board sync %s: rpc scan: %w", p.Mint, err)
 		}
-		return s.cacheRows(ctx, p, res.rows, client.SourceScan, true, res.bound)
+		up, err := s.ledgerUpdate(ctx, p, tc, res.rows)
+		if err != nil {
+			return fmt.Errorf("board sync %s: ledger: %w", p.Mint, err)
+		}
+		return s.cacheRows(ctx, p, res.rows, client.SourceScan, true, res.bound, up)
 	}
 	res, err := s.walk(ctx, p, tc, source, limit, false)
 	if err != nil {
@@ -123,7 +119,11 @@ func (s *Store) Sync(ctx context.Context, p Project, limit int) error {
 				}
 				incomplete = prev
 			}
-			return s.cacheRows(ctx, p, res.rows, client.SourceScan, false, incomplete)
+			up, err := s.ledgerUpdate(ctx, p, tc, res.rows)
+			if err != nil {
+				return fmt.Errorf("board sync %s: ledger: %w", p.Mint, err)
+			}
+			return s.cacheRows(ctx, p, res.rows, client.SourceScan, false, incomplete, up)
 		}
 		if source == client.SourceIndexer {
 			return fmt.Errorf("board sync %s: indexer: %w", p.Mint, err)
@@ -138,7 +138,11 @@ func (s *Store) Sync(ctx context.Context, p Project, limit int) error {
 		}
 		incomplete = prev
 	}
-	return s.cacheRows(ctx, p, res.rows, source, false, incomplete)
+	up, err := s.ledgerUpdate(ctx, p, tc, res.rows)
+	if err != nil {
+		return fmt.Errorf("board sync %s: ledger: %w", p.Mint, err)
+	}
+	return s.cacheRows(ctx, p, res.rows, source, false, incomplete, up)
 }
 
 type walkResult struct {
@@ -288,7 +292,7 @@ func incompleteIn(bound context.Context, mint string) (bool, error) {
 	return true, nil
 }
 
-func (s *Store) cacheRows(ctx context.Context, p Project, rows []client.MessageRow, source client.Source, wipe, incomplete bool) error {
+func (s *Store) cacheRows(ctx context.Context, p Project, rows []client.MessageRow, source client.Source, wipe, incomplete bool, up ledgerUpdate) error {
 	bound, tx, err := s.DB.Tx(ctx)
 	if err != nil {
 		return err
@@ -346,6 +350,9 @@ func (s *Store) cacheRows(ctx context.Context, p Project, rows []client.MessageR
 			return fmt.Errorf("board sync %s: cache: %w", p.Mint, err)
 		}
 	}
+	if err := cacheLedger(ctx, txr, p.Mint, up); err != nil {
+		return fmt.Errorf("board sync %s: %w", p.Mint, err)
+	}
 	if err := s.project(bound, p.Mint, time.Now()); err != nil {
 		return err
 	}
@@ -357,7 +364,11 @@ func (s *Store) project(bound context.Context, mint string, now time.Time) error
 	if err != nil {
 		return fmt.Errorf("board fold %s: %w", mint, err)
 	}
-	tasks := Fold(mint, memos, now)
+	ledger, err := ledgerIn(bound, mint)
+	if err != nil {
+		return fmt.Errorf("board fold %s: ledger: %w", mint, err)
+	}
+	tasks := Fold(mint, memos, ledger, now)
 	if err := rewrite(bound, mint, tasks); err != nil {
 		return err
 	}
@@ -377,6 +388,7 @@ func cacheMemos(bound context.Context, mint string) ([]Memo, error) {
 		}
 		m.Sender = r.Sender
 		m.At = r.CreatedAt
+		m.Signature = r.Signature
 		memos = append(memos, m)
 	}
 	return memos, nil
@@ -393,6 +405,9 @@ func rewrite(bound context.Context, mint string, tasks []Task) error {
 	if _, err := txr.Exec("DELETE FROM tasks WHERE project = ?", mint); err != nil {
 		return fmt.Errorf("board fold %s: tasks: %w", mint, err)
 	}
+	if _, err := txr.Exec("DELETE FROM task_backing WHERE project = ?", mint); err != nil {
+		return fmt.Errorf("board fold %s: backing: %w", mint, err)
+	}
 	td := domain.NewTaskDomain()
 	nd := domain.NewNoteDomain()
 	for _, t := range tasks {
@@ -403,6 +418,13 @@ func rewrite(bound context.Context, mint string, tasks []Task) error {
 			RejectedBy: t.RejectedBy, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
 		}); err != nil {
 			return fmt.Errorf("board fold %s: task %d: %w", mint, t.ID, err)
+		}
+		if t.Backing != "" || t.RejectShort > 0 {
+			if _, err := txr.Exec(
+				`INSERT INTO task_backing (project, id, backing, stake, vault, position_index, reject_short) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				mint, strconv.Itoa(t.ID), t.Backing, int64(t.Stake), t.Position.Vault, int64(t.Position.Index), int64(t.RejectShort)); err != nil {
+				return fmt.Errorf("board fold %s: backing %d: %w", mint, t.ID, err)
+			}
 		}
 		for i, n := range t.Notes {
 			if _, err := nd.InsertNote(bound, domain.Note{
@@ -416,7 +438,182 @@ func rewrite(bound context.Context, mint string, tasks []Task) error {
 	return nil
 }
 
+type act struct {
+	shape   Shape
+	carrier client.Carrier
+	write   func(context.Context, string) (client.WriteResult, error)
+}
+
 func (s *Store) Act(ctx context.Context, p Project, shape Shape) (string, error) {
+	tc, err := s.client()
+	if err != nil {
+		return "", err
+	}
+	return s.act(ctx, p, act{
+		shape:   shape,
+		carrier: client.Carrier{Lamports: client.MemoBuyLamports},
+		write: func(ctx context.Context, memo string) (client.WriteResult, error) {
+			market, err := s.Market(ctx, p.Mint)
+			if err != nil {
+				return client.WriteResult{}, err
+			}
+			return tc.WriteAction(ctx, market, client.ActionPost, memo, client.MemoBuyLamports)
+		},
+	})
+}
+
+func (s *Store) Contract(ctx context.Context, p Project, id int, lamports uint64) (string, error) {
+	tc, err := s.client()
+	if err != nil {
+		return "", err
+	}
+	if lamports <= client.MemoBuyLamports {
+		return "", fmt.Errorf("board contract: %d lamports is the memo stake or under; a contract is capital above it", lamports)
+	}
+	return s.act(ctx, p, act{
+		shape:   Shape{Verb: "claim", ID: id},
+		carrier: client.Carrier{Lamports: lamports},
+		write: func(ctx context.Context, memo string) (client.WriteResult, error) {
+			market, err := s.Market(ctx, p.Mint)
+			if err != nil {
+				return client.WriteResult{}, err
+			}
+			return tc.WriteAction(ctx, market, client.ActionBack, memo, lamports)
+		},
+	})
+}
+
+func (s *Store) Work(ctx context.Context, p Project, id int, collateral, minOut uint64) (string, error) {
+	tc, err := s.client()
+	if err != nil {
+		return "", err
+	}
+	index, err := tc.NextPositionIndex(ctx, p.Mint, client.SideLong)
+	if err != nil {
+		return "", fmt.Errorf("board work: %w", err)
+	}
+	return s.act(ctx, p, act{
+		shape:   Shape{Verb: "claim", ID: id},
+		carrier: client.Carrier{Long: true, Vault: tc.VaultPDA(), Index: index, Collateral: collateral},
+		write: func(ctx context.Context, memo string) (client.WriteResult, error) {
+			market, err := s.Market(ctx, p.Mint)
+			if err != nil {
+				return client.WriteResult{}, err
+			}
+			return tc.WritePosition(ctx, market, client.PositionWrite{
+				Side: client.SideLong, Open: true, Index: index, Amount: collateral, MinOut: minOut, Memo: memo,
+			})
+		},
+	})
+}
+
+func (s *Store) Release(ctx context.Context, p Project, id int, repayBPS uint16, minOut uint64) (string, error) {
+	tc, err := s.client()
+	if err != nil {
+		return "", err
+	}
+	if err := s.Sync(ctx, p, 100); err != nil {
+		return "", err
+	}
+	held, err := s.Held(ctx, p, tc.AgentPublic())
+	if err != nil {
+		return "", err
+	}
+	var task *Task
+	for i := range held {
+		if held[i].ID == id {
+			task = &held[i]
+		}
+	}
+	if task == nil {
+		return "", fmt.Errorf("board release: you do not hold task %d on %s", id, p.Mint)
+	}
+	if repayBPS == 0 {
+		repayBPS = client.FullRepayBPS
+	}
+	market, err := s.Market(ctx, p.Mint)
+	if err != nil {
+		return "", fmt.Errorf("board release: %w", err)
+	}
+	if task.Backing == BackingWork && repayBPS < client.FullRepayBPS {
+		res, err := tc.WritePosition(ctx, market, client.PositionWrite{
+			Side: client.SideLong, Index: task.Position.Index, RepayBPS: repayBPS, MinOut: minOut,
+		})
+		if err != nil {
+			return "", fmt.Errorf("board release: %w", err)
+		}
+		if err := client.WaitConfirmed(ctx, tc.RPC, res.Signature, 30*time.Second); err != nil {
+			return "", fmt.Errorf("board release: %w", err)
+		}
+		return fmt.Sprintf("%s partial release of t%d (%d bps): the claim stands while the position does", res.Signature, id, repayBPS), nil
+	}
+	write := func(ctx context.Context, memo string) (client.WriteResult, error) {
+		if task.Backing == BackingWork {
+			return tc.WritePosition(ctx, market, client.PositionWrite{
+				Side: client.SideLong, Index: task.Position.Index, RepayBPS: client.FullRepayBPS, MinOut: minOut, Memo: memo,
+			})
+		}
+		return tc.WriteAction(ctx, market, client.ActionExit, memo, 0)
+	}
+	return s.act(ctx, p, act{shape: Shape{Verb: "release", ID: id}, write: write})
+}
+
+func (s *Store) ShortReject(ctx context.Context, p Project, id int, reason string, collateral, minOut uint64) (string, error) {
+	tc, err := s.client()
+	if err != nil {
+		return "", err
+	}
+	index, err := tc.NextPositionIndex(ctx, p.Mint, client.SideShort)
+	if err != nil {
+		return "", fmt.Errorf("board short: %w", err)
+	}
+	return s.act(ctx, p, act{
+		shape:   Shape{Verb: "reject", ID: id, Text: reason},
+		carrier: client.Carrier{Short: true, Vault: tc.VaultPDA(), Index: index, Collateral: collateral},
+		write: func(ctx context.Context, memo string) (client.WriteResult, error) {
+			market, err := s.Market(ctx, p.Mint)
+			if err != nil {
+				return client.WriteResult{}, err
+			}
+			return tc.WritePosition(ctx, market, client.PositionWrite{
+				Side: client.SideShort, Open: true, Index: index, Amount: collateral, MinOut: minOut, Memo: memo,
+			})
+		},
+	})
+}
+
+func (s *Store) Held(ctx context.Context, p Project, owner string) ([]Task, error) {
+	bound, tx, err := s.DB.TxReadOnly(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	tasks, err := s.foldIn(bound, p.Mint, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	var out []Task
+	for _, t := range tasks {
+		if t.Owner == owner && (t.Status == StatusActive || t.Status == StatusReview) {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) foldIn(bound context.Context, mint string, now time.Time) ([]Task, error) {
+	memos, err := cacheMemos(bound, mint)
+	if err != nil {
+		return nil, err
+	}
+	ledger, err := ledgerIn(bound, mint)
+	if err != nil {
+		return nil, err
+	}
+	return Fold(mint, memos, ledger, now), nil
+}
+
+func (s *Store) act(ctx context.Context, p Project, a act) (string, error) {
 	tc, err := s.client()
 	if err != nil {
 		return "", err
@@ -425,8 +622,7 @@ func (s *Store) Act(ctx context.Context, p Project, shape Shape) (string, error)
 		return "", err
 	}
 	now := time.Now().UTC()
-	// The task id is minted after the sync, from the freshly folded cache:
-	// a caller's pre-sync id is stale by construction.
+	shape := a.shape
 	if shape.Verb == "task" && shape.ID == 0 {
 		id, err := s.NextID(ctx, p)
 		if err != nil {
@@ -438,23 +634,13 @@ func (s *Store) Act(ctx context.Context, p Project, shape Shape) (string, error)
 	if err != nil {
 		return "", err
 	}
-	// Refuse before spending what the fold would refuse: the candidate
-	// memo must move the state, else the write is a foreign no-op.
-	if err := s.refuseForeign(ctx, p, memo, tc.AgentPublic(), now); err != nil {
+	if err := s.refuseForeign(ctx, p, memo, tc.AgentPublic(), a.carrier, now); err != nil {
 		return "", err
 	}
-	market, err := s.Market(ctx, p.Mint)
+	res, err := a.write(ctx, memo)
 	if err != nil {
 		return "", fmt.Errorf("board act %s: %w", shape.Verb, err)
 	}
-	res, err := tc.WriteAction(ctx, market, client.ActionPost, memo, client.MemoBuyLamports)
-	if err != nil {
-		return "", fmt.Errorf("board act %s: %w", shape.Verb, err)
-	}
-	// WriteAction returns at send time. Confirm the tx, then re-sync until
-	// the memo is in the cache: an immediate re-sync would miss the memo
-	// (the indexer lags) and the next act's pre-check would refuse it — a
-	// retried task would then double-spend.
 	if err := client.WaitConfirmed(ctx, tc.RPC, res.Signature, 30*time.Second); err != nil {
 		return "", fmt.Errorf("board act %s: %w", shape.Verb, err)
 	}
@@ -537,16 +723,15 @@ func (s *Store) assignedID(ctx context.Context, p Project, memo, sender string, 
 		return 0, false, err
 	}
 	defer tx.Rollback()
-	memos, err := cacheMemos(bound, p.Mint)
-	if err != nil {
-		return 0, false, err
-	}
 	candidate, ok := ParseMemo(memo)
 	if !ok {
 		return 0, false, fmt.Errorf("board: candidate %q does not parse", memo)
 	}
 	candidate.Sender = sender
-	tasks := Fold(p.Mint, memos, now)
+	tasks, err := s.foldIn(bound, p.Mint, now)
+	if err != nil {
+		return 0, false, err
+	}
 	best := 0
 	for _, t := range tasks {
 		if t.Title == candidate.Text && t.Funder == candidate.Sender {
@@ -561,7 +746,9 @@ func (s *Store) assignedID(ctx context.Context, p Project, memo, sender string, 
 	return best, best != candidate.ID, nil
 }
 
-func (s *Store) refuseForeign(ctx context.Context, p Project, memo, sender string, now time.Time) error {
+const candidateSignature = "candidate"
+
+func (s *Store) refuseForeign(ctx context.Context, p Project, memo, sender string, carrier client.Carrier, now time.Time) error {
 	bound, tx, err := s.DB.TxReadOnly(ctx)
 	if err != nil {
 		return err
@@ -571,14 +758,22 @@ func (s *Store) refuseForeign(ctx context.Context, p Project, memo, sender strin
 	if err != nil {
 		return err
 	}
+	ledger, err := ledgerIn(bound, p.Mint)
+	if err != nil {
+		return err
+	}
 	candidate, ok := ParseMemo(memo)
 	if !ok {
 		return fmt.Errorf("board act: candidate %q does not parse", memo)
 	}
 	candidate.Sender = sender
 	candidate.At = now.Format(time.RFC3339)
-	before := Fold(p.Mint, memos, now)
-	after := Fold(p.Mint, append(append([]Memo{}, memos...), candidate), now)
+	candidate.Signature = candidateSignature
+	if gated(candidate.Verb) && !ledger.Public {
+		return fmt.Errorf("board act %s: the project is not public (work verbs land only after migration; invest, note, and post stand)", candidate.Verb)
+	}
+	before := Fold(p.Mint, memos, ledger, now)
+	after := Fold(p.Mint, append(append([]Memo{}, memos...), candidate), ledger.with(candidateSignature, carrier), now)
 	if tasksEqual(before, after) {
 		return fmt.Errorf("board act %s: the fold would refuse %s (foreign state or a stale id; read the board and retry)", candidate.Verb, memo)
 	}
@@ -602,7 +797,9 @@ func taskEqual(a, b Task) bool {
 		a.Status != b.Status || a.Funder != b.Funder || a.Owner != b.Owner ||
 		a.ClaimedAt != b.ClaimedAt || a.CompletedAt != b.CompletedAt ||
 		a.AcceptedBy != b.AcceptedBy || a.RejectedBy != b.RejectedBy ||
-		a.CreatedAt != b.CreatedAt || a.UpdatedAt != b.UpdatedAt {
+		a.CreatedAt != b.CreatedAt || a.UpdatedAt != b.UpdatedAt ||
+		a.Backing != b.Backing || a.Stake != b.Stake || a.Position != b.Position ||
+		a.RejectShort != b.RejectShort {
 		return false
 	}
 	if len(a.Notes) != len(b.Notes) {
@@ -665,7 +862,11 @@ func (s *Store) BoardFromCache(ctx context.Context, p Project) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return renderBoard(s.label(p), rows, goal, time.Now(), incomplete), nil
+	backings, err := backingsIn(bound, p.Mint)
+	if err != nil {
+		return "", err
+	}
+	return renderBoard(s.label(p), rows, backings, goal, time.Now(), incomplete), nil
 }
 
 func (s *Store) goalOf(bound context.Context, mint string) (string, error) {
@@ -722,6 +923,53 @@ func (s *Store) Summary(ctx context.Context, mint string) (Summary, bool, error)
 	}
 	sum.OpenTasks = sum.TotalTasks - sum.DoneTasks
 	return sum, true, nil
+}
+
+func (s *Store) Projects(ctx context.Context) ([]string, error) {
+	bound, tx, err := s.DB.TxReadOnly(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(bound, `SELECT project FROM project_sources`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) Accepts(ctx context.Context, owner string) (int, error) {
+	projects, err := s.Projects(ctx)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, mint := range projects {
+		bound, tx, err := s.DB.TxReadOnly(ctx)
+		if err != nil {
+			return 0, err
+		}
+		rows, err := domain.NewTaskDomain().WindowTaskByProject(bound, mint, "", "\uffff", 1<<30).Rows()
+		tx.Rollback()
+		if err != nil {
+			return 0, err
+		}
+		for _, r := range rows {
+			if r.Owner == owner && r.Status == StatusDone {
+				n++
+			}
+		}
+	}
+	return n, nil
 }
 
 func cachedIn(bound context.Context, mint string) (bool, error) {

@@ -9,7 +9,7 @@ import (
 	"github.com/mrsirg97-rgb/orbit/board/domain"
 )
 
-func (s *Store) Claim(ctx context.Context, p Project) (string, error) {
+func (s *Store) Claim(ctx context.Context, p Project, lamports uint64) (string, error) {
 	if err := s.Sync(ctx, p, 100); err != nil {
 		return "", err
 	}
@@ -20,7 +20,7 @@ func (s *Store) Claim(ctx context.Context, p Project) (string, error) {
 	if id == 0 {
 		return "nothing to do", nil
 	}
-	return s.Act(ctx, p, Shape{Verb: "claim", ID: id})
+	return s.Contract(ctx, p, id, lamports)
 }
 
 func (s *Store) Note(ctx context.Context, p Project, id, text string) (string, error) {

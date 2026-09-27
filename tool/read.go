@@ -65,18 +65,24 @@ func Snapshot(ctx context.Context, c *client.TorchClient, identity brief.Identit
 			}
 		}
 		value := float64(raw) / 1e6 * price
+		treasury, err := treasuryLamports(ctx, c, m.Mint)
+		if err != nil {
+			treasury = 0
+		}
 		state.Markets = append(state.Markets, brief.MarketView{
-			Mint:      m.Mint,
-			Name:      m.Name,
-			Symbol:    m.Symbol,
-			Status:    string(m.Status),
-			PriceSOL:  price,
-			MCAPSOL:   price * 1_000_000_000,
-			IsHeld:    value > 0,
-			ValueSOL:  value,
-			PnLSOL:    pnlFor(&wallet.Pnl, m.Mint, value),
-			Sentiment: state.Sentiment[m.Mint],
-			HasLoan:   hasLoan(&state, m.Mint),
+			Mint:        m.Mint,
+			Name:        m.Name,
+			Symbol:      m.Symbol,
+			Status:      string(m.Status),
+			PriceSOL:    price,
+			MCAPSOL:     price * 1_000_000_000,
+			IsHeld:      value > 0,
+			ValueSOL:    value,
+			PnLSOL:      pnlFor(&wallet.Pnl, m.Mint, value),
+			Sentiment:   state.Sentiment[m.Mint],
+			HasLoan:     hasLoan(&state, m.Mint),
+			TreasurySOL: float64(treasury) / 1e9,
+			Lending:     treasury >= client.LendingUnlockLamports,
 		})
 	}
 	sort.SliceStable(state.Markets, func(i, j int) bool {

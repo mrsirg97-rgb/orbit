@@ -77,7 +77,6 @@ func boardAct(ctx context.Context, project board.Project, verb string, rest []st
 		if text == "" {
 			die("board: task needs text")
 		}
-		// The id is minted by Act after the sync; ID=0 means "mint it".
 		reply, err = st.Act(ctx, project, board.Shape{Verb: "task", ID: 0, Text: text})
 		if err != nil {
 			die("board: %v", err)
@@ -95,7 +94,7 @@ func boardAct(ctx context.Context, project board.Project, verb string, rest []st
 		if err != nil {
 			die("board: %v", err)
 		}
-	case "claim", "complete", "accept":
+	case "complete", "accept":
 		if len(rest) < 1 {
 			die("board: %s needs a task id", verb)
 		}
@@ -107,8 +106,38 @@ func boardAct(ctx context.Context, project board.Project, verb string, rest []st
 		if err != nil {
 			die("board: %v", err)
 		}
+	case "contract":
+		if len(rest) < 2 {
+			die("board: contract needs a task id and a SOL amount")
+		}
+		id, err := strconv.Atoi(rest[0])
+		if err != nil {
+			die("board: bad task id %q", rest[0])
+		}
+		lamports, err := client.ParseSOLAmount(rest[1])
+		if err != nil {
+			die("board: %v", err)
+		}
+		reply, err = st.Contract(ctx, project, id, lamports)
+		if err != nil {
+			die("board: %v", err)
+		}
+	case "release":
+		if len(rest) < 1 {
+			die("board: release needs a task id")
+		}
+		id, err := strconv.Atoi(rest[0])
+		if err != nil {
+			die("board: bad task id %q", rest[0])
+		}
+		reply, err = st.Release(ctx, project, id, client.FullRepayBPS, 0)
+		if err != nil {
+			die("board: %v", err)
+		}
+	case "claim":
+		die("board: a claim is capital: contract <id> <sol>, or work through the market tool")
 	default:
-		die("board: unknown action %q (read|task|brief|claim|note|complete|accept|reject)", verb)
+		die("board: unknown action %q (read|task|brief|contract|release|note|complete|accept|reject)", verb)
 	}
 	fmt.Println(reply)
 	return 0

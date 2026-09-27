@@ -23,8 +23,8 @@ type pagingAPI struct {
 func (a *pagingAPI) Markets(context.Context, url.Values) ([]client.MarketRow, error) {
 	return nil, nil
 }
-func (a *pagingAPI) Market(context.Context, string) (client.MarketDetail, error) {
-	return client.MarketDetail{}, nil
+func (a *pagingAPI) Market(_ context.Context, mint string) (client.MarketDetail, error) {
+	return migratedDetail(mint), nil
 }
 func (a *pagingAPI) Messages(ctx context.Context, q url.Values) ([]client.MessageRow, error) {
 	a.calls++

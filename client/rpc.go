@@ -73,6 +73,7 @@ type SignatureInfo struct {
 
 type TxInstruction struct {
 	ProgramID string
+	Accounts  []string
 	Data      []byte
 }
 
@@ -412,7 +413,14 @@ func (r *JSONRPC) GetTransaction(ctx context.Context, signature string) (*Transa
 		if err != nil {
 			return TxInstruction{}, fmt.Errorf("rpc getTransaction %s: instruction data: %w", signature, err)
 		}
-		return TxInstruction{ProgramID: tx.Keys[i.ProgramIDIndex], Data: data}, nil
+		accounts := make([]string, 0, len(i.Accounts))
+		for _, a := range i.Accounts {
+			if a < 0 || a >= len(tx.Keys) {
+				return TxInstruction{}, fmt.Errorf("rpc getTransaction %s: account index %d out of range", signature, a)
+			}
+			accounts = append(accounts, tx.Keys[a])
+		}
+		return TxInstruction{ProgramID: tx.Keys[i.ProgramIDIndex], Accounts: accounts, Data: data}, nil
 	}
 	for _, ix := range out.Transaction.Message.Instructions {
 		d, err := decode(ix)
@@ -435,6 +443,7 @@ func (r *JSONRPC) GetTransaction(ctx context.Context, signature string) (*Transa
 
 type jsonIx struct {
 	ProgramIDIndex int    `json:"programIdIndex"`
+	Accounts       []int  `json:"accounts"`
 	Data           string `json:"data"`
 }
 

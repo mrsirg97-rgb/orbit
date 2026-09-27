@@ -235,6 +235,12 @@ func encodeBorsh(t string, v any) ([]byte, error) {
 			return nil, fmt.Errorf("want u32, got %T", v)
 		}
 		return LeU32(n), nil
+	case "u16":
+		n, ok := v.(uint16)
+		if !ok {
+			return nil, fmt.Errorf("want u16, got %T", v)
+		}
+		return []byte{byte(n), byte(n >> 8)}, nil
 	case "bool":
 		b, ok := v.(bool)
 		if !ok {

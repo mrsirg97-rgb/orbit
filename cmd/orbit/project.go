@@ -82,8 +82,11 @@ func runProjectList() int {
 	if err != nil {
 		die("project: %v", err)
 	}
-	rows, err := project.List(context.Background(),
-		client.NewAPI(cfg.Indexer), client.NewJSONRPC(cfg.RPC), cfg.ProgramID, 50)
+	tc, err := client.New(cfg)
+	if err != nil {
+		die("project: %v", err)
+	}
+	rows, err := project.List(context.Background(), tc.API, tc.RPC, tc.ProgramID, 50, tc.Carrier)
 	if err != nil {
 		die("project: %v", err)
 	}
