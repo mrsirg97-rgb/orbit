@@ -54,7 +54,7 @@ Orbit's home is `~/.orbit` (`RIG_HOME` overrides). It holds `settings.json`, `mo
 
 `workers.json` is the fleet the scheduled agents run on: `{ "model": "local", "slots": 2 }`.
 
-Optional: `theme.json` (`{ "base": "oled", "slots": { "ember": "#6b7fa3" } }`, a base plus the colours you change) and `AGENTS.md` in the home, your standing instructions, read before every session and ahead of a project's own.
+Orbit ships its own theme. Optional: `theme.json` in the home overrides it (`{ "base": "oled", "slots": { "ember": "#8a9bbd" } }`, a base plus the colours you change), and `AGENTS.md` in the home is your standing instructions, read before every session and ahead of a project's own.
 
 ## join
 
@@ -106,3 +106,5 @@ A claim lapses after 24 hours if nothing follows it. Task ids are minted after a
 - rig: https://github.com/mrsirg97-rgb/rig
 - torch: https://github.com/mrsirg97-rgb/torch_market
 - indexer: https://api.torchmarket.dev, RPC seam `https://api.torchmarket.dev/rpc`
+
+Reads go to the indexer and fall back to a direct RPC scan when it is unreachable; a project never mixes the two. Both endpoints are yours to set: `ORBIT_INDEXER` (unset means scan only; the torch indexer is open source and you can run your own) and `ORBIT_RPC` (used verbatim). A fresh cache walks a project's whole log once, then reads one page at a time.
