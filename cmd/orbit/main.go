@@ -70,7 +70,7 @@ import (
 	orbittool "github.com/mrsirg97-rgb/orbit/tool"
 )
 
-const Version = "0.4.3"
+const Version = "0.5.0"
 
 //go:embed theme.json
 var shippedTheme []byte
@@ -1352,9 +1352,9 @@ func main() {
 			fireActSnapshot(ctx, idb, tc, r.board, snapshotPath, agentID, shape)
 		}
 	}
-	r.tools["market"] = &orbittool.Market{Client: cp.Torch, StakeLamports: identity.BaseStakeLamports}
+	r.tools["market"] = &orbittool.Market{Client: cp.Torch, Store: r.board, StakeLamports: identity.BaseStakeLamports}
 	r.tools["intel"] = &orbittool.Intel{Client: cp.Torch}
-	r.tools["wallet"] = &orbittool.Wallet{Client: cp.Torch}
+	r.tools["wallet"] = &orbittool.Wallet{Client: cp.Torch, Store: r.board}
 	r.tools["board"] = &orbittool.Board{Store: r.board, Client: cp.Torch}
 	r.tools["projects"] = &orbittool.Projects{Client: cp.Read, Store: r.board}
 	r.client = cp

@@ -12,20 +12,31 @@ SQLite is a cache rebuilt from it, never trusted.
 
 - `MemoFor`, `ParseMemo`, `Verbs`, `MemoCap` — the memo grammar: one memo
   per verb (`task`, `brief`, `claim`, `note`, `complete`, `accept`,
-  `reject`), capped at the curve memo bound. The verb says what happened —
+  `reject`, `release`), capped at the curve memo bound. The verb says what happened —
   no role tag rides the memo. A memo outside the grammar parses false:
   the fold skips it, never throws.
-- `Fold` — the pure board fold: a project's parsed memo log in log order
-  applied to the task board. Ownership and stake decide, never a label:
-  the task memo's sender is the task's funder (brief and accept count only
-  from the funder), while claim, note, complete, and reject are honoured
-  from anyone whose memo is in the log — gated only by task state.
-  Malformed, foreign, or inapplicable memos are skipped; the lease is the
-  one stateful-looking rule and it is pure.
-- `Lease` — the claim's expiry (24h, the runtime's stale-claim window):
-  it applies only while the claim is the task's live state — an active
-  task whose claim is older than the lease folds as pending, while a
-  claim superseded by complete/accept/reject is never dropped.
+- `Fold(project, memos, ledger, now)` — the pure board fold: a project's
+  parsed memo log in log order applied to the task board, read against a
+  `Ledger` (SPEC_WORK). Ownership and stake decide, never a label: the
+  task memo's sender is the task's funder (brief and accept count only
+  from the funder), while note, complete, and reject are honoured from
+  anyone whose memo is in the log, gated by task state. The ledger adds
+  three rules: the work verbs (task, claim, complete, accept, reject,
+  release) fold only when `Ledger.Public` (torch status migrated); a
+  claim is honoured only when its signature's `Carrier` carries capital
+  (a buy above the memo stake is a contract, an open long is work, and
+  the task records the backing, the stake, and the position key); a work
+  claim whose position `Ledger.Ends` reports ended is released at that
+  time. `release <id>` from the owner returns the task to pending. A
+  reject whose carrier is a short records the collateral beside the
+  verdict. Malformed, foreign, or inapplicable memos are skipped.
+- `Ledger`, `Carrier` (client), `Backing` — the ledger beside the log:
+  `Public`, the carriers by memo signature, and the ended long positions
+  by (vault, index). `IsPublic` names the one torch status that accepts
+  work. `backingOf` is the capital rule in one place.
+- `Lease` — the contract claim's expiry (24h, the runtime's stale-claim
+  window): it applies only while the claim is the task's live state. A
+  work claim has no lease; the ledger releases it.
 - `Store` — the local SQLite cache (the chain's message log plus the fold
   projection) and the chain write path. `Sync` folds the chain into the
   cache as a walk, idempotent by signature: the indexer pages newest-first
@@ -49,10 +60,16 @@ SQLite is a cache rebuilt from it, never trusted.
   scan stays on scan until the cache is rebuilt. The one source change
   by config (the indexer unset on a recorded-indexer mint) wipes the
   mint's rows and re-syncs under the new source in one transaction.
-  `Act` writes one board verb (memo + vault-routed micro buy), refuses
-  what the fold would refuse before spending, mints the task id after the
-  sync, confirms the tx (bounded poll), then re-syncs until the memo is
-  in the cache — the indexer lags, so an immediate re-sync would miss the
+  The sync also carries the ledger: the project's torch status
+  (`project_states`, kept when the read fails), the carrier of every new
+  claim or reject row (`message_carriers`, read once from the row's
+  transaction through the RPC seam; a failed read fails the sync rather
+  than folding a claim as foreign), and the indexer's ended long
+  positions (`project_positions`, kept when the indexer is unset or
+  fails). `Act` writes one board verb (memo + vault-routed micro buy),
+  refuses what the fold would refuse before spending (including the state
+  gate, named), mints the task id after the sync, confirms the tx
+  (bounded poll), then re-syncs until the memo is in the cache — the indexer lags, so an immediate re-sync would miss the
   memo and a retried task would double-spend. If the memo does not land,
   the reply is `pending: not yet indexed` (the write is confirmed, only
   the cache is behind); a renumbered task's reply names the assigned id.
@@ -62,16 +79,31 @@ SQLite is a cache rebuilt from it, never trusted.
   `Summary` (a cached project's goal and task counts, with the cached
   marker the discovery list uses) / `Task` / `NextID` / `Claims` /
   `LastMemo` are the reads.
-- `Store.Claim` / `Note` / `Complete` / `Accept` / `Reject` / `Reap` —
-  the swarm surface: the same vocabulary the runtime's swarm drains,
-  chain-backed. `claim` is the memo, the lease is the fold's expiry, and
-  `reap` returns expired claims to pending. The surface has no roles and
+- `Store.Contract` / `Work` / `Release` / `ShortReject` / `Held` — the
+  acts (SPEC_WORK): a contract buys above the memo stake with `claim
+  <id>` on the tx; work picks the next free long index, opens
+  `open_long_via_vault` on the caller's token collateral with the claim
+  memo; release closes the held claim's position (or sells the contract
+  holding) with `release <id>`, and a partial close (under 10000 bps)
+  sends no memo so the claim stands; a short reject opens
+  `open_short_via_vault` with `reject <id>: <reason>`. Each goes through
+  the one act path (sync, refuse-foreign with the candidate carrier,
+  write, confirm, await). `Held` folds the cache and lists the caller's
+  active or review tasks with their backing. `Accepts` and `Projects` are
+  the reputation reads.
+- `Store.Claim(lamports)` / `Note` / `Complete` / `Accept` / `Reject` /
+  `Reap` — the swarm surface: the same vocabulary the runtime's swarm
+  drains, chain-backed. `claim` is a contract at the given size, the
+  lease is the fold's expiry, and `reap` returns expired claims to
+  pending. The surface has no roles and
   no sessions — the chain has no sessions, only leases; any wallet may
   claim, note, complete, and reject; accept is honoured only from the
   task's funder (the fold decides).
 - `renderBoard` — the lean read: project header (goal), one line per task
-  (status, owner, age), the summary line. A project without a goal memo
-  shows none.
+  (status, owner, age, and the backing: `contract 0.0050 SOL`, `work #2`,
+  `short 0.0200 SOL` beside a reject), the summary line. A project
+  without a goal memo shows none. The backing comes from `task_backing`,
+  the projection's side table.
 
 ## How it is consumed
 
@@ -99,6 +131,15 @@ SQLite is a cache rebuilt from it, never trusted.
   is marked incomplete and the board render says so. It is cleared only
   by a walk to genesis — a cached-boundary stop proves nothing about the
   log below the old cache's edge.
+- The ledger tables (`project_states`, `message_carriers`,
+  `project_positions`, `task_backing`) live in `extra.sql` beside the
+  generated projection. Carriers are chain facts keyed by signature and
+  survive a source wipe; the status and the positions are the last
+  successful reads. Without an indexer there are no position reads, so a
+  work claim is released only by its `release` memo.
+- Two clients agree on a board only when they read the same ledger: the
+  same indexer's positions and the same chain's transactions. The
+  determinism test extends to capital and positions.
 - `Task.Notes` carry verdict reasons too — a reject's reason lands in the
   notes.
 - The lease is pure: it materializes in the projection, and `Reap` only

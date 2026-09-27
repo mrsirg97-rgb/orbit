@@ -12,6 +12,7 @@ import (
 
 	"github.com/mrsirg97-rgb/orbit/board"
 	"github.com/mrsirg97-rgb/orbit/client"
+	"github.com/mrsirg97-rgb/orbit/idl"
 	solpkg "github.com/mrsirg97-rgb/orbit/sol"
 )
 
@@ -75,6 +76,22 @@ func (f *fakeIndexer) Swaps(context.Context, url.Values) ([]client.SwapRow, erro
 
 type fakeRPC struct {
 	accounts map[string]client.AccountInfo
+	txs      map[string]*client.Transaction
+}
+
+func contractTx(sender string) *client.Transaction {
+	data := append([]byte{213, 46, 240, 54, 205, 19, 39, 25}, idl.LeU64(5_000_000)...)
+	data = append(data, idl.LeU64(1)...)
+	return &client.Transaction{Keys: []string{sender}, Ixs: []client.TxInstruction{{ProgramID: client.DevnetProgramID, Accounts: []string{sender}, Data: data}}}
+}
+
+func mustIDL(t *testing.T) *idl.IDL {
+	t.Helper()
+	id, err := idl.LoadIDL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 func (f *fakeRPC) GetAccountInfo(_ context.Context, pubkey string) (client.AccountInfo, error) {
@@ -95,17 +112,17 @@ func (f *fakeRPC) RequestAirdrop(context.Context, string, uint64) (string, error
 func (f *fakeRPC) GetSignaturesForAddress(context.Context, string, int, string) ([]client.SignatureInfo, error) {
 	return nil, nil
 }
-func (f *fakeRPC) GetTransaction(context.Context, string) (*client.Transaction, error) {
-	return nil, nil
+func (f *fakeRPC) GetTransaction(_ context.Context, sig string) (*client.Transaction, error) {
+	return f.txs[sig], nil
 }
 
 func indexerFixture() *fakeIndexer {
 	now := time.Now().UTC().Format(time.RFC3339)
 	return &fakeIndexer{
 		markets: []client.MarketRow{
-			{Mint: mintA, Name: "Context Compaction", Symbol: "CONTEX", Status: client.StatusBonding},
-			{Mint: mintB, Name: "Sentiment Alpha", Symbol: "SENTIM", Status: client.StatusComplete},
-			{Mint: mintC, Name: "Treasury Accumulation", Symbol: "TREASU", Status: client.StatusMigrated},
+			{Mint: mintA, Name: "Context Compaction", Symbol: "CONTEX", Status: client.StatusMigrated},
+			{Mint: mintB, Name: "Sentiment Alpha", Symbol: "SENTIM", Status: client.StatusBonding},
+			{Mint: mintC, Name: "Treasury Accumulation", Symbol: "TREASU", Status: client.StatusComplete},
 			{Mint: mintD, Name: "Reclaimed Noise", Symbol: "NOISE", Status: client.StatusReclaimed},
 		},
 		messages: map[string][]client.MessageRow{
@@ -146,8 +163,11 @@ func fixtureClient(t *testing.T) *client.TorchClient {
 			Lamports: client.RentExemptZeroData + sol, Exists: true,
 		}
 	}
-	rpc := &fakeRPC{accounts: accounts}
+	rpc := &fakeRPC{accounts: accounts, txs: map[string]*client.Transaction{
+		"sigA3": contractTx("walletY"), "sigA8": contractTx("walletY"),
+	}}
 	return &client.TorchClient{
+		IDL:    mustIDL(t),
 		Config: client.Config{Indexer: "http://127.0.0.1:1", RPC: "http://127.0.0.1:2", ProgramID: client.DevnetProgramID},
 		API:    api, RPC: rpc,
 	}
@@ -169,13 +189,13 @@ func TestListFoldsOpenTasksAndSortsByTreasury(t *testing.T) {
 		t.Errorf("treasury floats: %d %d", rows[0].TreasurySOL, rows[1].TreasurySOL)
 	}
 	if rows[1].OpenTasks != 2 {
-		t.Errorf("open tasks on the bonded project: %d, want 2 (1 done of 3)", rows[1].OpenTasks)
+		t.Errorf("open tasks on the public project: %d, want 2 (1 done of 3)", rows[1].OpenTasks)
 	}
 	if rows[1].Goal != "Research whether sentiment predicts price." {
 		t.Errorf("goal: %q", rows[1].Goal)
 	}
-	if rows[2].OpenTasks != 1 {
-		t.Errorf("open tasks on the ready project: %d, want 1", rows[2].OpenTasks)
+	if rows[2].OpenTasks != 0 {
+		t.Errorf("open tasks on the private project: %d, want 0 (private projects accept no work)", rows[2].OpenTasks)
 	}
 	if rows[3].Goal != "" || rows[3].OpenTasks != 0 {
 		t.Errorf("reclaimed project: goal %q open %d, want none", rows[3].Goal, rows[3].OpenTasks)
@@ -189,14 +209,14 @@ func TestListFiltersStatusAndGoal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bonding) != 1 || bonding[0].Mint != mintA {
+	if len(bonding) != 1 || bonding[0].Mint != mintB {
 		t.Errorf("bonding filter: %+v", bonding)
 	}
 	ready, err := List(ctx, tc, nil, Filter{Status: "ready"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ready) != 1 || ready[0].Mint != mintB {
+	if len(ready) != 1 || ready[0].Mint != mintC {
 		t.Errorf("ready filter: %+v", ready)
 	}
 	goalOnly, err := List(ctx, tc, nil, Filter{GoalOnly: true})
@@ -219,7 +239,7 @@ func TestShowNamesGoalSummaryAndLastMemos(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Name != "Context Compaction" || s.Status != string(client.StatusBonding) {
+	if s.Name != "Context Compaction" || s.Status != string(client.StatusMigrated) {
 		t.Errorf("show header: %s %s", s.Name, s.Status)
 	}
 	if s.Goal != "Research whether sentiment predicts price." {
@@ -344,8 +364,8 @@ func TestListCountsFromTheCacheWhenOneExists(t *testing.T) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	api := &fakeIndexer{
 		markets: []client.MarketRow{
-			{Mint: mintA, Name: "Context Compaction", Symbol: "CONTEX", Status: client.StatusBonding},
-			{Mint: mintB, Name: "Sentiment Alpha", Symbol: "SENTIM", Status: client.StatusComplete},
+			{Mint: mintA, Name: "Context Compaction", Symbol: "CONTEX", Status: client.StatusMigrated},
+			{Mint: mintB, Name: "Sentiment Alpha", Symbol: "SENTIM", Status: client.StatusMigrated},
 		},
 		messages: map[string][]client.MessageRow{
 			mintA: busyMessages(),
@@ -362,10 +382,10 @@ func TestListCountsFromTheCacheWhenOneExists(t *testing.T) {
 		client.TreasurySolVaultPDA(client.DevnetProgramID, mintB): {
 			Lamports: client.RentExemptZeroData + 5_000_000_000, Exists: true,
 		},
-	}}
+	}, txs: map[string]*client.Transaction{"sigB5": contractTx("walletY")}}
 	tc := &client.TorchClient{
 		Config: client.Config{Indexer: "http://127.0.0.1:1", RPC: "http://127.0.0.1:2", ProgramID: client.DevnetProgramID},
-		API:    api, RPC: rpc,
+		IDL:    mustIDL(t), API: api, RPC: rpc,
 	}
 	st := cachedBoardStore(t, tc)
 	if err := st.Sync(context.Background(), board.Project{Mint: mintA}, 100); err != nil {
@@ -400,7 +420,7 @@ func TestListCountsFromTheCacheWhenOneExists(t *testing.T) {
 func TestShowReadsTheCacheSummary(t *testing.T) {
 	api := &fakeIndexer{
 		markets: []client.MarketRow{
-			{Mint: mintA, Name: "Context Compaction", Symbol: "CONTEX", Status: client.StatusBonding},
+			{Mint: mintA, Name: "Context Compaction", Symbol: "CONTEX", Status: client.StatusMigrated},
 		},
 		messages: map[string][]client.MessageRow{mintA: busyMessages()},
 	}
@@ -408,10 +428,10 @@ func TestShowReadsTheCacheSummary(t *testing.T) {
 		client.TreasurySolVaultPDA(client.DevnetProgramID, mintA): {
 			Lamports: client.RentExemptZeroData + 12_340_000_000, Exists: true,
 		},
-	}}
+	}, txs: map[string]*client.Transaction{"sigB5": contractTx("walletY")}}
 	tc := &client.TorchClient{
 		Config: client.Config{Indexer: "http://127.0.0.1:1", RPC: "http://127.0.0.1:2", ProgramID: client.DevnetProgramID},
-		API:    api, RPC: rpc,
+		IDL:    mustIDL(t), API: api, RPC: rpc,
 	}
 	st := cachedBoardStore(t, tc)
 	if err := st.Sync(context.Background(), board.Project{Mint: mintA}, 100); err != nil {
@@ -443,7 +463,7 @@ func TestListBoundedFallback(t *testing.T) {
 		mint := kp.PublicBase58()
 		api.markets = append(api.markets, client.MarketRow{
 			Mint: mint, Name: fmt.Sprintf("Project %02d", i), Symbol: fmt.Sprintf("P%02d", i),
-			Status: client.StatusBonding,
+			Status: client.StatusMigrated,
 		})
 		api.messages[mint] = []client.MessageRow{
 			{MessageID: 1, Mint: mint, Sender: "funder", MemoText: fmt.Sprintf("task 1: Work %02d.", i), CreatedAt: now, Signature: fmt.Sprintf("sigW-%d", i)},

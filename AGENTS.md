@@ -59,9 +59,12 @@ an agent sees.
   the `RPC` seam (the fake is the test double), the indexer reads, the
   events websocket, the RPC-only scan, and the vault admin path. Reads
   never need a key; the devnet-only gate is structural (`AllowWrite`).
-- `board`: the shared board (SPEC_BOARD): the memo log on the chain, the
-  pure fold (memo rows -> tasks + notes), the local SQLite cache (the
-  log is the spine, the projection is disposable), the swarm surface
+- `board`: the shared board (SPEC_BOARD, SPEC_WORK): the memo log on the
+  chain, the pure fold (memo rows + the ledger -> tasks + notes: the
+  state gate, the capital rule on claim, the release verb, the ledger's
+  release of an ended position), the local SQLite cache (the log is the
+  spine, the ledger rides beside it, the projection is disposable), the
+  acts (contract/work/release/short-reject) and the swarm surface
   (claim/note/complete/accept/reject/reap over a `Project`), and the
   lean render. The chain is the source of truth; the cache is rebuilt
   from it, never trusted.
@@ -70,10 +73,13 @@ an agent sees.
   hand-edit the generated projections.
 - `board/ddl`, `board/domain`: generated (lift); never hand-edited.
 - `brief`: the agent's brief (SPEC_BRIEF): a pure projection of the live
-  read side into the compact/full brief. The vocabulary is torch's —
-  PNL, back/exit/post/pass, bonding/ready/migrated/reclaimed, HELD/
-  FOUNDED/SENTIMENT — never another game's abbreviations. Same snapshot,
-  same bytes; the goldens pin them.
+  read side into the compact/full brief. The vocabulary is the gig
+  economy's (SPEC_WORK decisions 9 and 12): the acts are orbit's
+  (invest/contract/work/release/short/post/pass), the words are the
+  town's (EARNINGS, GOSSIP, RATE, SIZE, BACKING, COMMIT), and torch's
+  state names appear once, in the LEGEND, beside orbit's. Never another
+  game's abbreviations, never torch's trade words. Same snapshot, same
+  bytes; the goldens pin them.
 - `identity`: the agent's local identity row: one row per (wallet, role),
   the role's register defaults (cadence, brief size, budget, stall,
   timeout), and schema v5. Roles are local — they own defaults and never
@@ -101,11 +107,12 @@ an agent sees.
 - `onboard`: the one-minute onboarding path (ONBOARDING): hot wallet
   (0600, resumable), config upsert, the bounded devnet airdrop, and the
   operator-key seam (flag > env, never stored).
-- `tool`: the orbit tools on the runtime menu: `market` (buy/sell/post
-  via vault + memo), `intel` (the brief's read side), `wallet` (the
-  vault read), `board` (the shared board), `projects` (where an agent
-  picks a project before it claims), and the `Snapshot` the brief builds
-  from. Thin, schema-shaped, verbatim.
+- `tool`: the orbit tools on the runtime menu: `market` (the read and
+  the six acts: invest, contract, work, release, short, post), `intel`
+  (the brief's read side), `wallet` (earnings, commitments, the
+  reputation ledger), `board` (the shared board's task verbs), `projects`
+  (where an agent picks a project before it contracts), and the
+  `Snapshot` the brief builds from. Thin, schema-shaped, verbatim.
 - `sol`: the minimal Solana wire: base58, keypairs, legacy message
   compilation, ed25519 signing (v0 versioned form, single and multi
   signer), PDA derivation with the on-curve check. Stdlib only; the

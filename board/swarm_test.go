@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mrsirg97-rgb/rig/store"
+	"github.com/mrsirg97-rgb/rig/store/sqlx"
 
 	"github.com/mrsirg97-rgb/orbit/board/domain"
 	"github.com/mrsirg97-rgb/orbit/client"
@@ -29,8 +30,8 @@ type boardFakeRPC struct {
 	msgs      []client.SignatureInfo
 	txs       map[string]*client.Transaction
 	now       func() time.Time
-	visible   int // -1 = all sent messages; else only the first N
-	lag       int // a sent message is revealed after N more scan calls
+	visible   int
+	lag       int
 	syncCalls int
 	sentAt    map[string]int
 }
@@ -153,6 +154,12 @@ func decodeSentTx(signed []byte) *client.Transaction {
 		if pos+acctCount > len(msg) {
 			return nil
 		}
+		accounts := make([]string, 0, acctCount)
+		for _, a := range msg[pos : pos+acctCount] {
+			if int(a) < len(keys) {
+				accounts = append(accounts, keys[a])
+			}
+		}
 		pos += acctCount
 		dataLen, ok := readShort()
 		if !ok || pos+dataLen > len(msg) {
@@ -160,7 +167,7 @@ func decodeSentTx(signed []byte) *client.Transaction {
 		}
 		if progIdx < len(keys) {
 			tx.Ixs = append(tx.Ixs, client.TxInstruction{
-				ProgramID: keys[progIdx], Data: msg[pos : pos+dataLen],
+				ProgramID: keys[progIdx], Accounts: accounts, Data: msg[pos : pos+dataLen],
 			})
 		}
 		pos += dataLen
@@ -192,9 +199,10 @@ func newBoardFakeRPC(t *testing.T, mint string) *boardFakeRPC {
 	binary.LittleEndian.PutUint64(curve[80:88], 1_000_000_000_000_000)
 	binary.LittleEndian.PutUint64(curve[88:96], 50_000_000_000)
 	binary.LittleEndian.PutUint64(curve[96:104], 200_000_000_000_000)
-	binary.LittleEndian.PutUint64(curve[104:112], 0)
-	curve[112] = 0
-	binary.LittleEndian.PutUint64(curve[113:121], 0)
+	curve[104] = 1
+	binary.LittleEndian.PutUint64(curve[105:113], 0)
+	curve[113] = 1
+	binary.LittleEndian.PutUint64(curve[114:122], 0)
 	binary.LittleEndian.PutUint64(curve[125:133], 200_000_000_000)
 	rpc.accounts[client.BondingCurvePDA(client.DevnetProgramID, mint)] = client.AccountInfo{Exists: true, Data: curve}
 	rpc.accounts[client.GlobalConfigPDA(client.DevnetProgramID)] = globalConfigRPC(t)
@@ -251,9 +259,37 @@ func globalConfigRPC(t *testing.T) client.AccountInfo {
 type nilAPI struct{}
 
 func (nilAPI) Markets(context.Context, url.Values) ([]client.MarketRow, error) { return nil, nil }
-func (nilAPI) Market(context.Context, string) (client.MarketDetail, error) {
-	return client.MarketDetail{}, os.ErrNotExist
+func (nilAPI) Market(_ context.Context, mint string) (client.MarketDetail, error) {
+	return migratedDetail(mint), nil
 }
+
+func migratedDetail(mint string) client.MarketDetail {
+	return client.MarketDetail{
+		Market:   client.MarketRow{Mint: mint, Status: client.StatusMigrated, Creator: "So11111111111111111111111111111111111111112"},
+		Reserves: &client.ReservesRow{SolReserve: 100_000_000_000, TokenReserve: 500_000_000_000_000},
+	}
+}
+
+func seedCarrier(t *testing.T, db store.DB, mint, sig string, c client.Carrier) {
+	t.Helper()
+	bound, tx, err := db.Tx(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	txr, err := sqlx.TxFrom(bound)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cacheLedger(context.Background(), txr, mint, ledgerUpdate{carriers: map[string]client.Carrier{sig: c}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func contract() client.Carrier                                                   { return client.Carrier{Lamports: 5 * client.MemoBuyLamports} }
 func (nilAPI) Messages(context.Context, url.Values) ([]client.MessageRow, error) { return nil, nil }
 func (nilAPI) Trades(context.Context, url.Values) ([]client.TradeRow, error)     { return nil, nil }
 func (nilAPI) Positions(context.Context, url.Values) ([]client.PositionRow, error) {
@@ -317,7 +353,7 @@ func TestSwarmDrainAgainstRecordedLog(t *testing.T) {
 	seedRecordedLog(t, db, testMint, rows)
 	project := Project{Mint: testMint, Label: "torch test"}
 
-	claim, err := st.Claim(context.Background(), project)
+	claim, err := st.Claim(context.Background(), project, 5_000_000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,7 +413,7 @@ func TestSwarmReapExpiredClaim(t *testing.T) {
 	if !strings.Contains(reap, "1 expired claim") {
 		t.Errorf("reap reply: %s", reap)
 	}
-	claim, err := st.Claim(context.Background(), project)
+	claim, err := st.Claim(context.Background(), project, 5_000_000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -495,11 +531,9 @@ func TestTwoClientsFoldContestedVerdictAgree(t *testing.T) {
 	}
 	seedRecordedLog(t, dbA, testMint, baseLog)
 	seedRecordedLog(t, dbB, testMint, baseLog)
+	seedCarrier(t, dbA, testMint, "sigC1", contract())
+	seedCarrier(t, dbB, testMint, "sigC1", contract())
 	project := Project{Mint: testMint, Label: "torch test"}
-
-	// Both clients write a verdict on the same review task from the same
-	// pre-write view (A's memo not yet visible to B): the log ends up with
-	// both, and both clients fold the same log without a (mint, seq) wedge.
 	if _, err := stA.Accept(ctx, project, "1"); err != nil {
 		t.Fatalf("accept: %v", err)
 	}
@@ -543,7 +577,6 @@ func TestActStaleTaskGetsFreshID(t *testing.T) {
 		{Mint: testMint, MessageID: 1, Sender: "walletX", MemoText: "task 6: The real task 6", Slot: 1, Signature: "sigT6", CreatedAt: base},
 	})
 	project := Project{Mint: testMint, Label: "torch test"}
-	// The caller minted id 6 from a cache that predates the sync above.
 	reply, err := st.Act(ctx, project, Shape{Verb: "task", ID: 6, Text: "Stale cache task"})
 	if err != nil {
 		t.Fatalf("act: %v", err)
@@ -594,7 +627,7 @@ func TestActOnActSeesFinalShape(t *testing.T) {
 func TestActTaskThenClaimWithLagSucceeds(t *testing.T) {
 	ctx := context.Background()
 	rpc := newBoardFakeRPC(t, testMint)
-	rpc.lag = 2 // a sent memo becomes visible after two more scans
+	rpc.lag = 2
 	tc := boardClientFor(t, testMint, "orbit-board-swarm-seed-00000000", rpc)
 	db, st := openBoardStoreWith(t, tc)
 	defer db.DB.Close()
@@ -607,7 +640,7 @@ func TestActTaskThenClaimWithLagSucceeds(t *testing.T) {
 	if !strings.Contains(reply, "t1 pending") {
 		t.Errorf("task reply must show the act once the memo lands:\n%s", reply)
 	}
-	reply, err = st.Claim(ctx, project)
+	reply, err = st.Claim(ctx, project, 5_000_000)
 	if err != nil {
 		t.Fatalf("claim: %v", err)
 	}
@@ -642,6 +675,7 @@ func TestActRefusesForeignAcceptBeforeSpend(t *testing.T) {
 		{Mint: testMint, MessageID: 2, Sender: "walletY", MemoText: "claim 1", Slot: 2, Signature: "sigC1", CreatedAt: base},
 		{Mint: testMint, MessageID: 3, Sender: "walletY", MemoText: "complete 1", Slot: 3, Signature: "sigP1", CreatedAt: base},
 	})
+	seedCarrier(t, db, testMint, "sigC1", contract())
 	project := Project{Mint: testMint, Label: "torch test"}
 	if _, err := st.Accept(ctx, project, "1"); err == nil || !strings.Contains(err.Error(), "refuse") {
 		t.Fatalf("non-funder accept: %v", err)

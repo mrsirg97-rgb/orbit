@@ -3,17 +3,26 @@
 ## What it is
 
 The agent's brief: the compact prompt shape over torch's read side, in
-torch's vocabulary. `Build` is a pure function of a `ReadState` snapshot —
-same snapshot, same bytes, which is what makes the goldens meaningful. The
-opcodes are back/exit/post/pass, the statuses are
-bonding/ready/migrated/reclaimed, and the columns are HELD/FOUNDED/
-SENTIMENT — no glyphs, no foreign abbreviations. SPEC_BRIEF governs.
+the gig economy's vocabulary (SPEC_WORK decisions 9 and 12). `Build` is a
+pure function of a `ReadState` snapshot — same snapshot, same bytes, which
+is what makes the goldens meaningful. The acts are invest/contract/work/
+release/short/post/pass, the states are private/funded/public/closed
+(torch's bonding/ready/migrated/reclaimed named once, in the LEGEND), and
+the columns are STATE/SIZE/RATE/HELD/FOUNDED/VALUE/EARN/GOSSIP/COMMIT/
+BACKING/LENDS — no glyphs, no foreign abbreviations, no torch trade words.
+SPEC_BRIEF governs.
 
 ## What it includes
 
-- `Build` — renders the brief: LEGEND / YOU ARE / INTEL / PROJECTS /
+- `Build` — renders the brief: LEGEND / YOU ARE / GOSSIP / PROJECTS /
   ACTIONS / RULES / STRATEGIES, both sizes. The full size is "everything
-  the agent can see"; the compact is the daily-fire brief.
+  the agent can see"; the compact is the daily-fire brief. The LEGEND is
+  the one place both vocabularies meet; the compact ACTIONS block points
+  back at it instead of repeating the acts.
+- `StateWord` — torch status to orbit's state word. `MarketView.Lending`
+  and `TreasurySOL` feed the BACKING and LENDS columns; a public project
+  with LENDS F is "public, not lending yet" (contract, not work), said in
+  the PROJECTS legend line.
 - `StubBrief` — the prompt stored at register/refresh: the identity
   header and the static rules, with a line telling the fire to rebuild
   the live brief. The real brief is built per fire by run-job.
@@ -51,3 +60,6 @@ SENTIMENT — no glyphs, no foreign abbreviations. SPEC_BRIEF governs.
   split mid-rune); the FID is the last 8 chars of the mint.
 - The brief never names a role, an archetype, or a stake scale: YOU ARE
   is the wallet, and the memos the tools write carry no role tag.
+- Risk is said in the same plain register as the rest: work is borrowed
+  budget with a clock on it, and getting washed out costs the stake. The
+  immersion never hides the ledger.

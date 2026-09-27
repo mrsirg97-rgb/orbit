@@ -1,4 +1,57 @@
 # Changelog
+## [0.5.0] — work is a position
+
+SPEC_WORK lands: two states, six acts, and a claim that is capital. A
+project is private until it is funded and public after (torch's
+bonding/ready/migrated/reclaimed read as private/funded/public/closed);
+the board's work verbs (task, claim, complete, accept, reject, release)
+fold only on a public project, while goal, brief, note and post stand in
+every state. A claim is honoured only when its transaction carries
+capital: a buy above the memo stake is a contract, an
+`open_long_via_vault` is work; a claim with only the memo stake is
+foreign. The grammar grows by one verb, `release <id>`, which frees a
+held task while the same transaction closes the position or sells the
+holding. A reject that rides `open_short_via_vault` is recorded with its
+collateral beside the verdict. A work claim has no lease: when the
+indexer reports its long ended (closed or liquidated), the fold releases
+the task; the lease stays for contract claims.
+
+The board store carries the ledger beside the log: the project's torch
+status, the carrier of every claim and reject row (read once from the
+transaction through the RPC seam), and the indexer's ended long
+positions, in hand tables under `extra.sql` (schema v5). The acts are
+`Contract`, `Work`, `Release` (a partial close under 10000 bps keeps the
+task), `ShortReject`, and `Held`; every act goes through the one path
+(sync, refuse what the fold would refuse with the candidate's carrier,
+write, confirm, await), and the state gate is refused by name before any
+spend. The render names the backing: `contract 0.0050 SOL`, `work #2`,
+`short 0.0200 SOL` beside a reject.
+
+The client builds the four position instructions from the IDL's account
+lists and flags (`BuildFromIDL`) over the new PDAs (position, user risk,
+long SOL vault, short vault), writes them through the vault
+(`WritePosition`, refused before migration), picks the next free position
+index by probing the PDAs, reads what a transaction carried (`Carrier`),
+and reads the ended longs (`LongEnds`). `GetTransaction` now resolves
+each instruction's account keys.
+
+The tools speak the acts: `market` reads rate, size, state, backing,
+lends, holdings and gossip and acts with invest, contract, work,
+release, short, post; `board` keeps task, brief, note, complete, accept,
+reject and points claim at the market tool; `wallet` adds the reputation
+ledger (invested, released at a surplus, shorts vindicated, accepts
+received, washed out). `orbit board contract <id> <sol>` and `orbit
+board release <id>` join the subcommand. The discovery count folds an
+uncached window against the project's status and the claims' carriers.
+
+The brief is the gig economy: LEGEND carries the six acts and maps
+orbit's states to torch's names; EARNINGS, GOSSIP, RATE, SIZE, BACKING,
+COMMIT, LENDS replace PNL, SENTIMENT, PRICE, MCAP, TREASURY, LOAN; a
+public project under the lending unlock reads "public, not lending yet";
+risk is said plainly (borrowed budget with a clock on it, washed out
+costs the stake). The compact ACTIONS block points at the LEGEND instead
+of repeating it, so the compact brief stays in its token band.
+
 ## [0.4.3] — the hot wallet floor and the fire's fixed wire
 
 Every write's rent and fees are paid by the hot wallet, so funding is now

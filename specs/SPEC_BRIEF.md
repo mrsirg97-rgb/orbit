@@ -4,8 +4,14 @@ The agent's brief. Pyre's compact prompt (LEGEND / YOU ARE / INTEL /
 PROJECTS / ACTIONS / RULES / STRATEGIES) rewritten over torch's read side:
 projects are markets, factions are gone, and every number in the brief
 comes from the torch client. Two sizes: compact and full. The vocabulary
-is torch's — PNL, back/exit/post/pass, bonding/ready/migrated/reclaimed,
-HELD/FOUNDED/SENTIMENT, "other contributors" — never Pyre's abbreviations.
+is the gig economy's (SPEC_WORK decisions 9 and 12): the acts are orbit's
+(invest/contract/work/release/short/post/pass), the block's words are the
+town's (EARNINGS, GOSSIP, RATE, SIZE, BACKING, COMMIT, members, washed
+out, the rankings, town GDP), and torch's state names (bonding/ready/
+migrated/reclaimed) appear once, in the LEGEND, beside orbit's
+(private/funded/public/closed), so the chain stays recognizable. Never
+Pyre's abbreviations, and never torch's trade words (back/exit/sell) in
+the agent's mouth.
 
 ## definition
 
@@ -38,15 +44,17 @@ Each torch market projects onto a row:
 |---|---|
 | FID | last 8 chars of the mint (Pyre resolves by suffix, so `FID = mint[len-8:]`) |
 | NAME / SYMBOL | market name / symbol |
-| STATUS | `bonding` (BONDING), `ready` (COMPLETE), `migrated` (MIGRATED), `reclaimed` (RECLAIMED) |
-| MCAP | `price_sol × 1_000_000_000` (total supply 1B tokens @ 6 decimals) |
-| PRICE | `virtual_sol/virtual_token` (bonding) or `sol_reserve/token_reserve` (migrated) |
+| STATE | `private` (BONDING), `funded` (COMPLETE), `public` (MIGRATED), `closed` (RECLAIMED); the LEGEND maps them to torch's names |
+| SIZE | `price_sol × 1_000_000_000` (total supply 1B tokens @ 6 decimals): the community size |
+| RATE | `virtual_sol/virtual_token` (bonding) or `sol_reserve/token_reserve` (migrated): the price |
 | HELD | true when holdings value > 0.001 SOL |
 | FOUNDED | false (launch is not a v1 write; no founder tracking yet) |
 | VALUE | holdings value in SOL |
-| PNL | per-mint: `value − cost_basis_remaining` from the wallet read |
-| SENTIMENT | clamped [-10, 10] sentiment from the message board |
-| LOAN | false (leverage is a later PR; positions are shown, not lent) |
+| EARN | per-mint: `value − cost_basis_remaining` from the wallet read |
+| GOSSIP | clamped [-10, 10] sentiment from the message board |
+| COMMIT | an open long on the project (a commitment) |
+| BACKING | the treasury's SOL (the `treasury_sol_vault` lamports less rent) |
+| LENDS | BACKING at or above the lending unlock (1 SOL on devnet); `F` on a public project reads "public, not lending yet" |
 
 ### 2. SENTIMENT is deterministic, lexicon-lite, and local
 
@@ -168,4 +176,10 @@ plus the memo, so the agent's turn can cite proof. One action per fire.
 - Determinism: two builds of the same snapshot are byte-identical.
 - SENTIMENT: lexicon cases (bullish, bearish, mixed, empty) with pinned numbers.
 - Vocabulary: no HLTH, RS/ASN/RAZED, MBR/FNR/SENT, glyphs, rival/ally, or
-  "world block" anywhere in either golden.
+  "world block" anywhere in either golden; no `back $`, `exit $`, MCAP,
+  PNL, SENTIMENT, or leaderboard either. Both goldens carry the six acts,
+  the state mapping line, "public, not lending yet", EARNINGS,
+  COMMITMENTS, GOSSIP, BACKING, and "washed out".
+- The state column: a public project with lending unlocked reads
+  `public ... T`, one under the unlock `public ... F`, a bonding one
+  `private ... F`.

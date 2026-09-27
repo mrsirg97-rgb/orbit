@@ -72,7 +72,7 @@ func List(ctx context.Context, tc *client.TorchClient, store *board.Store, f Fil
 				}
 			}
 		}
-		rows[i].OpenTasks = project.OpenTasks(rows[i].Mint, msgs)
+		rows[i].OpenTasks = project.OpenTasks(ctx, tc.Carrier, rows[i].Mint, client.MarketStatus(rows[i].Status), msgs)
 	}
 	if f.GoalOnly {
 		kept := rows[:0]
@@ -91,7 +91,7 @@ func Show(ctx context.Context, tc *client.TorchClient, store *board.Store, input
 	if err != nil {
 		return project.ShowView{}, err
 	}
-	s, err := project.Show(ctx, tc.API, tc.RPC, tc.ProgramID, mint)
+	s, err := project.Show(ctx, tc.API, tc.RPC, tc.ProgramID, mint, tc.Carrier)
 	if err != nil {
 		return project.ShowView{}, err
 	}

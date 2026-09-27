@@ -19,6 +19,7 @@ func TestMemoShapesRoundTrip(t *testing.T) {
 		{Verb: "complete", ID: 3},
 		{Verb: "accept", ID: 3},
 		{Verb: "reject", ID: 3, Text: "No proof in the memo"},
+		{Verb: "release", ID: 3},
 	}
 	want := []string{
 		"task 3: Measure the compact size",
@@ -28,6 +29,7 @@ func TestMemoShapesRoundTrip(t *testing.T) {
 		"complete 3",
 		"accept 3",
 		"reject 3: No proof in the memo",
+		"release 3",
 	}
 	for i, c := range cases {
 		memo, err := MemoFor(c)
