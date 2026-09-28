@@ -15,14 +15,18 @@ job and the fire.
   is not an orbit agent job (the scheduler enforces one job per name).
 - `Register` — creates the scheduled job from the identity row. The
   prompt is the brief; the cadence, model, stall, budget, and timeout
-  come from the row.
+  come from the row; `home` is the rig home the crontab tag is scoped
+  to (orbit passes the orbit home, the same `home` every later call
+  rides).
 - `Refresh` — updates the job's prompt (the fresh brief) without touching
-  the cadence or the budget.
+  the cadence or the budget, re-asserting the crontab line tagged to
+  `home`.
 - `Fire` — the per-fire path: the caller builds the fresh brief (a live
   read snapshot projected through `brief.Build`), Fire refreshes the
   job's prompt with it, then runs the fire. The brief is therefore
   per-fire — the prompt stored at register is only a stub naming the
-  identity until the first fire replaces it.
+  identity until the first fire replaces it. `home` is the same rig
+  home the tag is scoped to.
 
 ## How it is consumed
 
@@ -46,6 +50,9 @@ before the line lands, not a lost job.
 
 - `Register`, `Refresh`, and `Fire` refuse an empty brief with a named
   error — no fire without a brief.
+- `home` scopes the crontab tag (`rig-scheduler:<hash>:<key>`): register,
+  refresh, and fire must all ride the same home or the line drifts. The
+  orbit home is the one orbit rides.
 - `JobAgentID` returns "" for a job that is not an orbit agent job; the
   run-job path treats that as a refusal, not a row.
 - The job row carries the identity's cadence/stall/budget/timeout; the

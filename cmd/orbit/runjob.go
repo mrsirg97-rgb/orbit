@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	rigconfig "github.com/mrsirg97-rgb/rig/config"
-	"github.com/mrsirg97-rgb/rig/store"
-	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
+	rigconfig "github.com/mrsirg97-rgb/rig/v2/config"
+	"github.com/mrsirg97-rgb/rig/v2/store"
+	sched "github.com/mrsirg97-rgb/rig/v2/store/scheduler"
 
 	"github.com/mrsirg97-rgb/orbit/agent"
 	"github.com/mrsirg97-rgb/orbit/board"
@@ -90,7 +90,7 @@ func runJobFire(args []string) int {
 			StateDir:  filepath.Join(mustOrbitHome(), "sessions"),
 		})
 	}
-	if err := agent.Fire(ctx, sdb, sched.RealCrontab(""), args[0], row.ID, text, agent.RunnerCommand(self), run); err != nil {
+	if err := agent.Fire(ctx, sdb, sched.RealCrontab(""), args[0], row.ID, text, agent.RunnerCommand(self), mustOrbitHome(), run); err != nil {
 		writeFireEndStatus(ctx, tc)
 		fmt.Fprintln(os.Stderr, "orbit:", err)
 		return 1

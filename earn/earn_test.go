@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mrsirg97-rgb/rig/store"
-	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
-	scheddomain "github.com/mrsirg97-rgb/rig/store/scheduler/domain"
+	"github.com/mrsirg97-rgb/rig/v2/store"
+	sched "github.com/mrsirg97-rgb/rig/v2/store/scheduler"
+	scheddomain "github.com/mrsirg97-rgb/rig/v2/store/scheduler/domain"
 
 	"github.com/mrsirg97-rgb/orbit/agent"
 	"github.com/mrsirg97-rgb/orbit/board"
@@ -248,6 +248,7 @@ func newHarness(t *testing.T, getenv func(string) string) *earnHarness {
 		Crontab:    &fakeCrontab{text: "SHELL=/bin/bash\n"},
 		Board:      &board.Store{Client: func() (*client.TorchClient, error) { return tc, nil }, DB: bs},
 		Self:       "/x/orbit",
+		Home:       dir,
 		Cwd:        dir,
 		Session:    "earn-test",
 		Model:      func() string { return "dsv4" },

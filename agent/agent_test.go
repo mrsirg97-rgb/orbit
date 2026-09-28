@@ -11,9 +11,9 @@ import (
 
 	"github.com/mrsirg97-rgb/orbit/brief"
 	"github.com/mrsirg97-rgb/orbit/identity"
-	"github.com/mrsirg97-rgb/rig/store"
-	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
-	scheddomain "github.com/mrsirg97-rgb/rig/store/scheduler/domain"
+	"github.com/mrsirg97-rgb/rig/v2/store"
+	sched "github.com/mrsirg97-rgb/rig/v2/store/scheduler"
+	scheddomain "github.com/mrsirg97-rgb/rig/v2/store/scheduler/domain"
 )
 
 type fakeCrontab struct {
@@ -73,7 +73,7 @@ func TestFireRebuildsBriefPerFire(t *testing.T) {
 		Cadence: "0 */8 * * *", Model: "dsv4", BlockSize: "compact",
 	}
 	stub := brief.StubBrief(brief.Identity{Name: row.Name, Bio: row.Bio})
-	if _, err := Register(context.Background(), db, ct, row, stub, "/x/orbit run-job", t.TempDir(), "sess-agent"); err != nil {
+	if _, err := Register(context.Background(), db, ct, row, stub, "/x/orbit run-job", t.TempDir(), "sess-agent", home); err != nil {
 		t.Fatal(err)
 	}
 
@@ -106,6 +106,7 @@ func TestFireRebuildsBriefPerFire(t *testing.T) {
 		t.Helper()
 		if err := sched.RunJob("j1", sched.RunOpts{
 			Home: home, Crontab: ct, Fetch: fakeFetch{}.fetch, Spawn: spawnFn,
+			RigHome:   home,
 			WorkerCmd: []string{"/x/orbit"}, SwapURL: "http://127.0.0.1:8090",
 			Now:     func() time.Time { return time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC) },
 			Sandbox: "off",
@@ -127,7 +128,7 @@ func TestFireRebuildsBriefPerFire(t *testing.T) {
 		return ""
 	}
 
-	if err := Fire(context.Background(), db, ct, "j1", row.ID, brief1, "/x/orbit run-job", runJob); err != nil {
+	if err := Fire(context.Background(), db, ct, "j1", row.ID, brief1, "/x/orbit run-job", home, runJob); err != nil {
 		t.Fatal(err)
 	}
 	got1 := promptOf()
@@ -135,7 +136,7 @@ func TestFireRebuildsBriefPerFire(t *testing.T) {
 		t.Errorf("fire 1 prompt is stale: %q, want the fresh brief", got1[:20])
 	}
 
-	if err := Fire(context.Background(), db, ct, "j1", row.ID, brief2, "/x/orbit run-job", runJob); err != nil {
+	if err := Fire(context.Background(), db, ct, "j1", row.ID, brief2, "/x/orbit run-job", home, runJob); err != nil {
 		t.Fatal(err)
 	}
 	got2 := promptOf()
@@ -160,7 +161,7 @@ func TestAgentJobFiresTheBrief(t *testing.T) {
 	}
 	const briefText = "LEGEND\nback $ \"*\" — buy a project. Vault-routed: the vault pays, the memo rides the tx.\nONE ACTION PER FIRE.\n"
 	jobCwd := t.TempDir()
-	reply, err := Register(context.Background(), db, ct, row, briefText, "/x/orbit run-job", jobCwd, "sess-agent")
+	reply, err := Register(context.Background(), db, ct, row, briefText, "/x/orbit run-job", jobCwd, "sess-agent", home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,6 +206,7 @@ func TestAgentJobFiresTheBrief(t *testing.T) {
 	}
 	err = sched.RunJob("j1", sched.RunOpts{
 		Home:      home,
+		RigHome:   home,
 		Crontab:   ct,
 		Fetch:     fakeFetch{}.fetch,
 		Spawn:     spawnFn,
@@ -259,7 +261,7 @@ func TestDefaultsLandInJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	stub := brief.StubBrief(brief.Identity{Name: row.Name, Bio: row.Bio})
-	if _, err := Register(context.Background(), db, ct, row, stub, "/x/orbit run-job", t.TempDir(), "sess-agent"); err != nil {
+	if _, err := Register(context.Background(), db, ct, row, stub, "/x/orbit run-job", t.TempDir(), "sess-agent", home); err != nil {
 		t.Fatal(err)
 	}
 	bound, tx, err := db.TxReadOnly(context.Background())
@@ -317,7 +319,7 @@ func TestOverridesWin(t *testing.T) {
 		t.Fatal(err)
 	}
 	stub := brief.StubBrief(brief.Identity{Name: row.Name, Bio: row.Bio})
-	if _, err := Register(context.Background(), db, ct, row, stub, "/x/orbit run-job", t.TempDir(), "sess-agent"); err != nil {
+	if _, err := Register(context.Background(), db, ct, row, stub, "/x/orbit run-job", t.TempDir(), "sess-agent", home); err != nil {
 		t.Fatal(err)
 	}
 	bound, tx, err := db.TxReadOnly(context.Background())
@@ -372,10 +374,13 @@ func TestRegisterCronLineQuotesRunner(t *testing.T) {
 		Cadence: "0 */8 * * *", Model: "dsv4", BlockSize: "compact",
 	}
 	stub := brief.StubBrief(brief.Identity{Name: row.Name, Bio: row.Bio})
-	if _, err := Register(context.Background(), db, ct, row, stub, RunnerCommand("/x/orbit bin"), t.TempDir(), "sess-agent"); err != nil {
+	if _, err := Register(context.Background(), db, ct, row, stub, RunnerCommand("/x/orbit bin"), t.TempDir(), "sess-agent", home); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(ct.text, `'/x/orbit bin' run-job`) {
 		t.Errorf("the cron line must quote the executable path:\n%s", ct.text)
+	}
+	if !strings.Contains(ct.text, "# rig-scheduler:") || !strings.Contains(ct.text, ":j1") {
+		t.Errorf("the cron line must carry the rig-scheduler tag scoped to home:\n%s", ct.text)
 	}
 }

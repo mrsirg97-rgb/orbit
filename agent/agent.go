@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/mrsirg97-rgb/orbit/identity"
-	"github.com/mrsirg97-rgb/rig/store/scheduler"
+	"github.com/mrsirg97-rgb/rig/v2/store/scheduler"
 )
 
 const JobPrefix = "orbit-agent-"
@@ -21,7 +21,7 @@ func JobAgentID(jobName string) string {
 	return strings.TrimPrefix(jobName, JobPrefix)
 }
 
-func Register(ctx context.Context, db scheduler.DB, ct scheduler.Crontab, row identity.Row, brief, runnerCmd, sessionCwd, session string) (string, error) {
+func Register(ctx context.Context, db scheduler.DB, ct scheduler.Crontab, row identity.Row, brief, runnerCmd, sessionCwd, session, home string) (string, error) {
 	if row.ID == "" {
 		return "", fmt.Errorf("agent: identity row required")
 	}
@@ -37,7 +37,7 @@ func Register(ctx context.Context, db scheduler.DB, ct scheduler.Crontab, row id
 		Stall:   row.Stall,
 		Budget:  row.Budget,
 		Timeout: row.Timeout,
-	}, sessionCwd, session, runnerCmd, time.Now)
+	}, sessionCwd, session, runnerCmd, home, time.Now)
 }
 
 // RunnerCommand builds the cron runner command with the executable shell-
@@ -51,11 +51,11 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-func Refresh(ctx context.Context, db scheduler.DB, ct scheduler.Crontab, jobID, rowID, brief, session, runnerCmd string) (string, error) {
+func Refresh(ctx context.Context, db scheduler.DB, ct scheduler.Crontab, jobID, rowID, brief, session, runnerCmd, home string) (string, error) {
 	if brief == "" {
 		return "", fmt.Errorf("agent: brief required")
 	}
 	return scheduler.Update(ctx, db, ct, scheduler.UpdateInput{
 		ID: jobID, Name: JobName(rowID), Prompt: brief,
-	}, session, runnerCmd, time.Now)
+	}, session, runnerCmd, home, time.Now)
 }

@@ -16,7 +16,9 @@ SPEC_EARN governs.
 - **`Command`** (`command.go`): the `/earn` slash command — `Run`
   dispatches the moments: bare, `join`, `roles`, `goal`, `status`,
   and offers them to the TUI's picker through `command.Subber` (`Sub()`);
-  `stop`, `start`.
+  `stop`, `start`. `Home` is the orbit home the jobs' crontab lines are
+  tagged to (the rig home the scheduler scopes its tag to); `Cwd` and
+  `Session` ride beside it.
 - **`join [roles]`**: runs the setup (init, vault create, link, deposit)
   with the operator key named at the call, then registers the roles
   (worker by default). The key resolves lazily, at the first step that

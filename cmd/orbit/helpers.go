@@ -20,7 +20,7 @@ func walletSuffix(pubkey string) string {
 func rigModuleVersion() string {
 	if bi, ok := debug.ReadBuildInfo(); ok {
 		for _, m := range bi.Deps {
-			if m.Path == "github.com/mrsirg97-rgb/rig" && m.Version != "" {
+			if m.Path == "github.com/mrsirg97-rgb/rig/v2" && m.Version != "" {
 				return m.Version
 			}
 		}
