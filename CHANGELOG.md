@@ -1,4 +1,16 @@
 # Changelog
+## [0.6.1] — the comments are gone
+
+orbit rides rig 2.0.2, a patch with no behavior change. Every `//` line
+is out of rig's Go — implementation and tests alike, the only exceptions
+the generated projections and the metadata packages — and each load-bearing
+rationale now lives in its package's PACKAGE.md. The pass also split the
+monoliths into one-responsibility files: the composition root, store/todo,
+frontend/tui's shell, store/scheduler, store/rem, frontend/web, tool/python,
+tool/file, tool/todo, provider/openai, swarm, config, tool/web,
+frontend/cli, and tool/rem. Nothing moved on the wire: the suite is the
+gate at every commit, and the fire's fixed wire is untouched.
+
 ## [0.6.0] — the runtime's new menu
 
 orbit rides rig 2.0.1 (the module moved to `github.com/mrsirg97-rgb/rig/v2`),
