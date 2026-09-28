@@ -268,7 +268,7 @@ func TestFireWorkerResolvesHomeAndPinsTheWire(t *testing.T) {
 	if got, want := strings.Join(names, ","), strings.Join(fireToolNames, ","); got != want {
 		t.Errorf("fire wire on the model request: %s, want %s", got, want)
 	}
-	for _, banned := range []string{"write", "edit", "scheduler", "plugin", "plugins", "sessions", "delegate", "ls", "find", "grep"} {
+	for _, banned := range []string{"write", "edit", "scheduler", "plugin", "plugins", "sessions", "delegate", "web"} {
 		for _, n := range names {
 			if n == banned {
 				t.Errorf("the fire wire must not name %s: %v", banned, names)

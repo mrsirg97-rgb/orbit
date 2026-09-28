@@ -20,44 +20,42 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mrsirg97-rgb/rig"
-	"github.com/mrsirg97-rgb/rig/command"
-	"github.com/mrsirg97-rgb/rig/config"
-	"github.com/mrsirg97-rgb/rig/core"
-	"github.com/mrsirg97-rgb/rig/frontend/cli"
-	"github.com/mrsirg97-rgb/rig/frontend/oneshot"
-	"github.com/mrsirg97-rgb/rig/frontend/tui"
-	"github.com/mrsirg97-rgb/rig/imagemarker"
-	"github.com/mrsirg97-rgb/rig/loop"
-	"github.com/mrsirg97-rgb/rig/middleware/approve"
-	"github.com/mrsirg97-rgb/rig/middleware/paths"
-	"github.com/mrsirg97-rgb/rig/middleware/toolset"
-	"github.com/mrsirg97-rgb/rig/models"
-	"github.com/mrsirg97-rgb/rig/plugins"
-	"github.com/mrsirg97-rgb/rig/policy/compact"
-	effort "github.com/mrsirg97-rgb/rig/policy/effort"
-	"github.com/mrsirg97-rgb/rig/policy/empty"
-	"github.com/mrsirg97-rgb/rig/provider/openai"
-	"github.com/mrsirg97-rgb/rig/store"
-	remstore "github.com/mrsirg97-rgb/rig/store/rem"
-	remdom "github.com/mrsirg97-rgb/rig/store/rem/domain"
-	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
-	"github.com/mrsirg97-rgb/rig/store/scope"
-	"github.com/mrsirg97-rgb/rig/store/state"
-	todostore "github.com/mrsirg97-rgb/rig/store/todo"
-	"github.com/mrsirg97-rgb/rig/swarm"
-	"github.com/mrsirg97-rgb/rig/tool/bash"
-	"github.com/mrsirg97-rgb/rig/tool/delegate"
-	"github.com/mrsirg97-rgb/rig/tool/diff"
-	"github.com/mrsirg97-rgb/rig/tool/file"
-	"github.com/mrsirg97-rgb/rig/tool/fs"
-	pythontool "github.com/mrsirg97-rgb/rig/tool/python"
-	remapi "github.com/mrsirg97-rgb/rig/tool/rem"
-	schedapi "github.com/mrsirg97-rgb/rig/tool/scheduler"
-	sessionstool "github.com/mrsirg97-rgb/rig/tool/sessions"
-	todoapi "github.com/mrsirg97-rgb/rig/tool/todo"
-	viewtool "github.com/mrsirg97-rgb/rig/tool/view"
-	webtool "github.com/mrsirg97-rgb/rig/tool/web"
+	"github.com/mrsirg97-rgb/rig/v2"
+	"github.com/mrsirg97-rgb/rig/v2/command"
+	"github.com/mrsirg97-rgb/rig/v2/config"
+	"github.com/mrsirg97-rgb/rig/v2/core"
+	"github.com/mrsirg97-rgb/rig/v2/frontend/cli"
+	"github.com/mrsirg97-rgb/rig/v2/frontend/oneshot"
+	"github.com/mrsirg97-rgb/rig/v2/frontend/tui"
+	"github.com/mrsirg97-rgb/rig/v2/imagemarker"
+	"github.com/mrsirg97-rgb/rig/v2/loop"
+	"github.com/mrsirg97-rgb/rig/v2/middleware/approve"
+	"github.com/mrsirg97-rgb/rig/v2/middleware/paths"
+	"github.com/mrsirg97-rgb/rig/v2/middleware/toolset"
+	"github.com/mrsirg97-rgb/rig/v2/models"
+	"github.com/mrsirg97-rgb/rig/v2/plugins"
+	"github.com/mrsirg97-rgb/rig/v2/policy/compact"
+	effort "github.com/mrsirg97-rgb/rig/v2/policy/effort"
+	"github.com/mrsirg97-rgb/rig/v2/policy/empty"
+	"github.com/mrsirg97-rgb/rig/v2/provider/openai"
+	"github.com/mrsirg97-rgb/rig/v2/store"
+	remstore "github.com/mrsirg97-rgb/rig/v2/store/rem"
+	remdom "github.com/mrsirg97-rgb/rig/v2/store/rem/domain"
+	sched "github.com/mrsirg97-rgb/rig/v2/store/scheduler"
+	"github.com/mrsirg97-rgb/rig/v2/store/scope"
+	"github.com/mrsirg97-rgb/rig/v2/store/state"
+	todostore "github.com/mrsirg97-rgb/rig/v2/store/todo"
+	"github.com/mrsirg97-rgb/rig/v2/swarm"
+	"github.com/mrsirg97-rgb/rig/v2/tool/bash"
+	"github.com/mrsirg97-rgb/rig/v2/tool/delegate"
+	"github.com/mrsirg97-rgb/rig/v2/tool/file"
+	pythontool "github.com/mrsirg97-rgb/rig/v2/tool/python"
+	remapi "github.com/mrsirg97-rgb/rig/v2/tool/rem"
+	schedapi "github.com/mrsirg97-rgb/rig/v2/tool/scheduler"
+	sessionstool "github.com/mrsirg97-rgb/rig/v2/tool/sessions"
+	todoapi "github.com/mrsirg97-rgb/rig/v2/tool/todo"
+	viewtool "github.com/mrsirg97-rgb/rig/v2/tool/view"
+	webtool "github.com/mrsirg97-rgb/rig/v2/tool/web"
 
 	"github.com/mrsirg97-rgb/orbit/agent"
 	"github.com/mrsirg97-rgb/orbit/board"
@@ -70,7 +68,7 @@ import (
 	orbittool "github.com/mrsirg97-rgb/orbit/tool"
 )
 
-const Version = "0.5.1"
+const Version = "0.6.0"
 
 //go:embed theme.json
 var shippedTheme []byte
@@ -488,8 +486,7 @@ func (r *root) switchEffort(ctx context.Context, level string) error {
 }
 
 var concurrentNatives = map[string]bool{
-	"read": true, "ls": true, "find": true, "grep": true, "view": true,
-	"web_search": true, "web_fetch": true, "diff": true,
+	"read": true, "view": true, "web": true,
 	"delegate": true,
 	// the orbit reads; market and board act, so they stay serial
 	"intel": true, "wallet": true, "projects": true,
@@ -680,7 +677,7 @@ func userHome() string {
 // offers them and may call them.
 var orbitToolNames = []string{"project", "intel", "wallet", "board", "projects"}
 
-var nativeToolNames = append([]string{"bash", "read", "write", "edit", "ls", "find", "grep", "view", "todo", "rem", "scheduler", "delegate", "python", "web_search", "web_fetch", "diff", "plugin", "plugins", "sessions"}, orbitToolNames...)
+var nativeToolNames = append([]string{"bash", "read", "write", "edit", "view", "todo", "rem", "scheduler", "delegate", "python", "web", "plugin", "plugins", "sessions"}, orbitToolNames...)
 
 // appendOrbitTools admits the orbit tools to an allow-list that does not
 // name any of them: the runtime's embedded default and an operator file
@@ -1072,7 +1069,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "rig: python kernel host: %s\n", py.Host())
 	}
 
-	webSearch := webtool.NewSearch(webtool.SearchConfig{BaseURL: envOr("RIG_SEARXNG_URL", cfg.Settings.SearXNG)})
 	proxy := ""
 	if cfg.Settings.WebFetchProxy != nil {
 		proxy = *cfg.Settings.WebFetchProxy
@@ -1084,7 +1080,10 @@ func main() {
 	if v, ok := os.LookupEnv("RIG_TRAFILATURA"); ok {
 		traf = &v
 	}
-	webFetch := webtool.NewFetch(webtool.FetchConfig{Proxy: proxy, Trafilatura: traf})
+	web := webtool.New(webtool.Config{
+		Search: webtool.SearchConfig{BaseURL: envOr("RIG_SEARXNG_URL", cfg.Settings.SearXNG)},
+		Fetch:  webtool.FetchConfig{Proxy: proxy, Trafilatura: traf},
+	})
 
 	pluginsDir := filepath.Join(cfgDir, "plugins")
 	pluginsHome := cfgDir
@@ -1189,12 +1188,17 @@ func main() {
 	}
 	defer rdb.DB.Close()
 
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "rig:", err)
+		os.Exit(1)
+	}
 	schedHome := filepath.Join(cfgDir, "scheduler")
 	if err := os.MkdirAll(schedHome, 0o755); err != nil {
 		fmt.Fprintln(os.Stderr, "rig:", err)
 		os.Exit(1)
 	}
-	scdb, sQuarantined, sReport, sErr := store.Open(filepath.Join(schedHome, "global.sqlite"), sched.Statements(), sched.SchemaVersion, sched.Migration(schedHome, sched.RealCrontab("")))
+	scdb, sQuarantined, sReport, sErr := store.Open(filepath.Join(schedHome, "global.sqlite"), sched.Statements(), sched.SchemaVersion, sched.Migration(schedHome, cfgDir, agent.RunnerCommand(self), sched.RealCrontab("")))
 	if sErr != nil {
 		fmt.Fprintln(os.Stderr, "rig: scheduler store:", sErr)
 		os.Exit(1)
@@ -1206,12 +1210,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "rig: %s\n", sReport)
 	}
 	defer scdb.DB.Close()
-
-	self, err := os.Executable()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "rig:", err)
-		os.Exit(1)
-	}
 	swapURL := cfg.Settings.SwapURL
 	if v := os.Getenv("RIG_SWAP_URL"); v != "" {
 		swapURL = v
@@ -1240,10 +1238,9 @@ func main() {
 		approveDefault: firstNonEmpty(cfg.Settings.Approve, approve.Auto),
 		tools: map[string]core.Tool{
 			"bash": bash.New(), "read": file.Read(), "write": file.Write(), "edit": file.Edit(),
-			"ls": fs.LS(), "find": fs.Find(), "grep": fs.Grep(),
 			"todo": todoapi.New(tdb, todoapi.Mode(*prompt != "")), "rem": remapi.New(rdb),
-			"python": py, "web_search": webSearch, "web_fetch": webFetch,
-			"diff": diff.New(sdb), "sessions": sessionstool.New(cfgDir, cwd),
+			"python": py, "web": web,
+			"sessions": sessionstool.New(cfgDir, cwd),
 		},
 		workers:     cfg.Workers,
 		pluginTools: pluginTools,
@@ -1373,6 +1370,7 @@ func main() {
 		Crontab:      sched.RealCrontab(""),
 		Board:        r.board,
 		Self:         self,
+		Home:         cfgDir,
 		Cwd:          cwd,
 		Session:      "orbit-earn",
 		Model:        func() string { return r.activeID },

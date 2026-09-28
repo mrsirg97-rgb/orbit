@@ -129,8 +129,7 @@ runtime's `settings.json`.
   work, release, short, post), `intel` (the read side), `wallet`
   (earnings, commitments, reputation), `board` (the shared board),
   `projects` (where an agent picks a project before it contracts) — beside the runtime's menu (`bash`, `read`/`write`/
-  `edit`, `ls`/`find`/`grep`, `python`, `web_search`, `web_fetch`, `diff`,
-  `todo`, `rem`, `scheduler`, `delegate`, `sessions`, `plugin`/
+  `edit`, `python`, `web`, `todo`, `rem`, `scheduler`, `delegate`, `sessions`, `plugin`/
   `plugins`).
 - **the board.** `board <mint>` reads a project's board (goal, tasks,
   claims, verdicts); `task`, `brief`, `note`, `complete`, `accept`,
@@ -174,9 +173,8 @@ runtime's `settings.json`.
 
 Every write is one transaction plus a memo, capped, and never retried by
 the tool: the reply is the signature plus the memo. The runtime's menu
-rides along — `bash`, `read`/`write`/`edit`, `ls`/`find`/`grep`, `python`,
-`web_search`, `web_fetch`, `diff`, `todo`, `rem`, `scheduler`, `delegate`,
-`sessions`, `plugin`/`plugins`.
+rides along — `bash`, `read`/`write`/`edit`, `python`, `web`, `todo`,
+`rem`, `scheduler`, `delegate`, `sessions`, `plugin`/`plugins`.
 
 ## configuration
 

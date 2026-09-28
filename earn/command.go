@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mrsirg97-rgb/rig/command"
-	"github.com/mrsirg97-rgb/rig/store"
-	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
-	scheddomain "github.com/mrsirg97-rgb/rig/store/scheduler/domain"
+	"github.com/mrsirg97-rgb/rig/v2/command"
+	"github.com/mrsirg97-rgb/rig/v2/store"
+	sched "github.com/mrsirg97-rgb/rig/v2/store/scheduler"
+	scheddomain "github.com/mrsirg97-rgb/rig/v2/store/scheduler/domain"
 
 	"github.com/mrsirg97-rgb/orbit/agent"
 	"github.com/mrsirg97-rgb/orbit/board"
@@ -43,6 +43,7 @@ type Command struct {
 	Board      *board.Store
 
 	Self         string
+	Home         string
 	Cwd          string
 	Session      string
 	Model        func() string
@@ -145,9 +146,9 @@ func (c *Command) stop(ctx context.Context, resume bool) (string, error) {
 		}
 		var reply string
 		if resume {
-			reply, err = sched.Resume(ctx, c.SchedDB, c.Crontab, id, c.Cwd, c.Session)
+			reply, err = sched.Resume(ctx, c.SchedDB, c.Crontab, id, c.Cwd, c.Session, c.Home)
 		} else {
-			reply, err = sched.Pause(ctx, c.SchedDB, c.Crontab, id, c.Cwd, c.Session)
+			reply, err = sched.Pause(ctx, c.SchedDB, c.Crontab, id, c.Cwd, c.Session, c.Home)
 		}
 		if err != nil {
 			return "", fmt.Errorf("earn: %s %s: %w", verb, row.ID, err)
@@ -231,7 +232,7 @@ func (c *Command) rolesRemove(ctx context.Context, in args) (string, error) {
 			continue
 		}
 		if id := findJobID(ctx, c.SchedDB, agent.JobName(row.ID)); id != "" {
-			if _, err := sched.Remove(ctx, c.SchedDB, c.Crontab, id, c.Cwd, c.Session); err != nil {
+			if _, err := sched.Remove(ctx, c.SchedDB, c.Crontab, id, c.Cwd, c.Session, c.Home); err != nil {
 				return "", fmt.Errorf("earn: remove %s: %w", row.ID, err)
 			}
 		}
@@ -270,7 +271,7 @@ func (c *Command) goal(ctx context.Context, in args) (string, error) {
 		if id == "" {
 			return "", fmt.Errorf("earn: goal: %s has no job (join first)", row.ID)
 		}
-		reply, err := agent.Refresh(ctx, c.SchedDB, c.Crontab, id, row.ID, stub, c.Session, c.runner())
+		reply, err := agent.Refresh(ctx, c.SchedDB, c.Crontab, id, row.ID, stub, c.Session, c.runner(), c.Home)
 		if err != nil {
 			return "", fmt.Errorf("earn: goal: %w", err)
 		}
@@ -337,13 +338,13 @@ func (c *Command) registerRoles(ctx context.Context, tc *client.TorchClient, rol
 		stub := brief.StubBrief(brief.Identity{Name: row.Name, Bio: row.Bio, Goal: row.Goal})
 		var reply string
 		if id := findJobID(ctx, c.SchedDB, agent.JobName(row.ID)); id != "" {
-			reply, err = agent.Refresh(ctx, c.SchedDB, c.Crontab, id, row.ID, stub, c.Session, c.runner())
+			reply, err = agent.Refresh(ctx, c.SchedDB, c.Crontab, id, row.ID, stub, c.Session, c.runner(), c.Home)
 		} else {
 			jobCwd, cerr := c.JobCwd()
 			if cerr != nil {
 				return nil, fmt.Errorf("earn: job cwd: %w", cerr)
 			}
-			reply, err = agent.Register(ctx, c.SchedDB, c.Crontab, row, stub, c.runner(), jobCwd, c.Session)
+			reply, err = agent.Register(ctx, c.SchedDB, c.Crontab, row, stub, c.runner(), jobCwd, c.Session, c.Home)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("earn: job %s: %w", row.ID, err)

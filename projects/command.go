@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mrsirg97-rgb/rig/command"
+	"github.com/mrsirg97-rgb/rig/v2/command"
 
 	"github.com/mrsirg97-rgb/orbit/board"
 	"github.com/mrsirg97-rgb/orbit/brief"

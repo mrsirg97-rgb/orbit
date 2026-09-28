@@ -1,4 +1,23 @@
 # Changelog
+## [0.6.0] — the runtime's new menu
+
+orbit rides rig 2.0.1 (the module moved to `github.com/mrsirg97-rgb/rig/v2`),
+and the menu the agent sees changed, which is the minor. `ls`/`find`/`grep`
+left the runtime with the `fs` tool package: `read` is the observation
+path, and the `diff` tool is gone too — the diff rides `read diff:true`
+and `edit`'s drift reply. `web_search` and `web_fetch` folded into one
+`web` tool (search or fetch in one call). The scheduler tool and the
+`/scheduler` command pick up rig's `repair [id]`: one id repairs that
+job, no id repairs every drifting one.
+
+The scheduler's crontab lines are tagged by the rig home they are scoped
+to (`rig-scheduler:<hash>:<key>`), so the orbit home rides as `home`
+through `agent.Register`/`Refresh`/`Fire`, a `Home` field on the earn
+command, and the `agent` and `run-job` paths. The scheduler store's
+migration takes the scheduler home, the orbit home, the runner command,
+and the crontab, and folds the old pane-scheduler stores by key and
+runner command. The fire's fixed wire is unchanged: it never had web.
+
 ## [0.5.1] — one world, one vocabulary
 
 A pass over every word the agent can see, so nothing in its environment

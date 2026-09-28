@@ -69,7 +69,7 @@ dispatch.
 - **The fire's fixed wire**: the jailed worker names itself by the
   scratch home (`isFireJail`: `RIG_HOME` ending in `.rig-job`), resolves
   the orbit home (`os.Setenv("RIG_HOME", ...)`), and pins both the wire
-  and the allow-list to `fireToolNames` — `market`, `intel`, `wallet`,
+  and the allow-list to `fireToolNames` — `project`, `intel`, `wallet`,
   `board`, `projects`, `read`, `rem`, `bash`, `python`, `todo` — with no scheduler,
   plugin, sessions, or delegate, and no plugin/python wiring at all. The
   operator's interactive allow is untouched: only the fire worker
@@ -111,8 +111,17 @@ dispatch.
   the exception by design: `fireToolNames` is the fire's whole wire.
 - The fire's floor, jail, and tunnel are rig-shaped: the scratch home
   (`<job cwd>/.rig-job`), the netless sandbox, and the socket proxy all
-  come from the pinned rig v1.6.0. A rig upgrade that renames the scratch,
+  come from the pinned rig v2.0.1. A rig upgrade that renames the scratch,
   stops pinning `RIG_HOME`, or changes the netless guarantee must be
   checked here first.
+- The scheduler's crontab tag is scoped to the rig home (`home`): the
+  orbit home rides through `agent.Register`/`Refresh`/`Fire`, the earn
+  command's `Home`, and the `agent` and `run-job` paths, and the store's
+  migration is `Migration(schedHome, cfgDir, RunnerCommand(self),
+  RealCrontab(""))` — the scheduler home for the old pane-scheduler
+  stores, the orbit home for the tag, and the runner command so a line is
+  claimed by key and command. The menu changed with rig v2: `ls`, `find`,
+  `grep`, and `diff` are gone (`read` is the observation path), and
+  `web_search`/`web_fetch` are the one `web` tool.
 - The fire's sandbox refuses when the box cannot provide it (landlock ABI
   < 4, or a kernel without the netless guarantee): no sandbox, no fire.

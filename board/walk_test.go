@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mrsirg97-rgb/rig/store"
+	"github.com/mrsirg97-rgb/rig/v2/store"
 
 	"github.com/mrsirg97-rgb/orbit/client"
 )

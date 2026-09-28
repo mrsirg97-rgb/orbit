@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mrsirg97-rgb/rig/store"
-	"github.com/mrsirg97-rgb/rig/store/sqlx"
+	"github.com/mrsirg97-rgb/rig/v2/store"
+	"github.com/mrsirg97-rgb/rig/v2/store/sqlx"
 
 	"github.com/mrsirg97-rgb/orbit/board/domain"
 	"github.com/mrsirg97-rgb/orbit/client"

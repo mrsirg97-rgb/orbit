@@ -2,16 +2,14 @@ module github.com/mrsirg97-rgb/orbit
 
 go 1.26.6
 
-require (
-	github.com/mrsirg97-rgb/rig v1.6.0
-	golang.org/x/crypto v0.57.0
-)
+require golang.org/x/crypto v0.57.0
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
+	github.com/mrsirg97-rgb/rig/v2 v2.0.1
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.2.0 // indirect

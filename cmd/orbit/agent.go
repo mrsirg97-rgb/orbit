@@ -8,9 +8,9 @@ import (
 	"github.com/mrsirg97-rgb/orbit/brief"
 	"github.com/mrsirg97-rgb/orbit/client"
 	"github.com/mrsirg97-rgb/orbit/identity"
-	"github.com/mrsirg97-rgb/rig/store"
-	sched "github.com/mrsirg97-rgb/rig/store/scheduler"
-	"github.com/mrsirg97-rgb/rig/store/scheduler/domain"
+	"github.com/mrsirg97-rgb/rig/v2/store"
+	sched "github.com/mrsirg97-rgb/rig/v2/store/scheduler"
+	"github.com/mrsirg97-rgb/rig/v2/store/scheduler/domain"
 	"os"
 )
 
@@ -134,9 +134,9 @@ func ensureJobAction(ctx context.Context, idb store.DB, row identity.Row, action
 		if jobID == "" {
 			die("agent: job: no existing job %s (join first)", agent.JobName(row.ID))
 		}
-		reply, err = agent.Refresh(ctx, sdb, sched.RealCrontab(""), jobID, row.ID, block, "orbit-agent", agent.RunnerCommand(self))
+		reply, err = agent.Refresh(ctx, sdb, sched.RealCrontab(""), jobID, row.ID, block, "orbit-agent", agent.RunnerCommand(self), cwd)
 	} else {
-		reply, err = agent.Register(ctx, sdb, sched.RealCrontab(""), row, block, agent.RunnerCommand(self), cwd, "orbit-agent")
+		reply, err = agent.Register(ctx, sdb, sched.RealCrontab(""), row, block, agent.RunnerCommand(self), cwd, "orbit-agent", cwd)
 	}
 	if err != nil {
 		die("agent: job: %v", err)

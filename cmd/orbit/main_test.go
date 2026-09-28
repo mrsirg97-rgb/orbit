@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mrsirg97-rgb/rig/config"
-	"github.com/mrsirg97-rgb/rig/frontend/tui"
+	"github.com/mrsirg97-rgb/rig/v2/config"
+	"github.com/mrsirg97-rgb/rig/v2/frontend/tui"
 
 	"github.com/mrsirg97-rgb/orbit/earn"
 )
@@ -44,8 +44,8 @@ func TestVersionStartupStaysFast(t *testing.T) {
 
 func TestVersionIsTheFreeze(t *testing.T) {
 
-	if Version != "0.5.1" {
-		t.Fatalf("Version = %q, want 0.5.1", Version)
+	if Version != "0.6.0" {
+		t.Fatalf("Version = %q, want 0.6.0", Version)
 	}
 
 	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(Version) {
@@ -167,6 +167,22 @@ func TestOrbitToolsAreOnTheWire(t *testing.T) {
 	}
 }
 
+func TestNativeWireIsTheNewMenu(t *testing.T) {
+	names := registeredNativeNames(nil, false, false)
+	have := map[string]bool{}
+	for _, n := range names {
+		have[n] = true
+	}
+	if !have["web"] {
+		t.Error("web is not registered: the runtime menu lost its web tool")
+	}
+	for _, gone := range []string{"ls", "find", "grep", "diff", "web_search", "web_fetch"} {
+		if have[gone] {
+			t.Errorf("the runtime menu must not name %s: %v", gone, names)
+		}
+	}
+}
+
 func TestFireWireToolsetIsExactlyTheTen(t *testing.T) {
 	names := registeredNativeNames(nil, false, true)
 	if got, want := strings.Join(names, ","), strings.Join(fireToolNames, ","); got != want {
@@ -181,7 +197,7 @@ func TestFireWireToolsetIsExactlyTheTen(t *testing.T) {
 			t.Errorf("the fire wire must keep %s: %v", kept, names)
 		}
 	}
-	for _, banned := range []string{"write", "edit", "scheduler", "plugin", "plugins", "sessions", "delegate", "view", "diff", "ls", "find", "grep"} {
+	for _, banned := range []string{"write", "edit", "scheduler", "plugin", "plugins", "sessions", "delegate", "view", "web"} {
 		if have[banned] {
 			t.Errorf("the fire wire must not name %s: %v", banned, names)
 		}
