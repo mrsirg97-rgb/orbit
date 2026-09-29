@@ -111,7 +111,7 @@ dispatch.
   the exception by design: `fireToolNames` is the fire's whole wire.
 - The fire's floor, jail, and tunnel are rig-shaped: the scratch home
   (`<job cwd>/.rig-job`), the netless sandbox, and the socket proxy all
-  come from the pinned rig v2.1.6. A rig upgrade that renames the scratch,
+  come from the pinned rig v2.1.8. A rig upgrade that renames the scratch,
   stops pinning `RIG_HOME`, or changes the netless guarantee must be
   checked here first.
 - The scheduler's crontab tag is scoped to the rig home (`home`): the

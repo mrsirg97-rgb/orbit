@@ -1,4 +1,32 @@
 # Changelog
+## [0.6.6] — the workspace vocabulary and the idempotent todo
+
+orbit rides rig 2.1.8, one store change that lands and the vocabulary
+that comes with it. The store change: the todo tool refused every write
+outside a repo (`todo: no project: … is not a repo …`), though the
+store beneath it already keys a non-repo directory by its path and
+serves it. A non-repo cwd is now its own workspace keyed by its path
+and writes land there; the `(not a repo)` decoration is gone from the
+queue head, the empty reply, and the unknown-id refusal, and the bind
+report says `queue: <label> (this workspace; not bound)`. The
+vocabulary the model reads is now one set: a workspace is the directory
+the session runs in, resolved to the repo root when inside one, and
+project is the field that binds the session to another workspace, given
+as a path. The todo and rem descriptions and the project field
+descriptions say so — "Set project only when the work is in a different
+workspace than the one you started in." — and the session line says so
+too. Orbit composes its own session section, so it follows ("The
+session's workspace is … and the rig home is …"); the 2.1.7
+name-project sentence is gone. The 2.1.7 idempotent todo still lands:
+`complete` on a task already done and `start` on a task already in
+progress by the same session (or unowned) are no-ops that look like
+success — the row (`[x]`/`[~]`) and the queue summary, no event, no
+compaction. The refusals that are real stay: a foreign session's start
+of an owned task still refuses naming the claimer, and done stays
+read-only for every other verb. `todo` rides the native table and the
+fire's fixed wire keeps it, so both doors get the no-op. No behavior
+changed elsewhere: the suite is the gate at every commit.
+
 ## [0.6.5] — the link fill and the API reply
 
 orbit rides rig 2.1.6, two tool fixes that both land on the native
