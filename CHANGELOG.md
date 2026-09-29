@@ -1,4 +1,23 @@
 # Changelog
+## [0.6.6] — the session line and the idempotent todo
+
+orbit rides rig 2.1.7, one store change that lands and one CLI change
+that does not. The landing one: `complete` on a task already done and
+`start` on a task already in progress by the same session (or unowned)
+are no-ops that look like success — they answer with the echo a fresh
+call would give, the row (`[x]`/`[~]`) and the queue summary, and write
+no event and run no compaction. The model had read the old refusal
+(`'tN' is done; read-only`) as "I did something wrong" and spent a
+thought on it, though there was nothing to fix. The refusals that are
+real stay: a foreign session's start of an owned task still refuses
+naming the claimer, and done stays read-only for every other verb.
+`todo` rides the native table and the fire's fixed wire keeps it, so
+both doors get the no-op. The other half — outside a repo the session
+line now adds "name project on todo and rem calls, as a path to the
+repo the work is in" — lives in rig's own session section, and orbit
+composes its own, so it does not land here. No behavior changed
+elsewhere: the suite is the gate at every commit.
+
 ## [0.6.5] — the link fill and the API reply
 
 orbit rides rig 2.1.6, two tool fixes that both land on the native
