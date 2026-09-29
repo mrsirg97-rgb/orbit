@@ -275,9 +275,9 @@ func sessionSection(cwd, home string) string {
 		return ""
 	}
 	if home == "" {
-		return fmt.Sprintf("The session's working directory is %s.", cwd)
+		return fmt.Sprintf("The session's workspace is %s.", cwd)
 	}
-	return fmt.Sprintf("The session's working directory is %s and the session home is %s. A leading ~ in a tool path expands to the session home.", cwd, home)
+	return fmt.Sprintf("The session's workspace is %s and the rig home is %s. A leading ~ in a tool path expands to the rig home.", cwd, home)
 }
 
 func remRow(m remdom.Memory) command.RemRow {
