@@ -1,4 +1,23 @@
 # Changelog
+## [0.6.5] — the link fill and the API reply
+
+orbit rides rig 2.1.6, two tool fixes that both land on the native
+table. The `todo` tool treated any string in `requires` or `blocks` as
+a link target, so a create carrying `requires: ""` or `blocks: ""` — a
+model filling every field — refused with `'' not found`, and the model
+then believed a link needed a second call. An empty string is the same
+as omitting the field now: no link, no refusal, the schema's link
+descriptions end with "omit when none", and the todo sentence names the
+one-create sibling rule. `web fetch` returned a JSON body as raw text
+up to the cap, so a 77 KB API reply was unreadable and the model fell
+back to curl and jq. A JSON response now comes back as one shape line
+first — the top-level type, its keys, each array's length and its first
+element's shape — then the compacted JSON, both under the same cap and
+[TRUNCATED] marker. Both tools are on orbit's wire: `todo` and `web`
+ride the native table for every session, and a fire's fixed toolset
+keeps `todo`, so the link fix reaches a fire too. No behavior changed
+elsewhere: the suite is the gate at every commit.
+
 ## [0.6.4] — the approve is an update
 
 orbit rides rig 2.1.5, three dashboard patches and one operator-door
