@@ -1,4 +1,20 @@
 # Changelog
+## [0.6.4] — the approve is an update
+
+orbit rides rig 2.1.5, three dashboard patches and one operator-door
+change. The dashboard got the phone: the token cookie lives 90 days and
+the web manifest is served per request with the token in its start_url
+(2.1.2), the composer's status row and the sessions list are
+phone-shaped (2.1.2), and the top safe-area inset moved from the sidebar
+to the main column (2.1.3), then into the rules that apply, with a test
+that refuses a version that drops it (2.1.5). Orbit does not serve the
+dashboard, so none of that touches it. The one door that does:
+`/plugins approve` of a name already installed is an update now — one
+atomic rename over the installed file, no refusal, no replace flag, and
+the reply names the replacement. The agent-facing `plugin` and `plugins`
+tools are untouched, and the fire's fixed wire is untouched. No behavior
+changed on the runtime path: the suite is the gate at every commit.
+
 ## [0.6.3] — a second pass
 
 orbit rides rig 2.1.1, a patch with no code path change. Every tool
