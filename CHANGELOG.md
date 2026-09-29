@@ -1,4 +1,14 @@
 # Changelog
+## [0.6.3] — a second pass
+
+orbit rides rig 2.1.1, a patch with no code path change. Every tool
+description gets a second pass in the 2.1.0 voice: an opening sentence
+that says what the tool does, Guidelines that say when and how, a Reply
+that names only what a good call returns, with the refusals moved up to
+where the model decides. plugin and plugins get their first rewrite, and
+the pinned wire and view hashes and the recorded goldens move with the
+words.
+
 ## [0.6.2] — plain words
 
 orbit rides rig 2.1.0, which rewrote every tool description and the
