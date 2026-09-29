@@ -1,4 +1,14 @@
 # Changelog
+## [0.6.2] — plain words
+
+orbit rides rig 2.1.0, which rewrote every tool description and the
+system prompt in plain sentences, one tool per commit: the house shape
+stays (what the tool is, a Guidelines sentence, a Reply sentence), the
+restatement and the internal voice are gone. No behavior changed — the
+suite is the gate at every commit — and rig's menu test reads the real
+menu now, since its recorded wire was stale since 2.0.0. The fire's
+fixed wire is untouched.
+
 ## [0.6.1] — the comments are gone
 
 orbit rides rig 2.0.2, a patch with no behavior change. Every `//` line
