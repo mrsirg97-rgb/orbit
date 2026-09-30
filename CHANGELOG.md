@@ -1,4 +1,26 @@
 # Changelog
+
+## [0.6.7] — the positional links
+
+orbit rides rig 2.1.9, one todo change that lands on the native table. A
+4B model planned five steps as one create with `requires: "1"`,
+`requires: "2"` — the numbering it wrote in its own plan — and the store
+refused (`requires '1' not found`) without saying what a link is, so the
+model fell back to thirteen single-task creates. Within one create, a
+bare number N is now the task at 1-based position N of that call's
+`tasks`, tried after the id and the exact text: ids are always `tN`, so
+no link that resolved before changes meaning. A position that lands on
+its own task refuses as a self-link, the replay path resolves positions
+from the logged payload and skips a self-link the same way, and an
+unknown link's refusal now ends, once, with the forms a link takes (`a
+link is tN from a reply, a sibling's exact text, or its position in this
+create`). The same session also called `start` and `complete` without an
+id; the verbs keep requiring one, because the big models copy the id
+from the reply every time and a second way to name the same act is the
+kind of menu growth the words pass removed. `todo` rides the native
+table, so every session and every fire gets the new form. No behavior
+changed elsewhere: the suite is the gate at every commit.
+
 ## [0.6.6] — the workspace vocabulary and the idempotent todo
 
 orbit rides rig 2.1.8, one store change that lands and the vocabulary
