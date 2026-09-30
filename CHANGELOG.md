@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.6.8] — the read truncation facts and the plain-words contract
+
+orbit rides rig 2.1.11, two lands that touch the words a model reads.
+The read tool capped a reply at 1 MiB and appended `[output truncated]`
+with no numbers, so a model reading a big file in ranges could not know
+how much had come back or where the next read started. The cap now cuts
+at a line boundary when one exists inside it, and the marker carries
+the next step — `[output truncated: N of M lines; continue at offset
+X]`, X the offset the next read needs and N, M the same "lines" the
+offset and the past-the-end refusal use. A single line longer than the
+cap falls back to a rune boundary, so no rune is ever split, and gets
+its own marker, because a read can never make progress on it: bash owns
+that line. The todo tool's contract had grown by append through 2.1.9,
+each release adding a clause to `tool/todo/schema.go` and the
+description reading like a contract while `tasks` and `status` still
+carried the older plain-words pass. The words are now one set: the
+description decides (the one line of what the tool is, its verbs, the
+argument shapes, the reply's shape) and the fields explain themselves in
+plain words — `action` is `What to do.`, `tasks` is `The tasks to add,
+in order. Required for create. An empty list clears the queue.` — and
+each link carries its own sentence. `blocks` is a field, not a sentence:
+its meaning is no longer folded into the description's prose. The
+planning rule moved too: it lived in the todo description, read only
+once the model had reached for the tool, and the system prompt now
+carries the one sentence after `A capability you build twice belongs in
+a plugin.` — a rule in the system prompt is read every turn, and the
+description keeps its Guidelines sentence as the arrival text. No
+behavior changed: the verbs, the store, and the refusal rules are
+untouched, and the suite is the gate at every commit.
+
 ## [0.6.7] — the positional links
 
 orbit rides rig 2.1.9, one todo change that lands on the native table. A
