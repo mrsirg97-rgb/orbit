@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net"
@@ -68,7 +69,7 @@ import (
 	orbittool "github.com/mrsirg97-rgb/orbit/tool"
 )
 
-const Version = "0.6.8"
+const Version = "0.7.0"
 
 //go:embed theme.json
 var shippedTheme []byte
@@ -116,12 +117,17 @@ type root struct {
 	approveDefault string
 	askDoor        func(ctx context.Context, prompt string) bool
 
+	themeName      string
+	themeDoc       json.RawMessage
+	themeTrueColor bool
+	rigHome        string
+
 	session *core.Session
 	rec     *state.Recorder
 	tools   map[string]core.Tool
 
-	workers *config.Workers
-	swarm   *swarm.Controller
+	swarm    *swarm.Controller
+	swarmWhy string
 
 	pluginTools []core.Tool
 
@@ -219,7 +225,7 @@ func wire(r *root) *rig.Kernel {
 	r.live.SetPlugins(r.pluginNames()...)
 	if r.natives == nil {
 		r.natives = make(map[string]bool)
-		for _, name := range effectiveNativeNames(r.workers, r.fire) {
+		for _, name := range effectiveNativeNames(r.fire) {
 			r.natives[name] = true
 		}
 	}
@@ -289,7 +295,7 @@ func remRow(m remdom.Memory) command.RemRow {
 }
 
 func (r *root) nativeTools() []core.Tool {
-	names := registeredNativeNames(r.workers, r.row.Vision, r.fire)
+	names := registeredNativeNames(r.row.Vision, r.fire)
 	out := make([]core.Tool, 0, len(names))
 	for _, name := range names {
 		tool, ok := r.tools[name]
@@ -513,6 +519,46 @@ func (r *root) switchApprove(ctx context.Context, mode string) error {
 	return nil
 }
 
+func (r *root) switchTheme(ctx context.Context, name string) error {
+	if name != "warm" && name != "cool" && name != "custom" {
+		return fmt.Errorf("theme: %q is not a preset (warm, cool, custom)", name)
+	}
+	home := r.rigHome
+	if home == "" {
+		h, err := client.Home(os.Getenv)
+		if err != nil {
+			return err
+		}
+		home = h
+		r.rigHome = home
+	}
+	doc := r.themeDoc
+	if name == "custom" {
+		fresh, err := config.ReadTheme(home)
+		if err != nil {
+			return err
+		}
+		if fresh == nil {
+			return fmt.Errorf("theme: no theme.json in the orbit home (%s)", filepath.Join(home, "theme.json"))
+		}
+		doc = fresh
+	}
+	th, err := tui.ResolveTheme(name, doc, r.themeTrueColor)
+	if err != nil {
+		return err
+	}
+	if err := config.SetTheme(home, name); err != nil {
+		return err
+	}
+	r.themeName = name
+	if rp, ok := r.fe.(interface {
+		RepaintTheme(tui.Theme)
+	}); ok {
+		rp.RepaintTheme(th)
+	}
+	return nil
+}
+
 func (r *root) switchRole(ctx context.Context, name string) error {
 	if !command.ValidRole(name) {
 		return fmt.Errorf("role: %q is not a role (default, architect, reviewer)", name)
@@ -694,8 +740,6 @@ func appendOrbitTools(allow []string) []string {
 	return append(append([]string(nil), allow...), orbitToolNames...)
 }
 
-var workerToolNames = []string{"scheduler", "delegate"}
-
 // fireToolNames are the fire's fixed wire toolset: the model in a fire sees
 // exactly these and nothing else. The orbit five, the file read, the
 // memory, the plan, and the two that let a small model do real work: bash
@@ -705,23 +749,15 @@ var workerToolNames = []string{"scheduler", "delegate"}
 // list.
 var fireToolNames = []string{"project", "intel", "wallet", "board", "projects", "read", "rem", "bash", "python", "todo"}
 
-func effectiveNativeNames(workers *config.Workers, fire bool) []string {
+func effectiveNativeNames(fire bool) []string {
 	if fire {
 		return fireToolNames
 	}
-	drop := workers == nil
-	out := make([]string, 0, len(nativeToolNames))
-	for _, name := range nativeToolNames {
-		if drop && isWorkerTool(name) {
-			continue
-		}
-		out = append(out, name)
-	}
-	return out
+	return append([]string(nil), nativeToolNames...)
 }
 
-func registeredNativeNames(workers *config.Workers, vision, fire bool) []string {
-	names := effectiveNativeNames(workers, fire)
+func registeredNativeNames(vision, fire bool) []string {
+	names := effectiveNativeNames(fire)
 	if fire || vision {
 		return names
 	}
@@ -769,15 +805,6 @@ func fireAgentID(home string) string {
 	return strings.TrimSpace(string(b))
 }
 
-func isWorkerTool(name string) bool {
-	for _, n := range workerToolNames {
-		if n == name {
-			return true
-		}
-	}
-	return false
-}
-
 func resolveModel(id string, table models.Table) models.Model {
 	m, err := models.Resolve(table, id, os.LookupEnv)
 	if err != nil {
@@ -797,10 +824,7 @@ func (r *root) statusIn(ctx context.Context) tui.StatusIn {
 	if eff == "" {
 		eff = r.row.Effort
 	}
-	b := tui.StatusIn{Model: r.activeID, Effort: eff, Window: r.row.Window, Role: r.role, Approve: r.approve}
-	if r.workers != nil {
-		b.Workers = r.workers.Model
-	}
+	b := tui.StatusIn{Model: r.activeID, Effort: eff, Window: r.row.Window, Role: r.role, Approve: r.approve, Workers: "resident"}
 	if r.session != nil {
 		b.Session = r.session.ID
 		if err := r.sdb.DB.QueryRowContext(ctx,
@@ -1004,8 +1028,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, "rig:", err)
 		os.Exit(1)
 	}
-	if cfg.Notice != "" {
-		fmt.Fprintln(os.Stderr, "rig:", cfg.Notice)
+	for _, n := range cfg.Notices {
+		fmt.Fprintln(os.Stderr, "rig:", n)
 	}
 
 	passed := map[string]bool{}
@@ -1101,7 +1125,7 @@ func main() {
 		}
 	}
 	native := make(map[string]bool)
-	for _, name := range effectiveNativeNames(cfg.Workers, fire) {
+	for _, name := range effectiveNativeNames(fire) {
 		native[name] = true
 	}
 	pluginReports := make([]plugins.Report, 0)
@@ -1236,60 +1260,67 @@ func main() {
 
 		approve:        firstNonEmpty(cfg.Settings.Approve, approve.Auto),
 		approveDefault: firstNonEmpty(cfg.Settings.Approve, approve.Auto),
+		themeName:      cfg.Settings.Theme,
+		themeDoc:       cfg.Theme,
+		themeTrueColor: tuiTrueColor(),
+		rigHome:        cfgDir,
 		tools: map[string]core.Tool{
 			"bash": bash.New(), "read": file.Read(), "write": file.Write(), "edit": file.Edit(),
 			"todo": todoapi.New(tdb, todoapi.Mode(*prompt != "")), "rem": remapi.New(rdb),
 			"python": py, "web": web,
 			"sessions": sessionstool.New(cfgDir, cwd),
 		},
-		workers:     cfg.Workers,
 		pluginTools: pluginTools,
 		py:          py,
 		pluginsHome: pluginsHome,
 		pluginInfos: pluginInfos,
 	}
 
-	if workers := cfg.Workers; workers != nil {
-		r.tools["scheduler"] = schedapi.New(scdb, sched.RealCrontab(""), agent.RunnerCommand(self), workers.Model, cfgDir)
-		r.tools["delegate"] = delegate.New(delegate.Opts{
-			DB:           scdb,
-			Home:         schedHome,
-			RigHome:      cfgDir,
-			StateDir:     filepath.Join(cfgDir, "sessions"),
-			SwapURL:      swapURL,
-			WorkerCmd:    []string{self},
-			DefaultModel: workers.Model,
-			Slots:        workers.Slots,
-			Sandbox:      cfg.Settings.Sandbox,
-			SandboxBinds: cfg.Settings.SandboxBinds,
-			Allow:        allowList,
-			Fetch:        sched.RealFetch(0),
-			Spawn:        sched.RealSpawn,
-			Models:       func() models.Table { return r.runtime },
-			Notify:       func(ev core.Event) { r.rec.Notify(ev) },
-		})
-		r.swarm = swarm.New(swarm.Opts{
-			TodoDB:  tdb,
-			SchedDB: scdb,
-			Home:    schedHome,
-			Project: func(ctx context.Context, session string) (todostore.Project, error) {
-				return sessionQueue(ctx, tdb, cwd, session)
-			},
-			Cwd:           cwd,
-			WorkerCmd:     []string{self},
-			Fetch:         sched.RealFetch(0),
-			Spawn:         sched.RealSpawn,
-			SwapURL:       swapURL,
-			Sandbox:       cfg.Settings.Sandbox,
-			SandboxBinds:  cfg.Settings.SandboxBinds,
-			RigHome:       cfgDir,
-			StateDir:      filepath.Join(cfgDir, "sessions"),
-			Allow:         allowList,
-			FleetModel:    workers.Model,
-			ReviewerModel: workers.Reviewer,
-			Models:        func() models.Table { return r.runtime },
-			Frontend:      func() core.Frontend { return r.rec },
-		})
+	r.tools["scheduler"] = schedapi.New(scdb, sched.RealCrontab(""), agent.RunnerCommand(self), modelID, cfgDir)
+	if fire {
+		r.swarmWhy = "swarm: the fire's toolset is fixed and never names the fleet"
+	} else {
+		delegateOn, swarmWhy := fleetWiring(sched.RealFetch(0), swapURL, modelID, cfg.Models, cfg.Settings.Workers == nil || *cfg.Settings.Workers)
+		if delegateOn {
+			r.tools["delegate"] = delegate.New(delegate.Opts{
+				DB:           scdb,
+				Home:         schedHome,
+				RigHome:      cfgDir,
+				StateDir:     filepath.Join(cfgDir, "sessions"),
+				SwapURL:      swapURL,
+				WorkerCmd:    []string{self},
+				DefaultModel: modelID,
+				Sandbox:      cfg.Settings.Sandbox,
+				SandboxBinds: cfg.Settings.SandboxBinds,
+				Allow:        allowList,
+				Fetch:        sched.RealFetch(0),
+				Spawn:        sched.RealSpawn,
+				Models:       func() models.Table { return r.runtime },
+				Notify:       func(ev core.Event) { r.rec.Notify(ev) },
+			})
+			r.swarm = swarm.New(swarm.Opts{
+				TodoDB:  tdb,
+				SchedDB: scdb,
+				Home:    schedHome,
+				Project: func(ctx context.Context, session string) (todostore.Project, error) {
+					return sessionQueue(ctx, tdb, cwd, session)
+				},
+				Cwd:          cwd,
+				WorkerCmd:    []string{self},
+				Fetch:        sched.RealFetch(0),
+				Spawn:        sched.RealSpawn,
+				SwapURL:      swapURL,
+				Sandbox:      cfg.Settings.Sandbox,
+				SandboxBinds: cfg.Settings.SandboxBinds,
+				RigHome:      cfgDir,
+				StateDir:     filepath.Join(cfgDir, "sessions"),
+				Allow:        allowList,
+				DefaultModel: modelID,
+				Models:       func() models.Table { return r.runtime },
+				Frontend:     func() core.Frontend { return r.rec },
+			})
+		}
+		r.swarmWhy = swarmWhy
 	}
 
 	for _, t := range pluginTools {
@@ -1378,15 +1409,8 @@ func main() {
 	}
 	r.projects = &projects.Command{Client: cp.Read, Store: r.board}
 
-	workersEnv := command.Workers{File: filepath.Join(cfgDir, "workers.json")}
-	if cfg.Workers != nil {
-		workersEnv.Model = cfg.Workers.Model
-		workersEnv.Slots = cfg.Workers.Slots
-		workersEnv.Configured = true
-	}
 	env := &command.Env{
-		Workers:       workersEnv,
-		Swarm:         swarmAdapter{r.swarm},
+		Swarm:         swarmAdapter{r.swarm, r.swarmWhy},
 		Session:       func() *core.Session { return r.session },
 		Compact:       r.compactNow,
 		NewSession:    r.newSession,
@@ -1401,6 +1425,8 @@ func main() {
 		SetEffort:     r.switchEffort,
 		Role:          func() string { return r.role },
 		SetRole:       r.switchRole,
+		Theme:         func() string { return r.themeName },
+		SetTheme:      r.switchTheme,
 		Approve:       func() string { return r.approve },
 		SetApprove:    r.switchApprove,
 		Tools:         r.tools,

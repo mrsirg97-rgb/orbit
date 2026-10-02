@@ -20,7 +20,15 @@ dispatch.
   root, the five orbit tools behind the lazy client seam, the `/earn` and
   `/projects` commands, the swarm adapter, the earn footer snapshot, and the shipped
   theme (the embedded default when the home has no theme.json; a home
-  theme.json wins entirely).
+  theme.json wins when no settings key names a preset — the dial beats
+  the file, so `/theme` wins over both). The native menu is static (the runtime tools
+  ride the table whether or not the fleet stands) and the fleet wiring is
+  the decision, not the menu: the scheduler tool is wired everywhere, and
+  `fleetWiring` wires delegate and the swarm only where a fleet stands —
+  the worker dial on, the session's model row remote or the resident
+  server running more than one slot — everything else refuses through the
+  adapter with the wiring's reason (`swarmWhy`). A fire wires no fleet at
+  all: its toolset is fixed and its startup stays free of the swap read.
 - **The lazy seam** (`clientProvider`): the first tool use loads the agent
   config and fails loudly, naming `/earn`, when it is missing; a failed
   load is retried at the next use, so `/earn`'s init can fix it in the
@@ -32,9 +40,9 @@ dispatch.
   `board` (read/act), `agent` (register/refresh/show/list), `snapshot`,
   `bootstrap` (the unsigned operator handoff), `run-job` (the fire path).
 - **The seam closures**: `wire` (the kernel), `swapIn`, `switchModel`,
-  `switchRole`, `switchApprove`, `newSession`, `sessionResume`, the
-  plugin reload/swap, `statusIn`/`earnRows` (the footer, painted dim),
-  and the `command.Env` closures over the root.
+  `switchRole`, `switchApprove`, `switchTheme`, `newSession`,
+  `sessionResume`, the plugin reload/swap, `statusIn`/`earnRows` (the
+  footer, painted dim), and the `command.Env` closures over the root.
 - **Resolution helpers**: `client.Home` (the orbit home, `RIG_HOME`
   overrides), `resolveModel`, `sessionFor`, `checkOneShot`, `splitCSV`,
   `effectiveNativeNames`, `registeredNativeNames`, `isMutating`.
@@ -111,7 +119,7 @@ dispatch.
   the exception by design: `fireToolNames` is the fire's whole wire.
 - The fire's floor, jail, and tunnel are rig-shaped: the scratch home
   (`<job cwd>/.rig-job`), the netless sandbox, and the socket proxy all
-  come from the pinned rig v2.1.11. A rig upgrade that renames the scratch,
+  come from the pinned rig v2.5.4. A rig upgrade that renames the scratch,
   stops pinning `RIG_HOME`, or changes the netless guarantee must be
   checked here first.
 - The scheduler's crontab tag is scoped to the rig home (`home`): the
