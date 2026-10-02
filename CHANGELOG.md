@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.7.0] — the fleet is the resident model
+
+orbit rides rig 2.5.4, and the ride is the release: every slot count is
+gone, and the one fact that replaces them is the resident server's own
+live `-np`. `workers.json` named a model and a slot count the binary
+then obeyed at every fire; both were rig's guess at llama-swap's job.
+The file is read, ignored, and named once at start (`config:
+workers.json retired: the fleet is the resident model`), and the
+decision it used to carry moved to the wire: a worker's model resolves
+at claim time (the named one, else the resident model, else the
+session's default), and the busy gate is a live read of
+`/upstream/<model>/slots` — a fire waits for a free slot up to its
+timeout and then skips naming the holder, never evicts, and `busy:
+force` is refused at create. Nothing is stored that the server can say
+better.
+
+The menu followed the same fact. The native table no longer drops the
+worker tools where the fleet stands nowhere: the menu is static, and
+the wiring is the decision — `fleetWiring` wires `delegate` and the
+swarm only where a fleet stands (the worker dial on, and the session's
+model row remote or the resident server running more than one slot),
+and a `/swarm` start elsewhere refuses through the adapter with that
+reason instead of the menu lying by omission. The scheduler tool is
+wired everywhere; a fire wires no fleet at all, because its toolset is
+fixed and its startup stays free of the swap read.
+
+The scheduler job gained its unnamed form: create and update accept no
+model and store the empty string, and the fire resolves it at fire time
+— the resident model first, else the settings' model — so a job no
+longer pins a worker model that skips with `the GPU is held by <model>`
+while the machine sits idle. `model none` on the update line clears a
+named model; the run record names the model the fire resolved (the
+scheduler store adds `runs.model` at open, the same presence-keyed
+column add it always takes).
+
+The theme arrived with the runtime's dial: `/theme` reads and sets
+warm, cool, or custom, the dial beats the file, and a custom with no
+theme.json in the orbit home refuses by name. Edit takes a list of
+hunks now, all or none — several changes to one file go in one call,
+applied in order — and an edit that misses on an unread file replies
+with the file's bytes instead of dead-ending the turn. The fire's wire
+is unchanged: the ten tools, the jail, the floor check, and the tunnel
+ride exactly as 0.6.8 built them.
+
 ## [0.6.8] — the read truncation facts and the plain-words contract
 
 orbit rides rig 2.1.11, two lands that touch the words a model reads.

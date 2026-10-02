@@ -44,8 +44,8 @@ func TestVersionStartupStaysFast(t *testing.T) {
 
 func TestVersionIsTheFreeze(t *testing.T) {
 
-	if Version != "0.6.8" {
-		t.Fatalf("Version = %q, want 0.6.8", Version)
+	if Version != "0.7.0" {
+		t.Fatalf("Version = %q, want 0.7.0", Version)
 	}
 
 	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(Version) {
@@ -152,7 +152,7 @@ func TestTitleRowsShapeAndFallback(t *testing.T) {
 }
 
 func TestOrbitToolsAreOnTheWire(t *testing.T) {
-	names := registeredNativeNames(nil, false, false)
+	names := registeredNativeNames(false, false)
 	have := map[string]bool{}
 	for _, n := range names {
 		have[n] = true
@@ -168,7 +168,7 @@ func TestOrbitToolsAreOnTheWire(t *testing.T) {
 }
 
 func TestNativeWireIsTheNewMenu(t *testing.T) {
-	names := registeredNativeNames(nil, false, false)
+	names := registeredNativeNames(false, false)
 	have := map[string]bool{}
 	for _, n := range names {
 		have[n] = true
@@ -184,7 +184,7 @@ func TestNativeWireIsTheNewMenu(t *testing.T) {
 }
 
 func TestFireWireToolsetIsExactlyTheTen(t *testing.T) {
-	names := registeredNativeNames(nil, false, true)
+	names := registeredNativeNames(false, true)
 	if got, want := strings.Join(names, ","), strings.Join(fireToolNames, ","); got != want {
 		t.Errorf("fire wire: %s, want %s", got, want)
 	}

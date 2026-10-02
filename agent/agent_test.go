@@ -32,6 +32,9 @@ func (f *fakeCrontab) Install(text string) error {
 type fakeFetch struct{}
 
 func (fakeFetch) fetch(url string) (json.RawMessage, error) {
+	if strings.HasSuffix(url, "/slots") {
+		return json.RawMessage(`[{"is_processing":false}]`), nil
+	}
 	if strings.Contains(url, "/v1/models") {
 		return json.RawMessage(`{"data":[{"id":"dsv4","meta":{"llamaswap":{"aliases":[]}},"status":{"value":"loaded"}}]}`), nil
 	}
