@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.8.0] — the seams carry the wiring
+
+orbit rides rig 2.14.5, and the ride is the release: the wiring moved
+onto rig's seams. Every native tool is its interface now, so the checks
+a Go caller used to re-speak through the wire live in the typed method
+the model's call lands in — `Edit(ctx, path, old, new)` refuses
+`old matched 0 times` from orbit's own roots exactly as from the model —
+and the tools are constructed whole: `file.NewRead()` and its siblings,
+`pythontool.New(cwd)` carrying the workspace the kernel never re-derives.
+The live table rebuilds with one call: `wire`, `switchModel` and the
+plugin swap all land on `live.Swap(tools, names...)`, and the
+`Set`/`SetPlugins` pair that could disagree is gone.
+
+The plugin door took the ecosystem. Create, delete, reload and list
+route through one `*plugins.Ecosystem` the root wires once — the home,
+the natives, the python kernel, the swap into the live table, the list
+reply — and the door refuses by name where the seam was not wired. The
+ecosystem lost its own JSON door, no caller left for it, so `"plugins"`
+left the native names: the door is the plugin tool, the eco is the seam.
+
+The fleet is a room. The delegate's `Notify` and the swarm's `Frontend`
+are one `broadcast.Room` on rig's event engine: the root subscribes the
+frontend member and delivers `Notice`, `SwarmStatus`, `Phase` and
+`WorkerDone` to the recorder, a delegated worker's return rides the room
+as the session's next turn, and a worker is a child of the session's
+context, not the turn's (`Await` keeps the piped session synchronous —
+there is no next turn to carry a return). rem joined the same room: the
+memory map is a `graph.Queue` on `MemberGraph`, its pack caps the
+result cap sets, and `remapi.New` takes it at construction.
+
+Scope is a parameter, so the todo session binding is gone: the queue a
+fire reaps and a swarm claims is the project of the cwd
+(`sessionQueue` collapsed to `ProjectOf`), the worker passing its scope
+on every call. The worker's prompt rides stdin now — the runner says
+`-p -`, the spawn context carries the text, the worker reads fd 0 —
+because a prompt never fits argv twice (rig counted a 176 KB prompt
+against Linux's 128 KiB argument cap), and the report-back line names
+the worker's own scope: the test holds that the scope prompted is the
+scope spawned.
+
+The fire's python is real. rig's kernel starts its host on the first
+call, so the fire wires the tool its menu names, the startup banner
+stays interactive-only, and the nil tool that would have panicked the
+worker on its first python call is gone. `/project <path>` arrived with
+scope: `newSession` takes the directory, stats it, chdirs before the
+recorder opens, and the session's workspace is the process's own — one
+truth rather than two.
+
 ## [0.7.0] — the fleet is the resident model
 
 orbit rides rig 2.5.4, and the ride is the release: every slot count is
