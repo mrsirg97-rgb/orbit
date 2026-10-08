@@ -3,6 +3,7 @@ package main
 import (
 	_ "embed"
 	"errors"
+	"io"
 	"path/filepath"
 
 	"context"
@@ -22,9 +23,11 @@ import (
 	"time"
 
 	"github.com/mrsirg97-rgb/rig/v2"
+	"github.com/mrsirg97-rgb/rig/v2/broadcast"
 	"github.com/mrsirg97-rgb/rig/v2/command"
 	"github.com/mrsirg97-rgb/rig/v2/config"
 	"github.com/mrsirg97-rgb/rig/v2/core"
+	"github.com/mrsirg97-rgb/rig/v2/evt"
 	"github.com/mrsirg97-rgb/rig/v2/frontend/cli"
 	"github.com/mrsirg97-rgb/rig/v2/frontend/oneshot"
 	"github.com/mrsirg97-rgb/rig/v2/frontend/tui"
@@ -40,6 +43,7 @@ import (
 	"github.com/mrsirg97-rgb/rig/v2/policy/empty"
 	"github.com/mrsirg97-rgb/rig/v2/provider/openai"
 	"github.com/mrsirg97-rgb/rig/v2/store"
+	"github.com/mrsirg97-rgb/rig/v2/store/graph"
 	remstore "github.com/mrsirg97-rgb/rig/v2/store/rem"
 	remdom "github.com/mrsirg97-rgb/rig/v2/store/rem/domain"
 	sched "github.com/mrsirg97-rgb/rig/v2/store/scheduler"
@@ -69,7 +73,7 @@ import (
 	orbittool "github.com/mrsirg97-rgb/orbit/tool"
 )
 
-const Version = "0.7.0"
+const Version = "0.8.0"
 
 //go:embed theme.json
 var shippedTheme []byte
@@ -141,6 +145,10 @@ type root struct {
 
 	pluginInfos []command.PluginInfo
 
+	eco    *plugins.Ecosystem
+	engine evt.Engine
+	room   broadcast.Room
+
 	fullSystem string
 	k          *rig.Kernel
 
@@ -201,6 +209,43 @@ func (p *clientProvider) Read() (*client.TorchClient, error) {
 
 const defaultResultCap = 64 * 1024
 
+func newFleet() (evt.Engine, broadcast.Room) {
+	engine := evt.NewEngine()
+	return engine, broadcast.NewRoom("fleet", func(origin int64) broadcast.Transport {
+		return broadcast.NewLoopTransport(origin, engine, rig.PriorityFleet)
+	})
+}
+
+func (r *root) listen() {
+	r.room.Add(rig.MemberFrontend).Subscribe(context.Background(), func(err error, messages ...broadcast.Message) {
+		if err != nil {
+			return
+		}
+		for _, m := range messages {
+			if m.Event() == nil {
+				continue
+			}
+			r.deliver(m.Event())
+		}
+	})
+}
+
+func (r *root) deliver(ev core.Event) {
+	defer func() {
+		if p := recover(); p != nil {
+			fmt.Fprintf(os.Stderr, "rig: fleet: frontend: recovered from panic: %v\n", p)
+		}
+	}()
+	switch ev.(type) {
+	case core.Notice, core.SwarmStatus, core.Phase, core.WorkerDone:
+	default:
+		return
+	}
+	if r.rec != nil {
+		r.rec.Notify(ev)
+	}
+}
+
 func wire(r *root) *rig.Kernel {
 	r.applyVision()
 
@@ -210,19 +255,16 @@ func wire(r *root) *rig.Kernel {
 	}
 
 	if r.live == nil {
-
 		r.live = toolset.New()
 		if r.tools["plugin"] == nil {
-
 			var redo func(ctx context.Context) error
 			if r.pluginsHome != "" {
 				redo = r.redoPlugins
 			}
-			r.tools["plugin"] = plugins.NewDoor(r.live, redo)
+			r.tools["plugin"] = plugins.NewDoor(r.live, redo, r.eco)
 		}
-		r.live.Set(append(r.nativeTools(), r.pluginTools...))
 	}
-	r.live.SetPlugins(r.pluginNames()...)
+	r.live.Swap(append(r.nativeTools(), r.pluginTools...), r.pluginNames()...)
 	if r.natives == nil {
 		r.natives = make(map[string]bool)
 		for _, name := range effectiveNativeNames(r.fire) {
@@ -246,6 +288,7 @@ func wire(r *root) *rig.Kernel {
 		)...),
 		rig.WithMiddleware(mw...),
 		rig.WithConcurrent(func(c core.ToolCall) bool { return concurrentNatives[c.Name] }),
+		rig.WithEngine(r.engine),
 	)
 	k.Session = r.session
 	r.k = k
@@ -383,16 +426,29 @@ func (r *root) compactNow(ctx context.Context) (core.Compacted, bool, error) {
 	return ev, true, nil
 }
 
-func (r *root) newSession(ctx context.Context) (string, error) {
+func (r *root) newSession(ctx context.Context, dir string) (string, error) {
+	workspace := r.cwd
+	if dir != "" {
+		fi, err := os.Stat(dir)
+		if err != nil || !fi.IsDir() {
+			return "", fmt.Errorf("project: not a directory: %s", dir)
+		}
+		workspace = dir
+	}
 	if err := r.rec.Close("ok"); err != nil {
 		return "", fmt.Errorf("new: %v", err)
 	}
-
+	if dir != "" {
+		if err := os.Chdir(workspace); err != nil {
+			return "", fmt.Errorf("project: chdir %s: %v", workspace, err)
+		}
+	}
 	r.effort = ""
 	r.role = ""
 	r.approve = r.approveDefault
+	r.cwd = workspace
 	s2 := core.NewSession()
-	rec2 := state.NewRecorder(r.fe, r.sdb, r.cwd, r.activeID, Version, s2.ID, s2).Snapshot(file.SnapshotFiles)
+	rec2 := state.NewRecorder(r.fe, r.sdb, workspace, r.activeID, Version, s2.ID, s2).Snapshot(file.SnapshotFiles)
 	if err := rec2.Ensure(); err != nil {
 		return "", fmt.Errorf("new: %v", err)
 	}
@@ -456,7 +512,7 @@ func (r *root) switchModel(ctx context.Context, id string) (string, error) {
 	r.row = row
 	r.activeID = id
 	r.applyVision()
-	r.live.Set(append(r.nativeTools(), r.pluginTools...))
+	r.live.Swap(append(r.nativeTools(), r.pluginTools...), r.pluginNames()...)
 	provider, pol := r.buildPair()
 	r.k.Provider = provider
 	r.k.Policy = pol
@@ -613,8 +669,7 @@ func (r *root) swapPlugins(ctx context.Context, reports []plugins.Report) (strin
 			names = append(names, rep.Name)
 		}
 	}
-	r.live.Set(tools)
-	r.live.SetPlugins(names...)
+	r.live.Swap(tools, names...)
 	r.pluginInfos = infos
 	return command.RenderPlugins(infos, "reload", r.pluginsHome), nil
 }
@@ -639,13 +694,13 @@ func (r *root) redoPlugins(ctx context.Context) error {
 }
 
 func (r *root) reloadPlugins(ctx context.Context) (string, error) {
-	files, err := plugins.List(r.pluginsHome)
+	files, err := plugins.List(r.pluginsHome, "plugins")
 	if err != nil {
 		return "", fmt.Errorf("plugins: reload: %v", err)
 	}
 	reports := make([]plugins.Report, 0)
 	if len(files) > 0 {
-		reports, err = plugins.DiscoverChecked(ctx, r.py, files, r.natives)
+		reports, err = plugins.DiscoverChecked(ctx, r.py, files, r.natives, plugins.PluginContract)
 		if err != nil {
 			if plugins.IsNameCollision(err) {
 				return "", err
@@ -723,7 +778,7 @@ func userHome() string {
 // offers them and may call them.
 var orbitToolNames = []string{"project", "intel", "wallet", "board", "projects"}
 
-var nativeToolNames = append([]string{"bash", "read", "write", "edit", "view", "todo", "rem", "scheduler", "delegate", "python", "web", "plugin", "plugins", "sessions"}, orbitToolNames...)
+var nativeToolNames = append([]string{"bash", "read", "write", "edit", "view", "todo", "rem", "scheduler", "delegate", "python", "web", "plugin", "sessions"}, orbitToolNames...)
 
 // appendOrbitTools admits the orbit tools to an allow-list that does not
 // name any of them: the runtime's embedded default and an operator file
@@ -886,13 +941,6 @@ func sessionFor(resumeID string, resume func(id string) (*core.Session, error)) 
 }
 
 func sessionQueue(ctx context.Context, tdb store.DB, cwd, session string) (todostore.Project, error) {
-	b, ok, err := todostore.BindingOf(ctx, tdb, session)
-	if err != nil {
-		return todostore.ProjectOf(cwd), err
-	}
-	if ok {
-		return b.Project(), nil
-	}
 	return todostore.ProjectOf(cwd), nil
 }
 
@@ -995,6 +1043,19 @@ func main() {
 		os.Exit(runJobFire(os.Args[2:]))
 	}
 
+	if *prompt == sched.PromptStdin {
+		text, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "rig: -p -:", err)
+			os.Exit(2)
+		}
+		if strings.TrimSpace(string(text)) == "" {
+			fmt.Fprintln(os.Stderr, "rig: -p -: nothing on stdin (the prompt arrives there)")
+			os.Exit(2)
+		}
+		*prompt = string(text)
+	}
+
 	if err := checkOneShot(*prompt, *resumeID); err != nil {
 		fmt.Fprintln(os.Stderr, "rig:", err)
 		os.Exit(2)
@@ -1082,14 +1143,12 @@ func main() {
 
 	row := resolveModel(modelID, cfg.Models)
 
-	var py *pythontool.Tool
+	py := pythontool.New(cwd)
+	if python := envOr("RIG_PYTHON", cfg.Settings.Python); python != "" {
+		py = pythontool.NewWith(python, pythontool.DefaultHost(), cwd)
+	}
+	defer py.Close()
 	if !fire {
-		py = pythontool.New()
-		if python := envOr("RIG_PYTHON", cfg.Settings.Python); python != "" {
-			py = pythontool.NewWith(python, pythontool.DefaultHost())
-		}
-		py.SetCwd(cwd)
-		defer py.Close()
 		fmt.Fprintf(os.Stderr, "rig: python kernel host: %s\n", py.Host())
 	}
 
@@ -1118,7 +1177,7 @@ func main() {
 		if err := os.MkdirAll(filepath.Join(pluginsDir, "pending"), 0o755); err != nil {
 			fmt.Fprintf(os.Stderr, "rig: plugins: create the pending zone: %v\n", err)
 		}
-		pluginFiles, err = plugins.List(cfgDir)
+		pluginFiles, err = plugins.List(cfgDir, "plugins")
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "rig:", err)
 			os.Exit(1)
@@ -1130,7 +1189,7 @@ func main() {
 	}
 	pluginReports := make([]plugins.Report, 0)
 	if len(pluginFiles) > 0 {
-		pluginReports, err = plugins.DiscoverChecked(context.Background(), py, pluginFiles, native)
+		pluginReports, err = plugins.DiscoverChecked(context.Background(), py, pluginFiles, native, plugins.PluginContract)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "rig:", err)
 			os.Exit(1)
@@ -1239,6 +1298,11 @@ func main() {
 		swapURL = v
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	engine, room := newFleet()
+	gq := graph.NewQueue(cfgDir, room.Add(rig.MemberGraph), graph.WithPackCaps(graph.ReadCap, resultCapN))
+
 	r := &root{
 		pluginMax:  cfg.Settings.Plugins.Max,
 		baseURL:    baseURLV,
@@ -1265,8 +1329,8 @@ func main() {
 		themeTrueColor: tuiTrueColor(),
 		rigHome:        cfgDir,
 		tools: map[string]core.Tool{
-			"bash": bash.New(), "read": file.Read(), "write": file.Write(), "edit": file.Edit(),
-			"todo": todoapi.New(tdb, todoapi.Mode(*prompt != "")), "rem": remapi.New(rdb),
+			"bash": bash.New(), "read": file.NewRead(), "write": file.NewWrite(), "edit": file.NewEdit(),
+			"todo": todoapi.New(tdb, todoapi.Mode(*prompt != "")), "rem": remapi.New(rdb, gq),
 			"python": py, "web": web,
 			"sessions": sessionstool.New(cfgDir, cwd),
 		},
@@ -1274,15 +1338,20 @@ func main() {
 		py:          py,
 		pluginsHome: pluginsHome,
 		pluginInfos: pluginInfos,
+		engine:      engine,
+		room:        room,
 	}
 
 	r.tools["scheduler"] = schedapi.New(scdb, sched.RealCrontab(""), agent.RunnerCommand(self), modelID, cfgDir)
+	r.listen()
 	if fire {
 		r.swarmWhy = "swarm: the fire's toolset is fixed and never names the fleet"
 	} else {
 		delegateOn, swarmWhy := fleetWiring(sched.RealFetch(0), swapURL, modelID, cfg.Models, cfg.Settings.Workers == nil || *cfg.Settings.Workers)
 		if delegateOn {
 			r.tools["delegate"] = delegate.New(delegate.Opts{
+				Ctx:          ctx,
+				Await:        *prompt != "",
 				DB:           scdb,
 				Home:         schedHome,
 				RigHome:      cfgDir,
@@ -1296,7 +1365,7 @@ func main() {
 				Fetch:        sched.RealFetch(0),
 				Spawn:        sched.RealSpawn,
 				Models:       func() models.Table { return r.runtime },
-				Notify:       func(ev core.Event) { r.rec.Notify(ev) },
+				Room:         r.room,
 			})
 			r.swarm = swarm.New(swarm.Opts{
 				TodoDB:  tdb,
@@ -1317,7 +1386,8 @@ func main() {
 				Allow:        allowList,
 				DefaultModel: modelID,
 				Models:       func() models.Table { return r.runtime },
-				Frontend:     func() core.Frontend { return r.rec },
+				Engine:       r.engine,
+				Room:         r.room,
 			})
 		}
 		r.swarmWhy = swarmWhy
@@ -1341,7 +1411,7 @@ func main() {
 		}
 	}
 	r.natives = native
-	r.tools["plugins"] = plugins.NewEcosystem(cfgDir, r.natives, py, r.swapPlugins, func() (string, error) {
+	r.eco = plugins.NewEcosystem(cfgDir, r.natives, py, r.swapPlugins, func() (string, error) {
 		return command.RenderPlugins(r.pluginInfos, "", r.pluginsHome), nil
 	})
 
@@ -1544,9 +1614,6 @@ func main() {
 	r.rec = rec
 
 	k := wire(r)
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	runErr := loop.Run(ctx, k)
 	if runErr != nil {

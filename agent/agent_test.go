@@ -42,9 +42,11 @@ func (fakeFetch) fetch(url string) (json.RawMessage, error) {
 }
 
 type fakeSpawn struct {
-	mu    sync.Mutex
-	calls int
-	argv  []string
+	mu     sync.Mutex
+	calls  int
+	argv   []string
+	cwd    string
+	prompt string
 }
 
 func (f *fakeSpawn) spawn(ctx context.Context, argv []string, cwd string, env []string, observe func([]byte)) (sched.SpawnResult, error) {
@@ -52,6 +54,8 @@ func (f *fakeSpawn) spawn(ctx context.Context, argv []string, cwd string, env []
 	defer f.mu.Unlock()
 	f.calls++
 	f.argv = append([]string{}, argv...)
+	f.cwd = cwd
+	f.prompt, _ = sched.PromptFrom(ctx)
 	return sched.SpawnResult{Exit: 0, Stdout: "ok", Stderr: ""}, nil
 }
 
@@ -122,13 +126,10 @@ func TestFireRebuildsBriefPerFire(t *testing.T) {
 		t.Helper()
 		spawn.mu.Lock()
 		defer spawn.mu.Unlock()
-		for i := 0; i < len(spawn.argv); i++ {
-			if spawn.argv[i] == "-p" && i+1 < len(spawn.argv) {
-				return spawn.argv[i+1]
-			}
+		if spawn.prompt == "" {
+			t.Fatal("the spawn context lacks the prompt")
 		}
-		t.Fatal("spawn argv lacks -p")
-		return ""
+		return spawn.prompt
 	}
 
 	if err := Fire(context.Background(), db, ct, "j1", row.ID, brief1, "/x/orbit run-job", home, runJob); err != nil {
@@ -231,11 +232,14 @@ func TestAgentJobFiresTheBrief(t *testing.T) {
 			found[argv[i]] = argv[i+1]
 		}
 	}
-	if found["-p"] == "" || !strings.Contains(found["-p"], briefText) {
-		t.Errorf("worker prompt missing the brief: %q", found["-p"])
+	if found["-p"] != sched.PromptStdin {
+		t.Errorf("worker prompt flag %q, want the stdin sentinel", found["-p"])
 	}
-	if !strings.Contains(found["-p"], sched.ReportBack) {
-		t.Errorf("prompt lacks the report-back line")
+	if !strings.Contains(spawn.prompt, briefText) {
+		t.Errorf("worker prompt missing the brief: %q", spawn.prompt)
+	}
+	if !strings.Contains(spawn.prompt, sched.ReportBack(spawn.cwd)) {
+		t.Errorf("prompt lacks the report-back line for the worker's scope %s", spawn.cwd)
 	}
 	if found["-model"] != "dsv4" {
 		t.Errorf("model %s", found["-model"])

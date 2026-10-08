@@ -79,7 +79,9 @@ dispatch.
   the orbit home (`os.Setenv("RIG_HOME", ...)`), and pins both the wire
   and the allow-list to `fireToolNames` — `project`, `intel`, `wallet`,
   `board`, `projects`, `read`, `rem`, `bash`, `python`, `todo` — with no scheduler,
-  plugin, sessions, or delegate, and no plugin/python wiring at all. The
+  plugin, sessions, or delegate. The fire's python is rig's lazy kernel:
+  the tool is wired and named on the wire, the host process arrives on
+  the first call, and the startup banner stays interactive-only. The
   operator's interactive allow is untouched: only the fire worker
   resolves to the ten. The key guard (`guard.go`) refuses a tool call that
   names the hot key; landlock falls back to the operator's sandbox with one
@@ -119,7 +121,7 @@ dispatch.
   the exception by design: `fireToolNames` is the fire's whole wire.
 - The fire's floor, jail, and tunnel are rig-shaped: the scratch home
   (`<job cwd>/.rig-job`), the netless sandbox, and the socket proxy all
-  come from the pinned rig v2.5.4. A rig upgrade that renames the scratch,
+  come from the pinned rig v2.14.5. A rig upgrade that renames the scratch,
   stops pinning `RIG_HOME`, or changes the netless guarantee must be
   checked here first.
 - The scheduler's crontab tag is scoped to the rig home (`home`): the
