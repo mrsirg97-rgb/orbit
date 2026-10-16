@@ -568,8 +568,8 @@ func (r *root) isMutating(call core.ToolCall) bool {
 type fleetBash struct{ del *delegate.Delegate }
 
 func (b *fleetBash) Command(ctx context.Context, command, workspace string, bound time.Duration) (string, error) {
-	if b.del == nil {
-		return "", nil
+	if *b.del == nil {
+		return "", errors.New("bash: no worker is wired for deferred commands")
 	}
 	return (*b.del).Command(ctx, command, workspace, bound)
 }
@@ -577,8 +577,8 @@ func (b *fleetBash) Command(ctx context.Context, command, workspace string, boun
 type fleetPython struct{ del *delegate.Delegate }
 
 func (p *fleetPython) Submit(ctx context.Context, kind, name string, bound time.Duration, work func(ctx context.Context) (string, int)) (string, error) {
-	if p.del == nil {
-		return "", nil
+	if *p.del == nil {
+		return "", errors.New("python: no worker is wired for deferred cells")
 	}
 	return (*p.del).Submit(ctx, kind, name, bound, work)
 }

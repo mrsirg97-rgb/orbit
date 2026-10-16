@@ -12,8 +12,8 @@ asks which calls may run together, it asks which rank a call takes, and
 orbit's writes outrank its reads exactly as rig's do. The delegate grew
 a background and took one: bash's commands and the python kernel's runs
 ride the fleet's hand-off when the fleet is wired, and the tools hold
-the cell the delegate lands into — a fire and a fleetless start leave it
-empty, and both run inline. The fleet's gate stopped counting slots:
+the cell the delegate lands into — a fire and a fleetless start leave the
+cell empty, and a deferred call then refuses with rig's own words. The fleet's gate stopped counting slots:
 the swap read that counted them is retired, and the gate is the swap's
 word at start — readable is a fleet, unreadable fails closed by name.
 
