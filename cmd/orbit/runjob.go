@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	rigconfig "github.com/mrsirg97-rgb/rig/v2/config"
-	"github.com/mrsirg97-rgb/rig/v2/store"
-	sched "github.com/mrsirg97-rgb/rig/v2/store/scheduler"
+	rigconfig "github.com/mrsirg97-rgb/rig/v3/config"
+	"github.com/mrsirg97-rgb/rig/v3/store"
+	sched "github.com/mrsirg97-rgb/rig/v3/store/scheduler"
 
 	"github.com/mrsirg97-rgb/orbit/agent"
 	"github.com/mrsirg97-rgb/orbit/board"

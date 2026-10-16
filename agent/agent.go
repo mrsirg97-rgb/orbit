@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/mrsirg97-rgb/orbit/identity"
-	"github.com/mrsirg97-rgb/rig/v2/store/scheduler"
+	"github.com/mrsirg97-rgb/rig/v3/store/scheduler"
 )
 
 const JobPrefix = "orbit-agent-"

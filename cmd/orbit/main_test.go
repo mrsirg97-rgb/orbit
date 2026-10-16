@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mrsirg97-rgb/rig/v2/config"
-	"github.com/mrsirg97-rgb/rig/v2/frontend/tui"
+	"github.com/mrsirg97-rgb/rig/v3/config"
+	"github.com/mrsirg97-rgb/rig/v3/frontend/tui"
 
 	"github.com/mrsirg97-rgb/orbit/earn"
 )
@@ -44,8 +44,8 @@ func TestVersionStartupStaysFast(t *testing.T) {
 
 func TestVersionIsTheFreeze(t *testing.T) {
 
-	if Version != "0.8.0" {
-		t.Fatalf("Version = %q, want 0.8.0", Version)
+	if Version != "0.9.0" {
+		t.Fatalf("Version = %q, want 0.9.0", Version)
 	}
 
 	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(Version) {

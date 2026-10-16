@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/mrsirg97-rgb/rig/v2/store/scheduler"
+	"github.com/mrsirg97-rgb/rig/v3/store/scheduler"
 )
 
 func Fire(ctx context.Context, db scheduler.DB, ct scheduler.Crontab, jobID, rowID, brief, runnerCmd, home string, run func(context.Context) error) error {
