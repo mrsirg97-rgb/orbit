@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.9.0] — the room speaks in signals
+
+orbit rides rig 3.2.3, and the module moved under it: `rig/v3`, with
+`evt` and `evt/broadcast` imported from the evt module at their real
+homes. The fleet's room now carries `evt.Signal` — the frontend member
+delivers `m.Signal()`, and the recorder's sink takes what happened
+instead of what rig called it; `Notice` is evt's word now. The
+concurrency predicate became a priority predicate: the kernel no longer
+asks which calls may run together, it asks which rank a call takes, and
+orbit's writes outrank its reads exactly as rig's do. The delegate grew
+a background and took one: bash's commands and the python kernel's runs
+ride the fleet's hand-off when the fleet is wired, and the tools hold
+the cell the delegate lands into — a fire and a fleetless start leave it
+empty, and both run inline. The fleet's gate stopped counting slots:
+the swap read that counted them is retired, and the gate is the swap's
+word at start — readable is a fleet, unreadable fails closed by name.
+
 ## [0.8.0] — the seams carry the wiring
 
 orbit rides rig 2.14.5, and the ride is the release: the wiring moved

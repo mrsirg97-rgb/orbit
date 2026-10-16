@@ -8,9 +8,9 @@ import (
 	"github.com/mrsirg97-rgb/orbit/brief"
 	"github.com/mrsirg97-rgb/orbit/client"
 	"github.com/mrsirg97-rgb/orbit/identity"
-	"github.com/mrsirg97-rgb/rig/v2/store"
-	sched "github.com/mrsirg97-rgb/rig/v2/store/scheduler"
-	"github.com/mrsirg97-rgb/rig/v2/store/scheduler/domain"
+	"github.com/mrsirg97-rgb/rig/v3/store"
+	sched "github.com/mrsirg97-rgb/rig/v3/store/scheduler"
+	"github.com/mrsirg97-rgb/rig/v3/store/scheduler/domain"
 	"os"
 )
 

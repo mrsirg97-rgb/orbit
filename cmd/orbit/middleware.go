@@ -1,13 +1,13 @@
 package main
 
 import (
-	"github.com/mrsirg97-rgb/rig/v2/core"
-	"github.com/mrsirg97-rgb/rig/v2/middleware/approve"
-	"github.com/mrsirg97-rgb/rig/v2/middleware/cutoff"
-	"github.com/mrsirg97-rgb/rig/v2/middleware/guard"
-	"github.com/mrsirg97-rgb/rig/v2/middleware/paths"
-	"github.com/mrsirg97-rgb/rig/v2/middleware/perm"
-	"github.com/mrsirg97-rgb/rig/v2/middleware/toolset"
+	"github.com/mrsirg97-rgb/rig/v3/core"
+	"github.com/mrsirg97-rgb/rig/v3/middleware/approve"
+	"github.com/mrsirg97-rgb/rig/v3/middleware/cutoff"
+	"github.com/mrsirg97-rgb/rig/v3/middleware/guard"
+	"github.com/mrsirg97-rgb/rig/v3/middleware/paths"
+	"github.com/mrsirg97-rgb/rig/v3/middleware/perm"
+	"github.com/mrsirg97-rgb/rig/v3/middleware/toolset"
 )
 
 func (r *root) canonicalMiddleware() []core.ToolMiddleware {

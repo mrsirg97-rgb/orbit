@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mrsirg97-rgb/rig/v2/store"
-	"github.com/mrsirg97-rgb/rig/v2/store/sqlx"
+	"github.com/mrsirg97-rgb/rig/v3/store"
+	"github.com/mrsirg97-rgb/rig/v3/store/sqlx"
 
 	"github.com/mrsirg97-rgb/orbit/board/ddl"
 	"github.com/mrsirg97-rgb/orbit/board/domain"

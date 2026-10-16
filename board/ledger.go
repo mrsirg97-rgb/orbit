@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/mrsirg97-rgb/rig/v2/store/sqlx"
+	"github.com/mrsirg97-rgb/rig/v3/store/sqlx"
 
 	"github.com/mrsirg97-rgb/orbit/client"
 )

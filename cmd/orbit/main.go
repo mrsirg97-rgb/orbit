@@ -22,45 +22,45 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mrsirg97-rgb/rig/v2"
-	"github.com/mrsirg97-rgb/rig/v2/broadcast"
-	"github.com/mrsirg97-rgb/rig/v2/command"
-	"github.com/mrsirg97-rgb/rig/v2/config"
-	"github.com/mrsirg97-rgb/rig/v2/core"
-	"github.com/mrsirg97-rgb/rig/v2/evt"
-	"github.com/mrsirg97-rgb/rig/v2/frontend/cli"
-	"github.com/mrsirg97-rgb/rig/v2/frontend/oneshot"
-	"github.com/mrsirg97-rgb/rig/v2/frontend/tui"
-	"github.com/mrsirg97-rgb/rig/v2/imagemarker"
-	"github.com/mrsirg97-rgb/rig/v2/loop"
-	"github.com/mrsirg97-rgb/rig/v2/middleware/approve"
-	"github.com/mrsirg97-rgb/rig/v2/middleware/paths"
-	"github.com/mrsirg97-rgb/rig/v2/middleware/toolset"
-	"github.com/mrsirg97-rgb/rig/v2/models"
-	"github.com/mrsirg97-rgb/rig/v2/plugins"
-	"github.com/mrsirg97-rgb/rig/v2/policy/compact"
-	effort "github.com/mrsirg97-rgb/rig/v2/policy/effort"
-	"github.com/mrsirg97-rgb/rig/v2/policy/empty"
-	"github.com/mrsirg97-rgb/rig/v2/provider/openai"
-	"github.com/mrsirg97-rgb/rig/v2/store"
-	"github.com/mrsirg97-rgb/rig/v2/store/graph"
-	remstore "github.com/mrsirg97-rgb/rig/v2/store/rem"
-	remdom "github.com/mrsirg97-rgb/rig/v2/store/rem/domain"
-	sched "github.com/mrsirg97-rgb/rig/v2/store/scheduler"
-	"github.com/mrsirg97-rgb/rig/v2/store/scope"
-	"github.com/mrsirg97-rgb/rig/v2/store/state"
-	todostore "github.com/mrsirg97-rgb/rig/v2/store/todo"
-	"github.com/mrsirg97-rgb/rig/v2/swarm"
-	"github.com/mrsirg97-rgb/rig/v2/tool/bash"
-	"github.com/mrsirg97-rgb/rig/v2/tool/delegate"
-	"github.com/mrsirg97-rgb/rig/v2/tool/file"
-	pythontool "github.com/mrsirg97-rgb/rig/v2/tool/python"
-	remapi "github.com/mrsirg97-rgb/rig/v2/tool/rem"
-	schedapi "github.com/mrsirg97-rgb/rig/v2/tool/scheduler"
-	sessionstool "github.com/mrsirg97-rgb/rig/v2/tool/sessions"
-	todoapi "github.com/mrsirg97-rgb/rig/v2/tool/todo"
-	viewtool "github.com/mrsirg97-rgb/rig/v2/tool/view"
-	webtool "github.com/mrsirg97-rgb/rig/v2/tool/web"
+	"github.com/mrsirg97-rgb/evt"
+	"github.com/mrsirg97-rgb/evt/broadcast"
+	"github.com/mrsirg97-rgb/rig/v3"
+	"github.com/mrsirg97-rgb/rig/v3/command"
+	"github.com/mrsirg97-rgb/rig/v3/config"
+	"github.com/mrsirg97-rgb/rig/v3/core"
+	"github.com/mrsirg97-rgb/rig/v3/frontend/cli"
+	"github.com/mrsirg97-rgb/rig/v3/frontend/oneshot"
+	"github.com/mrsirg97-rgb/rig/v3/frontend/tui"
+	"github.com/mrsirg97-rgb/rig/v3/imagemarker"
+	"github.com/mrsirg97-rgb/rig/v3/loop"
+	"github.com/mrsirg97-rgb/rig/v3/middleware/approve"
+	"github.com/mrsirg97-rgb/rig/v3/middleware/paths"
+	"github.com/mrsirg97-rgb/rig/v3/middleware/toolset"
+	"github.com/mrsirg97-rgb/rig/v3/models"
+	"github.com/mrsirg97-rgb/rig/v3/plugins"
+	"github.com/mrsirg97-rgb/rig/v3/policy/compact"
+	effort "github.com/mrsirg97-rgb/rig/v3/policy/effort"
+	"github.com/mrsirg97-rgb/rig/v3/policy/empty"
+	"github.com/mrsirg97-rgb/rig/v3/provider/openai"
+	"github.com/mrsirg97-rgb/rig/v3/store"
+	"github.com/mrsirg97-rgb/rig/v3/store/graph"
+	remstore "github.com/mrsirg97-rgb/rig/v3/store/rem"
+	remdom "github.com/mrsirg97-rgb/rig/v3/store/rem/domain"
+	sched "github.com/mrsirg97-rgb/rig/v3/store/scheduler"
+	"github.com/mrsirg97-rgb/rig/v3/store/scope"
+	"github.com/mrsirg97-rgb/rig/v3/store/state"
+	todostore "github.com/mrsirg97-rgb/rig/v3/store/todo"
+	"github.com/mrsirg97-rgb/rig/v3/swarm"
+	"github.com/mrsirg97-rgb/rig/v3/tool/bash"
+	"github.com/mrsirg97-rgb/rig/v3/tool/delegate"
+	"github.com/mrsirg97-rgb/rig/v3/tool/file"
+	pythontool "github.com/mrsirg97-rgb/rig/v3/tool/python"
+	remapi "github.com/mrsirg97-rgb/rig/v3/tool/rem"
+	schedapi "github.com/mrsirg97-rgb/rig/v3/tool/scheduler"
+	sessionstool "github.com/mrsirg97-rgb/rig/v3/tool/sessions"
+	todoapi "github.com/mrsirg97-rgb/rig/v3/tool/todo"
+	viewtool "github.com/mrsirg97-rgb/rig/v3/tool/view"
+	webtool "github.com/mrsirg97-rgb/rig/v3/tool/web"
 
 	"github.com/mrsirg97-rgb/orbit/agent"
 	"github.com/mrsirg97-rgb/orbit/board"
@@ -73,7 +73,7 @@ import (
 	orbittool "github.com/mrsirg97-rgb/orbit/tool"
 )
 
-const Version = "0.8.0"
+const Version = "0.9.0"
 
 //go:embed theme.json
 var shippedTheme []byte
@@ -222,22 +222,22 @@ func (r *root) listen() {
 			return
 		}
 		for _, m := range messages {
-			if m.Event() == nil {
+			if m.Signal() == nil {
 				continue
 			}
-			r.deliver(m.Event())
+			r.deliver(m.Signal())
 		}
 	})
 }
 
-func (r *root) deliver(ev core.Event) {
+func (r *root) deliver(ev evt.Signal) {
 	defer func() {
 		if p := recover(); p != nil {
 			fmt.Fprintf(os.Stderr, "rig: fleet: frontend: recovered from panic: %v\n", p)
 		}
 	}()
 	switch ev.(type) {
-	case core.Notice, core.SwarmStatus, core.Phase, core.WorkerDone:
+	case evt.Notice, core.SwarmStatus, core.Phase, core.WorkerDone:
 	default:
 		return
 	}
@@ -287,7 +287,12 @@ func wire(r *root) *rig.Kernel {
 			r.pluginTools...,
 		)...),
 		rig.WithMiddleware(mw...),
-		rig.WithConcurrent(func(c core.ToolCall) bool { return concurrentNatives[c.Name] }),
+		rig.WithPriority(func(c core.ToolCall) int {
+			if r.isMutating(c) {
+				return rig.PriorityWrite
+			}
+			return rig.PriorityRead
+		}),
 		rig.WithEngine(r.engine),
 	)
 	k.Session = r.session
@@ -547,20 +552,35 @@ func (r *root) switchEffort(ctx context.Context, level string) error {
 	return nil
 }
 
-var concurrentNatives = map[string]bool{
-	"read": true, "view": true, "web": true,
-	"delegate": true,
-	// the orbit reads; market and board act, so they stay serial
-	"intel": true, "wallet": true, "projects": true,
-}
-
 var mutatingNatives = map[string]bool{
 	"bash": true, "write": true, "edit": true, "python": true,
 	"scheduler": true, "plugin": true, "plugins": true, "delegate": true,
 }
 
-func (r *root) isMutating(name string) bool {
-	return mutatingNatives[name] || !r.natives[name]
+func (r *root) isMutating(call core.ToolCall) bool {
+	return mutatingNatives[call.Name] || !r.natives[call.Name]
+}
+
+// the fleet's delegate is the background for bash and the python kernel,
+// as in the rig root; it is built once the root exists, so the tools hold
+// the cell and read it at call time. a fire and a fleetless start leave
+// the cell empty, and both tools run their work inline.
+type fleetBash struct{ del *delegate.Delegate }
+
+func (b *fleetBash) Command(ctx context.Context, command, workspace string, bound time.Duration) (string, error) {
+	if b.del == nil {
+		return "", nil
+	}
+	return (*b.del).Command(ctx, command, workspace, bound)
+}
+
+type fleetPython struct{ del *delegate.Delegate }
+
+func (p *fleetPython) Submit(ctx context.Context, kind, name string, bound time.Duration, work func(ctx context.Context) (string, int)) (string, error) {
+	if p.del == nil {
+		return "", nil
+	}
+	return (*p.del).Submit(ctx, kind, name, bound, work)
 }
 
 func (r *root) switchApprove(ctx context.Context, mode string) error {
@@ -1141,11 +1161,13 @@ func main() {
 	roundsN := envInt("RIG_ROUNDS", cfg.Settings.Rounds)
 	resultCapN := envInt("RIG_RESULT_CAP", cfg.Settings.ResultCap)
 
+	var pyBg, bashDel delegate.Delegate // the fleet's delegate, landed into the cells when it is built
+
 	row := resolveModel(modelID, cfg.Models)
 
-	py := pythontool.New(cwd)
+	py := pythontool.New(&fleetPython{&pyBg})
 	if python := envOr("RIG_PYTHON", cfg.Settings.Python); python != "" {
-		py = pythontool.NewWith(python, pythontool.DefaultHost(), cwd)
+		py = pythontool.NewWith(python, pythontool.DefaultHost(), &fleetPython{&pyBg}, cwd)
 	}
 	defer py.Close()
 	if !fire {
@@ -1329,7 +1351,7 @@ func main() {
 		themeTrueColor: tuiTrueColor(),
 		rigHome:        cfgDir,
 		tools: map[string]core.Tool{
-			"bash": bash.New(), "read": file.NewRead(), "write": file.NewWrite(), "edit": file.NewEdit(),
+			"bash": bash.New(&fleetBash{&bashDel}), "read": file.NewRead(), "write": file.NewWrite(), "edit": file.NewEdit(),
 			"todo": todoapi.New(tdb, todoapi.Mode(*prompt != "")), "rem": remapi.New(rdb, gq),
 			"python": py, "web": web,
 			"sessions": sessionstool.New(cfgDir, cwd),
@@ -1367,6 +1389,9 @@ func main() {
 				Models:       func() models.Table { return r.runtime },
 				Room:         r.room,
 			})
+			del := r.tools["delegate"].(delegate.Delegate)
+			bashDel = del
+			pyBg = del
 			r.swarm = swarm.New(swarm.Opts{
 				TodoDB:  tdb,
 				SchedDB: scdb,
